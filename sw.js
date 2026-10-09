@@ -1,8 +1,8 @@
 /* BABA service worker: the app works offline at the court.
    App files: cache first (versioned). Server calls (Supabase) never cached. */
-const VERSION = '28c4826946f5';
+const VERSION = 'd714142ff2cf';
 const CACHE = 'baba-' + VERSION;
-const PRECACHE = ["./", "app.css", "app.js", "fonts/fa-solid-900.woff2", "fonts/instrument-serif-latin-400-italic.woff2", "fonts/instrument-serif-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-500-normal.woff2", "fonts/plus-jakarta-sans-latin-600-normal.woff2", "fonts/plus-jakarta-sans-latin-700-normal.woff2", "fonts/plus-jakarta-sans-latin-800-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "manifest.webmanifest", "vendor/jspdf.umd.min.js", "vendor/supabase.js"];
+const PRECACHE = ["./", "app.css", "app.js", "babinha/aura.webp", "babinha/champion.webp", "babinha/coach.webp", "babinha/happy.webp", "babinha/money.webp", "babinha/ney.webp", "babinha/red.webp", "babinha/run.webp", "babinha/scared.webp", "babinha/side.webp", "babinha/siuu.webp", "babinha/tired.webp", "babinha/wave.webp", "babinha/wink.webp", "babinha/worried.webp", "fonts/fa-solid-900.woff2", "fonts/instrument-serif-latin-400-italic.woff2", "fonts/instrument-serif-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-500-normal.woff2", "fonts/plus-jakarta-sans-latin-600-normal.woff2", "fonts/plus-jakarta-sans-latin-700-normal.woff2", "fonts/plus-jakarta-sans-latin-800-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "manifest.webmanifest", "vendor/jspdf.umd.min.js", "vendor/supabase.js"];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)));

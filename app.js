@@ -222,6 +222,8 @@
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
+      applyPrefs();
+      renderPrefsUI();
       readInviteFromUrl();
       document.addEventListener('pointerdown', unlockAudio, { passive: true });
       document.addEventListener('visibilitychange', () => {
@@ -282,6 +284,8 @@
     let pushTimer = null;
     let lastPull = 0;
     let myPlayerIds = [];
+    let schemaV2 = null;         // server has owners/pictures/prefs (null = not checked yet)
+    const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
     const cryptoOk = () => !!(window.crypto && crypto.subtle && crypto.getRandomValues);
@@ -369,22 +373,56 @@
       async signOut() { try { await sb.auth.signOut({ scope: 'local' }); } catch (e) {} },
       async getSession() { const { data } = await sb.auth.getSession(); return data ? data.session : null; },
       async updatePassword(password) { const { error } = await sb.auth.updateUser({ password }); if (error) throw error; },
-      memberships: uid => q(sb.from('turma_members').select('role, turma:turmas(id, name, invite_code, created_by)').eq('user_id', uid)),
+      async memberships(uid) {
+        // New columns (owner, icon) arrive with a server update; read the old shape until then.
+        if (schemaV2 !== false) {
+          const { data, error } = await sb.from('turma_members').select('role, turma:turmas(id, name, invite_code, created_by, owner_id, icon)').eq('user_id', uid);
+          if (!error) { schemaV2 = true; return data || []; }
+          if (!isMissingColumn(error)) throw error;
+          schemaV2 = false;
+        }
+        return q(sb.from('turma_members').select('role, turma:turmas(id, name, invite_code, created_by)').eq('user_id', uid));
+      },
       players: ids => ids.length ? q(sb.from('turma_players').select('id, turma_id, name, is_goalkeeper, user_id').in('turma_id', ids).order('created_at')) : Promise.resolve([]),
       openBaba: uid => q(sb.from('babas').select('id, state, updated_at').eq('created_by', uid).eq('finished', false).order('updated_at', { ascending: false }).limit(1)),
       finishedBabas: () => q(sb.from('babas').select('id, title, played_on, matches, created_by, baba_stats(name, goals, assists, saves, matches, wins, turma_player_id)').eq('finished', true).order('played_on', { ascending: false }).limit(150)),
-      profile: async uid => (await q(sb.from('profiles').select('name').eq('id', uid).limit(1)))[0] || null,
+      async profile(uid) {
+        if (schemaV2 !== false) {
+          const { data, error } = await sb.from('profiles').select('name, avatar, prefs').eq('id', uid).limit(1);
+          if (!error) return (data || [])[0] || null;
+          if (!isMissingColumn(error)) throw error;
+        }
+        return (await q(sb.from('profiles').select('name').eq('id', uid).limit(1)))[0] || null;
+      },
+      async updateProfile(uid, patch) {
+        const row = {};
+        if (patch.name) row.name = patch.name;
+        if (schemaV2) {
+          if ('avatar' in patch) row.avatar = patch.avatar;
+          if (patch.prefs) row.prefs = patch.prefs;
+        }
+        if (Object.keys(row).length) await q(sb.from('profiles').update(row).eq('id', uid));
+        if (patch.name) { try { await sb.auth.updateUser({ data: { name: patch.name } }); } catch (e) {} }
+      },
+      async signOutOthers() { const { error } = await sb.auth.signOut({ scope: 'others' }); if (error) throw error; },
+      async roster(id) { const { data, error } = await sb.rpc('turma_roster', { t: id }); if (error) throw error; return data || []; },
+      async setRole(id, member, role) { const { error } = await sb.rpc('set_member_role', { t: id, member, new_role: role }); if (error) throw error; },
+      async transfer(id, member) { const { error } = await sb.rpc('transfer_turma', { t: id, member }); if (error) throw error; },
+      async removeMember(id, member) { const { error } = await sb.rpc('remove_member', { t: id, member }); if (error) throw error; },
       upsertBaba: row => q(sb.from('babas').upsert(row)),
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
         await q(sb.from('baba_stats').delete().eq('baba_id', babaId));
         if (rows.length) await q(sb.from('baba_stats').insert(rows));
       },
-      upsertTurma: (id, name) => q(sb.from('turmas').upsert({ id, name })),
+      upsertTurma: (id, name, icon) => q(sb.from('turmas').upsert(schemaV2 ? { id, name, icon: icon || null } : { id, name })),
       turmaInvite: async id => ((await q(sb.from('turmas').select('invite_code').eq('id', id).limit(1)))[0] || {}).invite_code || null,
       setInvite: (id, code) => q(sb.from('turmas').update({ invite_code: code }).eq('id', id)),
       deleteTurma: id => q(sb.from('turmas').delete().eq('id', id)),
-      leaveTurma: (id, uid) => q(sb.from('turma_members').delete().eq('turma_id', id).eq('user_id', uid)),
+      async leaveTurma(id, uid) {
+        if (schemaV2) { const { error } = await sb.rpc('remove_member', { t: id, member: uid }); if (error) throw error; return; }
+        return q(sb.from('turma_members').delete().eq('turma_id', id).eq('user_id', uid));
+      },
       insertPlayers: rows => q(sb.from('turma_players').insert(rows)),
       deletePlayers: ids => q(sb.from('turma_players').delete().in('id', ids)),
       setKeeper: (id, value) => q(sb.from('turma_players').update({ is_goalkeeper: value }).eq('id', id)),
@@ -463,7 +501,7 @@
             if (isNetworkError(e)) throw e;
             // The server refused it (permission, invalid data): drop it so the line keeps moving.
             console.warn('BABA sync dropped', op.type, e);
-            showToast(op.type.startsWith('turma') || op.type === 'player_rename' ? 'Só o admin da turma pode mudar o elenco.' : 'Uma alteração não foi aceita pelo servidor.', 'warning');
+            showToast(op.type.startsWith('turma') || op.type === 'player_rename' ? 'Só o dono ou um adm pode mudar a turma.' : 'Uma alteração não foi aceita pelo servidor.', 'warning');
           }
           writeOutbox(readOutbox().filter(o => o.uid !== op.uid));
           ops = readOutbox();
@@ -488,13 +526,14 @@
       if (op.type === 'turma_leave') return api.leaveTurma(op.id, currentUser.id);
       if (op.type === 'player_rename') return api.renamePlayer(op.turmaId, op.oldName, op.newName);
       if (op.type === 'turma_sync') return syncTurmaNow(op.id);
+      if (op.type === 'profile_update') return api.updateProfile(currentUser.id, op.patch || {});
     }
 
     /* Makes the server roster match the local one (names, goalkeepers). */
     async function syncTurmaNow(id) {
       const t = state.turmas.find(x => x.id === id);
       if (!t) return;
-      await api.upsertTurma(t.id, t.name);
+      await api.upsertTurma(t.id, t.name, t.icon);
       const rows = await api.players([t.id]);
       const local = new Map(t.players.map(n => [n.trim().toLowerCase(), n]));
       const remove = rows.filter(r => !local.has(r.name.toLowerCase())).map(r => r.id);
@@ -521,7 +560,7 @@
     function markTurmaDirty(id) {
       const t = turmaById(id);
       if (!t || !cloudOn()) return;
-      if (t.role && t.role !== 'admin') return;
+      if (!canEditTurma(t)) return;
       enqueue({ type: 'turma_sync', id });
     }
 
@@ -586,8 +625,15 @@
         setSync('syncing');
         const [mem, prof] = await Promise.all([api.memberships(uid), api.profile(uid)]);
         if (!currentUser || currentUser.id !== uid) return;
-        if (prof && prof.name) currentUser.name = prof.name;
-        const turmaRows = mem.filter(m => m.turma).map(m => Object.assign({ role: m.role }, m.turma));
+        const pendingProfile = (readOutbox().find(o => o.type === 'profile_update') || {}).patch || {};
+        if (prof) {
+          if (prof.name && !pendingProfile.name) currentUser.name = prof.name;
+          if ('avatar' in prof && !('avatar' in pendingProfile)) currentUser.avatar = prof.avatar || null;
+          adoptServerPrefs(prof.prefs);
+          cacheProfile();
+        }
+        if (mem.some(m => m.turma && 'owner_id' in m.turma)) schemaV2 = true;
+        const turmaRows = mem.filter(m => m.turma).map(m => Object.assign({}, m.turma, { role: m.turma.owner_id && m.turma.owner_id === uid ? 'owner' : m.role }));
         const players = await api.players(turmaRows.map(t => t.id));
         myPlayerIds = players.filter(p => p.user_id === uid).map(p => p.id);
 
@@ -604,6 +650,9 @@
             meta: Object.fromEntries(rows.map(r => [r.name.toLowerCase(), { id: r.id, userId: r.user_id }]))
           };
           const local = state.turmas.find(t => t.id === tr.id);
+          if (local && local.people) cloud.people = local.people;
+          // Older server without pictures: keep the one chosen on this phone.
+          cloud.icon = 'icon' in tr ? (tr.icon || null) : ((local && local.icon) || null);
           // Local edits that haven't reached the server yet win over the server copy.
           next.push(pending.has(tr.id) && local ? Object.assign({}, local, { cloud: true, role: tr.role, invite: tr.invite_code, meta: cloud.meta }) : cloud);
         });
@@ -926,6 +975,8 @@
 
     function enterApp(user) {
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      const cached = readCachedProfile(user.id);
+      if (cached) { if (cached.name) user.name = cached.name; user.avatar = cached.avatar || null; }
       currentUser = user;
       lastPull = 0;
       loadState();
@@ -938,8 +989,9 @@
       switchTab('inicio');
       setSync(readOutbox().length ? 'syncing' : 'ok');
       pullCloud(true).then(() => {
-        handlePendingInvite();
-        offerLocalImport();
+        if (!currentUser || currentUser.id !== user.id) return;
+        // First time on the app: the Babinha tour, then invites and old data.
+        startTour(false, () => { handlePendingInvite(); offerLocalImport(); });
       });
     }
 
@@ -951,6 +1003,7 @@
       releaseWakeLock();
       await api.signOut();
       currentUser = null;
+      prefsPulledFor = null;
       state = defaultState();
       showAuth('login');
     }
@@ -1004,7 +1057,7 @@
 
     async function regenerateInvite(turmaId) {
       const t = turmaById(turmaId);
-      if (!t || t.role !== 'admin') return;
+      if (!t || !canEditTurma(t)) return;
       if (!(await askConfirm('Gerar um código novo? O link antigo para de funcionar, quem já entrou continua na turma.', 'Gerar novo'))) return;
       const bytes = randBytes(8);
       let code = '';
@@ -1157,9 +1210,9 @@
       const idMap = {};
       // Turmas: same name merges into yours, otherwise a new turma you administer.
       src.turmas.filter(t => t.players.length).forEach(t => {
-        let dest = state.turmas.find(x => sameName(x.name, t.name) && x.role === 'admin');
+        let dest = state.turmas.find(x => sameName(x.name, t.name) && canEditTurma(x));
         if (!dest) {
-          dest = { id: uuid(), name: t.name, cloud: true, role: 'admin', invite: null, players: [], keepers: [], meta: {} };
+          dest = { id: uuid(), name: t.name, cloud: true, role: 'owner', invite: null, players: [], keepers: [], meta: {} };
           state.turmas.push(dest);
         }
         t.players.forEach(n => { if (!dest.players.some(x => sameName(x, n))) dest.players.push(n); });
@@ -1266,8 +1319,8 @@
 
     function renderProfileBits() {
       const acc = currentUser;
-      document.getElementById('header-initials').innerText = acc ? initials(acc.name) : '?';
-      document.getElementById('profile-avatar').innerText = acc ? initials(acc.name) : '?';
+      paintAvatar(document.getElementById('header-avatar'), acc ? acc.avatar : null, acc ? acc.name : '');
+      paintAvatar(document.getElementById('profile-avatar'), acc ? acc.avatar : null, acc ? acc.name : '');
       document.getElementById('profile-name').innerText = acc ? acc.name : '';
       document.getElementById('profile-user').innerText = acc ? acc.email || '' : '';
       document.getElementById('profile-bio-toggle').checked = !!(acc && readLock(acc.id));
@@ -1276,12 +1329,19 @@
     async function openProfile() {
       if (!currentUser) return;
       renderProfileBits();
+      renderPrefsUI();
+      renderProfileMine();
       setSync(syncState);
+      document.getElementById('profile-name-view').classList.remove('hidden');
+      document.getElementById('profile-name-form').classList.add('hidden');
+      const page = document.getElementById('page-profile');
+      page.classList.remove('hidden');
+      page.scrollTop = 0;
+      pushPage('page-profile');
       const toggle = document.getElementById('profile-bio-toggle');
       const sub = document.getElementById('profile-bio-sub');
       const locked = !!readLock(currentUser.id);
       sub.innerText = locked ? 'O BABA pede a digital ao abrir' : 'Verificando...';
-      document.getElementById('modal-profile').classList.remove('hidden');
       const avail = await bioAvailable();
       if (!locked) sub.innerText = avail ? 'Desativada' : 'Indisponível neste navegador';
       toggle.disabled = !avail && !locked;
@@ -1289,7 +1349,8 @@
     }
 
     function closeProfile() {
-      document.getElementById('modal-profile').classList.add('hidden');
+      document.getElementById('page-profile').classList.add('hidden');
+      popPage('page-profile');
     }
 
     async function toggleBio(input) {
@@ -1430,7 +1491,7 @@
         if (!res.ok) return showErr('account-error', accountError(res.body.error));
         const uid = currentUser.id;
         if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-        [CACHE_PREFIX, OUTBOX_PREFIX, LOCK_PREFIX, IMPORTED_PREFIX].forEach(p => lsDel(p + uid));
+        [CACHE_PREFIX, OUTBOX_PREFIX, LOCK_PREFIX, IMPORTED_PREFIX, PROFILE_PREFIX].forEach(p => lsDel(p + uid));
         await api.signOut();
         currentUser = null;
         state = defaultState();
@@ -1460,6 +1521,871 @@
         } catch (e) {}
       }
       showToast('Não consegui copiar sozinho. Selecione e copie.', 'warning');
+    }
+
+    /* ===================================================================
+       PREFERÊNCIAS (tema, acessibilidade, quadra)
+       Saved on the phone (so the theme applies before the first paint)
+       and in the profile, so a new phone picks them up.
+       =================================================================== */
+    const PREFS_KEY = 'baba_prefs_v1';
+    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false };
+    const SYNCED_PREFS = Object.keys(DEFAULT_PREFS);
+    let prefs = loadPrefs();
+    let prefsPulledFor = null;
+    let prefsPushTimer = null;
+
+    function loadPrefs() {
+      try { return Object.assign({}, DEFAULT_PREFS, JSON.parse(lsGet(PREFS_KEY) || '{}')); } catch (e) { return Object.assign({}, DEFAULT_PREFS); }
+    }
+
+    function applyPrefs() {
+      const root = document.documentElement.classList;
+      const dark = prefs.theme === 'dark' || (prefs.theme === 'auto' && !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches));
+      root.toggle('dark', dark);
+      root.toggle('text-big', prefs.textSize === 'big');
+      root.toggle('reduce-motion', !!prefs.reduceMotion);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', dark ? '#0C1816' : '#FAF3DC');
+    }
+
+    function renderPrefsUI() {
+      document.querySelectorAll('#pref-theme .seg-btn').forEach(b => b.classList.toggle('is-selected', b.dataset.v === prefs.theme));
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+      set('pref-text', prefs.textSize === 'big');
+      set('pref-motion', prefs.reduceMotion);
+      set('pref-sound', prefs.sound);
+      set('pref-vibrate', prefs.vibrate);
+    }
+
+    function setPref(key, value) {
+      prefs[key] = value;
+      lsSet(PREFS_KEY, JSON.stringify(prefs));
+      applyPrefs();
+      renderPrefsUI();
+      // Profile copy: a few seconds later, so flipping a switch twice sends once.
+      clearTimeout(prefsPushTimer);
+      prefsPushTimer = setTimeout(() => queueProfilePatch({ prefs: Object.fromEntries(SYNCED_PREFS.map(k => [k, prefs[k]])) }), 1500);
+    }
+
+    /* First pull of a session: the account's saved preferences win. */
+    function adoptServerPrefs(serverPrefs) {
+      if (!currentUser || prefsPulledFor === currentUser.id) return;
+      prefsPulledFor = currentUser.id;
+      if (!serverPrefs || typeof serverPrefs !== 'object') return;
+      let changed = false;
+      SYNCED_PREFS.forEach(k => {
+        if (serverPrefs[k] === undefined || serverPrefs[k] === prefs[k]) return;
+        // Once seen on any phone, the tutorial stays seen.
+        if (k === 'tutorialDone' && prefs.tutorialDone) return;
+        prefs[k] = serverPrefs[k];
+        changed = true;
+      });
+      if (changed) { lsSet(PREFS_KEY, JSON.stringify(prefs)); applyPrefs(); renderPrefsUI(); }
+    }
+
+    if (window.matchMedia) {
+      try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (prefs.theme === 'auto') applyPrefs(); }); } catch (e) {}
+    }
+
+    /* ===================================================================
+       FOTO / ÍCONE (perfil e turma)
+       A picture is an emoji, or a small JPEG kept as a data URL (a few KB).
+       =================================================================== */
+    const EMOJIS = ['⚽', '🥅', '🧤', '👟', '🏆', '🥇', '🔥', '⚡', '⭐', '👑', '💪', '🎯',
+      '🦁', '🐐', '🦅', '🐯', '🐺', '🦈', '🐉', '🐊', '🦍', '🐂', '🐓', '🦊',
+      '😎', '🤙', '🧢', '🍀', '🌪️', '🚀', '🎩', '🍕', '🥤', '🏖️', '🌵', '🎸'];
+    const isPhoto = v => typeof v === 'string' && v.startsWith('data:image/');
+
+    function avatarInner(value, name) {
+      if (isPhoto(value)) return `<img src="${value}" alt="" draggable="false" />`;
+      if (value) return `<span class="emo">${escapeHtml(value)}</span>`;
+      return escapeHtml(initials(name));
+    }
+    function paintAvatar(el, value, name) {
+      if (!el) return;
+      el.classList.toggle('is-photo', isPhoto(value));
+      el.classList.toggle('is-emoji', !!value && !isPhoto(value));
+      el.innerHTML = avatarInner(value, name);
+    }
+    function avatarHtml(value, name, cls) {
+      const kind = isPhoto(value) ? ' is-photo' : value ? ' is-emoji' : '';
+      return `<span class="avatar${kind} ${cls || ''}">${avatarInner(value, name)}</span>`;
+    }
+
+    /* Center-crops a picked image to a square and shrinks it. */
+    function loadImageFile(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => resolve({ img, done: () => URL.revokeObjectURL(url) });
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
+        img.src = url;
+      });
+    }
+    async function squareImage(file, size) {
+      const { img, done } = await loadImageFile(file);
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+      done();
+      return c.toDataURL('image/jpeg', 0.82);
+    }
+
+    let pickerTarget = null;
+
+    function openAvatarPicker(target) {
+      if (target === 'turma') {
+        const t = turmaById(editingTurmaId);
+        if (!t || !canEditTurma(t)) { showToast('Só o dono ou um adm muda a foto da turma.', 'warning'); return; }
+      }
+      pickerTarget = target;
+      const turma = target === 'turma' ? turmaById(editingTurmaId) : null;
+      document.getElementById('picker-title').innerText = turma ? 'Foto da turma' : 'Sua foto';
+      document.getElementById('picker-note').innerText = turma
+        ? 'Todo mundo da turma vê essa foto.'
+        : 'Aparece no seu perfil e para a galera das suas turmas.';
+      document.getElementById('picker-emojis').innerHTML = EMOJIS.map(e =>
+        `<button onclick="pickerChoose('${e}')" class="aspect-square rounded-2xl bg-card border border-ink/10 text-[24px] flex items-center justify-center active:scale-90 transition" aria-label="Usar ${e}">${e}</button>`).join('');
+      const current = turma ? turma.icon : (currentUser || {}).avatar;
+      paintAvatar(document.getElementById('picker-preview'), current, turma ? turma.name : (currentUser || {}).name);
+      document.getElementById('picker-preview').classList.toggle('!rounded-2xl', !!turma);
+      document.getElementById('picker-remove').classList.toggle('hidden', !current);
+      document.getElementById('picker-file').value = '';
+      document.getElementById('modal-picker').classList.remove('hidden');
+    }
+
+    function closeAvatarPicker() {
+      document.getElementById('modal-picker').classList.add('hidden');
+      pickerTarget = null;
+    }
+
+    async function pickerFromFile(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      try {
+        const url = await squareImage(file, pickerTarget === 'turma' ? 256 : 192);
+        pickerChoose(url);
+      } catch (e) {
+        showToast('Não consegui abrir essa imagem. Tente outra.', 'warning');
+      }
+    }
+
+    function pickerChoose(value) {
+      if (pickerTarget === 'turma') {
+        const t = turmaById(editingTurmaId);
+        if (t && canEditTurma(t)) {
+          t.icon = value || null;
+          saveState();
+          markTurmaDirty(t.id);
+          renderTurmaEditor();
+          renderTurmaList();
+        }
+      } else if (currentUser) {
+        currentUser.avatar = value || null;
+        cacheProfile();
+        queueProfilePatch({ avatar: currentUser.avatar });
+        renderProfileBits();
+      }
+      closeAvatarPicker();
+      showToast(value ? 'Foto atualizada.' : 'Foto removida.');
+    }
+
+    /* ===================================================================
+       PERFIL
+       =================================================================== */
+    const PROFILE_PREFIX = 'baba_profile_v1:';
+
+    function cacheProfile() {
+      if (!currentUser) return;
+      lsSet(PROFILE_PREFIX + currentUser.id, JSON.stringify({ name: currentUser.name, avatar: currentUser.avatar || null }));
+    }
+    function readCachedProfile(uid) {
+      try { return JSON.parse(lsGet(PROFILE_PREFIX + uid) || 'null'); } catch (e) { return null; }
+    }
+
+    /* Profile changes ride the outbox like everything else (works offline). */
+    function queueProfilePatch(patch) {
+      if (!cloudOn()) return;
+      const ops = readOutbox();
+      const prev = ops.find(o => o.type === 'profile_update');
+      const merged = Object.assign({}, prev ? prev.patch : {}, patch);
+      writeOutbox(ops.filter(o => o.type !== 'profile_update'));
+      enqueue({ type: 'profile_update', patch: merged });
+    }
+
+    function editProfileName() {
+      document.getElementById('profile-name-view').classList.add('hidden');
+      document.getElementById('profile-name-form').classList.remove('hidden');
+      const input = document.getElementById('profile-name-input');
+      input.value = currentUser ? currentUser.name : '';
+      setTimeout(() => { input.focus(); input.select(); }, 50);
+    }
+
+    function saveProfileName() {
+      const value = document.getElementById('profile-name-input').value.replace(/\s+/g, ' ').trim();
+      if (!value) { showToast('Digite seu nome.', 'warning'); return; }
+      document.getElementById('profile-name-view').classList.remove('hidden');
+      document.getElementById('profile-name-form').classList.add('hidden');
+      if (!currentUser || value === currentUser.name) return;
+      if (value.length < 2) { showToast('O nome precisa de pelo menos 2 letras.', 'warning'); return; }
+      currentUser.name = value.slice(0, 40);
+      cacheProfile();
+      queueProfilePatch({ name: currentUser.name });
+      renderProfileBits();
+      renderHome();
+      showToast('Nome atualizado.');
+    }
+
+    async function signOutEverywhere() {
+      if (!(await askConfirm('Desconectar sua conta de todos os outros celulares e navegadores? Neste aparelho você continua conectado.', 'Desconectar'))) return;
+      try {
+        await api.signOutOthers();
+        showToast('Pronto: só este aparelho continua conectado.');
+      } catch (e) {
+        showToast(isNetworkError(e) ? OFFLINE_MSG : 'Não foi possível desconectar agora.', 'warning');
+      }
+    }
+
+    function renderProfileMine() {
+      const box = document.getElementById('profile-mine');
+      if (!box) return;
+      const mine = myStats();
+      if (!mine) { box.innerHTML = ''; return; }
+      const cell = (v, l) => `<div class="text-center min-w-0"><p class="font-serif text-[26px] leading-none text-pitch">${v}</p><p class="text-[11px] font-semibold text-ink-2 mt-1">${l}</p></div>`;
+      box.innerHTML = `<div class="card p-3.5 grid grid-cols-5 gap-1">${cell(mine.babas, mine.babas === 1 ? 'baba' : 'babas')}${cell(mine.matches, 'jogos')}${cell(mine.goals, 'gols')}${cell(mine.assists, 'assist.')}${cell(mine.wins, 'vitórias')}</div>`;
+    }
+
+    /* Android back button closes the open page instead of leaving the app. */
+    const pageStack = [];
+    let ignorePops = 0;
+    function pushPage(id) {
+      if (pageStack.includes(id)) return;
+      pageStack.push(id);
+      try { history.pushState({ babaPage: id }, ''); } catch (e) {}
+    }
+    /* Closed by a button: drop our history entry too, without reacting to it. */
+    function popPage(id) {
+      const i = pageStack.lastIndexOf(id);
+      if (i === -1) return;
+      pageStack.splice(i, 1);
+      ignorePops++;
+      try { history.back(); } catch (e) { ignorePops--; }
+    }
+    window.addEventListener('popstate', () => {
+      if (ignorePops > 0) { ignorePops--; return; }
+      const top = pageStack.pop();
+      if (top) document.getElementById(top).classList.add('hidden');
+    });
+
+    /* ===================================================================
+       SUPORTE
+       =================================================================== */
+    const FAQ = [
+      ['Começando', 'Como começo um baba?', 'Escolha a turma em <b>Início → Turmas</b> (ou crie uma), confirme e vá em <b>Lista</b> marcando quem chegou, na ordem. Depois, em <b>Times</b>, toque em Montar times.'],
+      ['Começando', 'Preciso de internet na quadra?', 'Não. Tudo fica salvo no celular e vai pra nuvem quando o sinal voltar. O pontinho no seu avatar mostra: verde é sincronizado, amarelo é esperando internet.'],
+      ['Começando', 'Como instalo o BABA no celular?', 'No Android, abra o site no Chrome e toque em <b>Adicionar à tela inicial</b>. No iPhone, no Safari, toque em Compartilhar → <b>Adicionar à Tela de Início</b>.'],
+      ['Na quadra', 'Como a fila e os times funcionam?', 'Quem chega primeiro joga primeiro. Quem perde vai pro fim da fila e o próximo entra. No empate, você escolhe em Times se sai o rei ou os dois.'],
+      ['Na quadra', 'Como registro um gol?', 'No Placar, toque em <b>Gol</b> do lado certo, escolha quem fez e depois quem deu o passe (ou "Sem assistência").'],
+      ['Na quadra', 'Errei um lance, e agora?', 'Use <b>Desfazer</b> nos lances da partida. Se já finalizou a partida, em Stats → Times e jogos tem "Desfazer última".'],
+      ['Na quadra', 'Alguém se machucou. Dá pra trocar?', 'Sim. Em Times, toque no jogador em quadra e escolha quem entra. Quem sai pode ir pro começo ou fim da fila, ou sair do baba.'],
+      ['Na quadra', 'Como deixo o placar em tela cheia?', 'No Placar, com os times em quadra, toque no botão de expandir ao lado do relógio. O celular vira um placar deitado pra galera ver.'],
+      ['Na quadra', 'Como funciona o goleiro?', 'Marque "GOL" no nome do goleiro na turma. Com a opção "1 goleiro por time" ligada, cada time puxa um goleiro da fila.'],
+      ['Turmas e convites', 'Como chamo a galera pra turma?', 'Abra a turma e toque em <b>Convidar</b>. Mande o link no grupo: quem entrar vê a turma e o histórico, e toca no próprio nome pra ligar à conta.'],
+      ['Turmas e convites', 'Qual a diferença entre dono e adm?', 'O <b>adm</b> adiciona e remove atletas, marca goleiro, convida e tira pessoas. O <b>dono</b> faz tudo isso e ainda escolhe os adms, passa a turma pra outra pessoa e é o único que pode excluir a turma.'],
+      ['Turmas e convites', 'Como dou adm pra alguém?', 'O dono abre a turma → <b>Pessoas e cargos</b> → toca na pessoa → <b>Tornar adm</b>. A pessoa precisa ter entrado pelo convite.'],
+      ['Turmas e convites', 'Como ligo meu nome à minha conta?', 'Abra sua turma e toque no seu nome na lista de atletas. Seus gols, assistências e vitórias de todos os babas aparecem em "Meus números".'],
+      ['Turmas e convites', 'Como coloco foto na turma?', 'Dono ou adm: abra a turma e toque no quadradinho ao lado do nome. Dá pra usar uma foto ou um ícone.'],
+      ['Conta e segurança', 'Esqueci minha senha.', 'Na tela de entrar, toque em <b>Esqueci minha senha</b> e use o código de recuperação que apareceu quando você criou a conta.'],
+      ['Conta e segurança', 'Perdi o código de recuperação.', 'Se ainda estiver conectado em algum celular, vá em Perfil → <b>Novo código de recuperação</b>.'],
+      ['Conta e segurança', 'Posso usar a digital?', 'Sim, em Perfil → Segurança → <b>Pedir digital ao abrir</b>. É uma trava daquele celular: o BABA pede a digital sempre que abrir.'],
+      ['Conta e segurança', 'Usei o BABA num celular emprestado.', 'Em Perfil → Segurança → <b>Sair dos outros aparelhos</b>. Só o celular que você está usando continua conectado.'],
+      ['Recordações', 'Como faço o PDF com fotos?', 'Em Perfil → <b>PDF do baba com fotos</b> (ou Stats → Times e jogos → PDF). Escolha as fotos, o título e um recado. A primeira foto vira a capa.'],
+      ['Recordações', 'Onde ficam os babas antigos?', 'Em Perfil → <b>Babas anteriores, backup e importar</b>. Cada baba antigo também gera PDF.'],
+      ['App', 'Como deixo no modo escuro?', 'Perfil → Aparência → <b>Escuro</b>. Em "Auto" o BABA segue o tema do celular.'],
+      ['App', 'As letras estão pequenas.', 'Perfil → Aparência → <b>Texto maior</b>.']
+    ];
+
+    function openSupport() {
+      document.getElementById('faq-search').value = '';
+      renderFaq('');
+      document.getElementById('page-support').classList.remove('hidden');
+      document.getElementById('page-support').scrollTop = 0;
+      pushPage('page-support');
+    }
+    function closeSupport() {
+      document.getElementById('page-support').classList.add('hidden');
+      popPage('page-support');
+    }
+
+    function renderFaq(filter) {
+      const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+      const words = norm(filter || '').split(/\s+/).filter(Boolean);
+      const hits = FAQ.filter(([cat, q, a]) => words.every(w => norm(cat + ' ' + q + ' ' + a.replace(/<[^>]+>/g, '')).includes(w)));
+      const box = document.getElementById('faq-list');
+      if (!hits.length) {
+        box.innerHTML = `<div class="card-flat p-4 flex items-center gap-3"><img src="babinha/worried.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[14px] text-ink-2 leading-snug">Não achei nada sobre isso. Tente outra palavra, tipo <b class="text-ink">turma</b>, <b class="text-ink">gol</b> ou <b class="text-ink">senha</b>.</p></div>`;
+        return;
+      }
+      const cats = [...new Set(hits.map(h => h[0]))];
+      box.innerHTML = cats.map(cat => `
+        <section>
+          <p class="eyebrow mb-2 px-1">${cat}</p>
+          <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+            ${hits.filter(h => h[0] === cat).map(([, q, a]) => `
+              <details class="faq-item"${words.length ? ' open' : ''}>
+                <summary class="flex items-center gap-3 px-4 py-3.5 text-[15px] font-semibold">
+                  <span class="flex-1">${q}</span><i class="faq-chev fa-solid fa-chevron-down text-[12px] text-ink-3 transition"></i>
+                </summary>
+                <p class="px-4 pb-4 -mt-1 text-[14px] text-ink-2 leading-relaxed">${a}</p>
+              </details>`).join('')}
+          </div>
+        </section>`).join('');
+    }
+
+    /* ===================================================================
+       TUTORIAL COM O BABINHA
+       =================================================================== */
+    const TOUR = [
+      { img: 'wave', tab: 'inicio', title: 'E aí, craque! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Bora conhecer o BABA em um minutinho?' },
+      { img: 'happy', tab: 'inicio', target: '#header-profile', title: 'Seu perfil', text: 'Aqui você troca foto e nome, liga o modo escuro, cuida da senha e acha o Suporte.' },
+      { img: 'coach', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'Crie a turma do seu baba ou entre com o convite que a galera mandou. Ligou seu nome? Seus números aparecem aqui.' },
+      { img: 'run', tab: 'ficha', target: '#tab-nav-ficha', title: 'Lista de chegada', text: 'Chegou na quadra? Marque na ordem. Quem chega cedo joga primeiro, simples assim.' },
+      { img: 'ney', tab: 'fila', target: '#tab-nav-fila', title: 'Times e fila', text: 'O BABA monta os times pela chegada e cuida da fila do Rei da Quadra. Cansou ou machucou? Faz a substituição aqui.' },
+      { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo, dê play e, se precisar, +1, +2 ou +3 de acréscimo. Com times em quadra, o botão de expandir vira placar deitado.' },
+      { img: 'siuu', tab: 'placar', target: '#placar-sides', title: 'Gol com assistência', text: 'Toque em Gol, escolha quem fez e quem deu o passe. Defesa do goleiro também entra na conta.' },
+      { img: 'red', tab: 'placar', target: '#btn-finish', title: 'Finalizar partida', text: 'Acabou o jogo? Finalize: vencedor fica, próximo da fila entra. Errou? Calma, tem Desfazer.' },
+      { img: 'aura', tab: 'stats', target: '#tab-nav-stats', title: 'Artilharia e recordação', text: 'Artilheiro, garçom e paredão do dia e de todos os babas. E dá pra gerar o PDF do baba com as fotos da pelada.' },
+      { img: 'champion', tab: 'inicio', title: 'É isso. Bom baba!', text: 'Ficou dúvida? Perfil → Suporte. Lá também dá pra rever este tutorial quando quiser.' }
+    ];
+    let tourIndex = -1;
+    let tourOnEnd = null;
+
+    function startTour(force, onEnd) {
+      if (!force && prefs.tutorialDone) { if (onEnd) onEnd(); return; }
+      tourOnEnd = onEnd || null;
+      ['modal-database', 'modal-turma-edit', 'modal-account', 'modal-backup', 'modal-export'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+      if (!document.getElementById('page-support').classList.contains('hidden')) closeSupport();
+      if (!document.getElementById('page-profile').classList.contains('hidden')) closeProfile();
+      tourIndex = 0;
+      document.getElementById('toast-container').innerHTML = '';
+      document.getElementById('tour').classList.remove('hidden');
+      document.getElementById('tour-dots').innerHTML = TOUR.map(() => '<span class="tour-dot"></span>').join('');
+      showTourStep();
+      window.addEventListener('resize', placeTour);
+    }
+
+    function tourGo(delta) {
+      const next = tourIndex + delta;
+      if (next < 0) return;
+      if (next >= TOUR.length) { endTour(false); return; }
+      tourIndex = next;
+      showTourStep();
+    }
+
+    function showTourStep() {
+      const step = TOUR[tourIndex];
+      if (step.tab) switchTab(step.tab);
+      const img = document.getElementById('tour-img');
+      img.src = `babinha/${step.img}.webp`;
+      document.getElementById('tour-step').innerText = `${tourIndex + 1} de ${TOUR.length}`;
+      document.getElementById('tour-title').innerText = step.title;
+      document.getElementById('tour-text').innerText = step.text;
+      document.querySelectorAll('#tour-dots .tour-dot').forEach((d, i) => d.classList.toggle('on', i === tourIndex));
+      document.getElementById('tour-back').classList.toggle('invisible', tourIndex === 0);
+      document.getElementById('tour-next').innerText = tourIndex === TOUR.length - 1 ? 'Bora!' : 'Próximo';
+      const el = tourTarget(step);
+      if (el && el.closest('main')) el.scrollIntoView({ block: 'center', behavior: prefs.reduceMotion ? 'auto' : 'smooth' });
+      setTimeout(placeTour, prefs.reduceMotion ? 30 : 380);
+      placeTour();
+    }
+
+    function tourTarget(step) {
+      const ok = sel => {
+        const el = sel && document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.width > 4 && r.height > 4 ? el : null;
+      };
+      return ok(step.target) || ok(step.fallback);
+    }
+
+    function placeTour() {
+      if (tourIndex < 0) return;
+      const step = TOUR[tourIndex];
+      const hole = document.getElementById('tour-hole');
+      const card = document.getElementById('tour-card');
+      const el = tourTarget(step);
+      const vh = window.innerHeight;
+      if (!el) {
+        Object.assign(hole.style, { left: '50%', top: '40%', width: '0px', height: '0px' });
+        hole.classList.remove('is-ring');
+        card.classList.add('at-bottom');
+        card.classList.remove('at-top');
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      const pad = 6;
+      Object.assign(hole.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+      hole.classList.add('is-ring');
+      const lower = r.top + r.height / 2 > vh * 0.5;
+      card.classList.toggle('at-top', lower);
+      card.classList.toggle('at-bottom', !lower);
+    }
+
+    function endTour(skipped) {
+      document.getElementById('tour').classList.add('hidden');
+      window.removeEventListener('resize', placeTour);
+      tourIndex = -1;
+      switchTab('inicio');
+      if (!prefs.tutorialDone) setPref('tutorialDone', true);
+      if (skipped) showToast('Tutorial pulado. Dá pra rever em Perfil → Suporte.');
+      const fn = tourOnEnd;
+      tourOnEnd = null;
+      if (fn) fn();
+    }
+
+    /* ===================================================================
+       PESSOAS DA TURMA (dono, adms, membros)
+       =================================================================== */
+    const ROLE_LABEL = { owner: 'Dono', admin: 'Adm', member: 'Membro' };
+    let turmaPane = 'atletas';
+
+    function turmaTab(pane) {
+      turmaPane = pane;
+      document.getElementById('turma-tab-atletas').classList.toggle('is-selected', pane === 'atletas');
+      document.getElementById('turma-tab-pessoas').classList.toggle('is-selected', pane === 'pessoas');
+      document.getElementById('turma-pane-atletas-head').classList.toggle('hidden', pane !== 'atletas');
+      document.getElementById('turma-edit-list').classList.toggle('hidden', pane !== 'atletas');
+      document.getElementById('turma-people').classList.toggle('hidden', pane !== 'pessoas');
+      if (pane === 'pessoas') { renderTurmaPeople(); loadTurmaPeople(editingTurmaId); }
+    }
+
+    async function loadTurmaPeople(id) {
+      const t = turmaById(id);
+      if (!t || !t.cloud || !cloudOn()) return;
+      try {
+        const rows = await api.roster(id);
+        const live = turmaById(id);
+        if (!live) return;
+        live.people = rows.map(r => ({ id: r.user_id, name: r.name || 'Sem nome', avatar: r.avatar || null, role: r.role, player: r.player_name || null }));
+        cacheState();
+        if (editingTurmaId === id && turmaPane === 'pessoas') renderTurmaPeople();
+      } catch (e) {
+        if (editingTurmaId === id && turmaPane === 'pessoas' && !(t.people || []).length) {
+          document.getElementById('turma-people').innerHTML = `<p class="text-[14px] text-ink-2 py-2">${isNetworkError(e) ? 'Sem internet: a lista de pessoas aparece quando o sinal voltar.' : 'Não consegui carregar as pessoas agora.'}</p>`;
+        }
+      }
+    }
+
+    function renderTurmaPeople() {
+      const t = turmaById(editingTurmaId);
+      const box = document.getElementById('turma-people');
+      if (!t || !box) return;
+      const people = t.people || [];
+      const uid = currentUser ? currentUser.id : null;
+      if (!people.length) {
+        box.innerHTML = '<p class="text-[14px] text-ink-2 py-2">Carregando...</p>';
+        return;
+      }
+      const intro = t.role === 'owner'
+        ? 'Toque numa pessoa pra dar ou tirar adm, passar a turma ou remover.'
+        : t.role === 'admin' ? 'Como adm, você pode remover membros. Cargos quem escolhe é o dono.' : 'Quem cuida da turma: o dono e os adms.';
+      box.innerHTML = `<p class="text-[12px] text-ink-2 leading-snug px-1 pb-1">${intro}</p>` + people.map(p => {
+        const me = p.id === uid;
+        const actionable = !me && (t.role === 'owner' || (t.role === 'admin' && p.role === 'member'));
+        const badge = p.role === 'owner' ? 'bg-pitch text-butter' : p.role === 'admin' ? 'bg-butter text-pitch border border-butter-3' : 'bg-sunk text-ink-2';
+        const inner = `
+          ${avatarHtml(p.avatar, p.name, 'w-10 h-10 text-[13px]')}
+          <span class="min-w-0 flex-1 text-left">
+            <span class="block text-[14px] font-bold truncate">${escapeHtml(p.name)}${me ? ' <span class="text-ink-2 font-semibold">(você)</span>' : ''}</span>
+            <span class="block text-[12px] text-ink-2 truncate">${p.player ? `Joga como ${escapeHtml(p.player)}` : 'Ainda não ligou o nome'}</span>
+          </span>
+          <span class="text-[11px] font-extrabold rounded-full px-2.5 py-1 flex-shrink-0 ${badge}">${ROLE_LABEL[p.role] || 'Membro'}</span>
+          ${actionable ? '<i class="fa-solid fa-ellipsis-vertical text-ink-3 w-4 text-center flex-shrink-0"></i>' : ''}`;
+        return actionable
+          ? `<button onclick="openPersonActions('${p.id}')" class="w-full flex items-center gap-3 p-2 pr-3 rounded-2xl bg-card border border-ink/10 active:scale-[0.99] transition">${inner}</button>`
+          : `<div class="flex items-center gap-3 p-2 pr-3 rounded-2xl bg-card border border-ink/10">${inner}</div>`;
+      }).join('');
+    }
+
+    function openPersonActions(userId) {
+      const t = turmaById(editingTurmaId);
+      const p = t && (t.people || []).find(x => x.id === userId);
+      if (!t || !p) return;
+      const row = (fn, icon, label, sub, danger) => `
+        <button onclick="${fn}" class="menu-row rounded-2xl ${danger ? '!text-danger' : ''}">
+          <span class="tile w-9 h-9 rounded-xl ${danger ? 'bg-danger/10 text-danger' : 'bg-sunk text-pitch'} text-[14px]"><i class="fa-solid ${icon}"></i></span>
+          <span class="flex-1 min-w-0"><span class="block">${label}</span>${sub ? `<span class="block text-[12px] font-medium text-ink-2">${sub}</span>` : ''}</span>
+        </button>`;
+      const arg = `'${t.id}', '${p.id}'`;
+      let html = '';
+      if (t.role === 'owner') {
+        html += p.role === 'admin'
+          ? row(`changeMemberRole(${arg}, 'member')`, 'fa-user-minus', 'Tirar adm', 'Volta a ser membro')
+          : row(`changeMemberRole(${arg}, 'admin')`, 'fa-user-shield', 'Tornar adm', 'Pode mexer no elenco e convidar');
+        html += row(`transferTurma(${arg})`, 'fa-crown', 'Passar a turma pra essa pessoa', 'Ela vira dona e você vira adm');
+      }
+      if (t.role === 'owner' || (t.role === 'admin' && p.role === 'member')) {
+        html += row(`removePerson(${arg})`, 'fa-user-xmark', 'Remover da turma', 'Pode voltar se receber o convite de novo', true);
+      }
+      document.getElementById('account-title').innerText = p.name;
+      document.getElementById('account-body').innerHTML = `
+        <div class="flex items-center gap-3 mb-3">${avatarHtml(p.avatar, p.name, 'w-12 h-12 text-[15px]')}<p class="text-[13px] text-ink-2 leading-snug">${ROLE_LABEL[p.role]} da turma ${escapeHtml(t.name)}${p.player ? ` · joga como ${escapeHtml(p.player)}` : ''}</p></div>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">${html}</div>`;
+      document.getElementById('modal-account').classList.remove('hidden');
+    }
+
+    function roleError(e) {
+      if (isNetworkError(e)) return 'Mudar cargos precisa de internet.';
+      const m = String((e && e.message) || '');
+      if (m.includes('only_owner')) return 'Só o dono da turma pode fazer isso.';
+      if (m.includes('not_allowed')) return 'Você não tem permissão pra isso.';
+      return 'Não deu certo. Tente de novo.';
+    }
+
+    async function changeMemberRole(turmaId, userId, role) {
+      closeAccountSheet();
+      try {
+        await api.setRole(turmaId, userId, role);
+        const p = ((turmaById(turmaId) || {}).people || []).find(x => x.id === userId);
+        if (p) p.role = role;
+        renderTurmaPeople();
+        showToast(role === 'admin' ? `${p ? firstName(p.name) : 'Pessoa'} agora é adm.` : 'Adm removido.');
+        loadTurmaPeople(turmaId);
+      } catch (e) { showToast(roleError(e), 'warning'); }
+    }
+
+    async function transferTurma(turmaId, userId) {
+      const t = turmaById(turmaId);
+      const p = t && (t.people || []).find(x => x.id === userId);
+      if (!t || !p) return;
+      closeAccountSheet();
+      if (!(await askConfirm(`Passar a turma ${t.name} para ${p.name}? Você vira adm e só a nova dona ou o novo dono pode excluir a turma.`, 'Passar a turma'))) return;
+      try {
+        await api.transfer(turmaId, userId);
+        t.role = 'admin';
+        cacheState();
+        await pullCloud(true);
+        renderTurmaEditor();
+        showToast(`${firstName(p.name)} agora é dono da turma.`);
+      } catch (e) { showToast(roleError(e), 'warning'); }
+    }
+
+    async function removePerson(turmaId, userId) {
+      const t = turmaById(turmaId);
+      const p = t && (t.people || []).find(x => x.id === userId);
+      if (!t || !p) return;
+      closeAccountSheet();
+      if (!(await askConfirm(`Remover ${p.name} da turma ${t.name}? O nome dele continua na lista de atletas; só a conta sai da turma.`, 'Remover'))) return;
+      try {
+        await api.removeMember(turmaId, userId);
+        t.people = (t.people || []).filter(x => x.id !== userId);
+        Object.values(t.meta || {}).forEach(m => { if (m.userId === userId) m.userId = null; });
+        cacheState();
+        renderTurmaPeople();
+        showToast(`${firstName(p.name)} saiu da turma.`);
+      } catch (e) { showToast(roleError(e), 'warning'); }
+    }
+
+    /* ===================================================================
+       PDF DO BABA (com fotos)
+       =================================================================== */
+    const MAX_PHOTOS = 12;
+    let exportPhotos = [];        // [{ url, w, h }]
+    let exportSource = null;      // null = today, or a past baba id
+
+    function openExportSheet(pastId) {
+      exportSource = pastId || null;
+      const past = exportSource ? state.pastDays.find(d => d.id === exportSource) : null;
+      const title = past ? past.title : babaTitle();
+      const date = past ? fmtDate(past.date) : new Date().toLocaleDateString('pt-BR');
+      document.getElementById('export-title').value = title === 'Baba' ? '' : title;
+      document.getElementById('export-title').placeholder = `Baba de ${date}`;
+      document.getElementById('export-sub').innerText = past ? `Baba de ${date} · ${past.players.length} atletas` : `Baba de hoje · ${state.matchHistory.length} partida${state.matchHistory.length === 1 ? '' : 's'}`;
+      document.getElementById('export-row-games').classList.toggle('hidden', !!past);
+      if (!past && !state.players.length) showToast('O baba de hoje ainda está vazio. O PDF sai só com as fotos e o recado.', 'warning');
+      renderExportPhotos();
+      document.getElementById('modal-export').classList.remove('hidden');
+    }
+
+    function closeExportSheet() {
+      document.getElementById('modal-export').classList.add('hidden');
+    }
+
+    function renderExportPhotos() {
+      const box = document.getElementById('export-photos');
+      document.getElementById('export-count').innerText = exportPhotos.length ? `${exportPhotos.length} de ${MAX_PHOTOS}` : '';
+      box.innerHTML = exportPhotos.map((p, i) => `
+        <div class="relative aspect-square rounded-2xl overflow-hidden bg-sunk">
+          <img src="${p.url}" alt="Foto ${i + 1}" class="w-full h-full object-cover" />
+          ${i === 0 ? '<span class="absolute left-1.5 top-1.5 text-[10px] font-extrabold bg-butter text-pitch rounded-md px-1.5 py-0.5">CAPA</span>'
+            : `<button onclick="makeCoverPhoto(${i})" class="absolute left-1.5 top-1.5 text-[10px] font-extrabold bg-black/55 text-white rounded-md px-1.5 py-0.5" aria-label="Usar como capa"><i class="fa-solid fa-star mr-0.5"></i>Capa?</button>`}
+          <button onclick="removeExportPhoto(${i})" class="absolute right-1.5 top-1.5 w-7 h-7 rounded-full bg-black/55 text-white text-[12px] flex items-center justify-center" aria-label="Tirar foto"><i class="fa-solid fa-xmark"></i></button>
+        </div>`).join('') + (exportPhotos.length < MAX_PHOTOS ? `
+        <label class="aspect-square rounded-2xl border-2 border-dashed border-pitch/30 text-pitch flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95 transition">
+          <i class="fa-solid fa-camera text-[20px]"></i><span class="text-[12px] font-bold">Adicionar</span>
+          <input type="file" accept="image/*" multiple class="sr-only" onchange="addExportPhotos(this)" />
+        </label>` : '');
+    }
+
+    async function addExportPhotos(input) {
+      const files = Array.from(input.files || []).slice(0, MAX_PHOTOS - exportPhotos.length);
+      input.value = '';
+      if (!files.length) return;
+      let failed = 0;
+      for (const file of files) {
+        try {
+          const { img, done } = await loadImageFile(file);
+          const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement('canvas');
+          c.width = Math.round(img.naturalWidth * k);
+          c.height = Math.round(img.naturalHeight * k);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          done();
+          exportPhotos.push({ url: c.toDataURL('image/jpeg', 0.85), w: c.width, h: c.height });
+        } catch (e) { failed++; }
+      }
+      renderExportPhotos();
+      if (failed) showToast(`${failed} foto${failed === 1 ? '' : 's'} não abriu. Tente outra.`, 'warning');
+    }
+
+    function removeExportPhoto(i) { exportPhotos.splice(i, 1); renderExportPhotos(); }
+    function makeCoverPhoto(i) { exportPhotos.unshift(exportPhotos.splice(i, 1)[0]); renderExportPhotos(); }
+
+    /* jsPDF's built-in font speaks Latin-1 only: drop emoji and the like. */
+    const pdfText = s => String(s == null ? '' : s).replace(/[^\u0000-ÿ]/g, '').replace(/\s+/g, ' ').trim();
+
+    function imageToPng(src) {
+      return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const c = document.createElement('canvas');
+            c.width = img.naturalWidth; c.height = img.naturalHeight;
+            c.getContext('2d').drawImage(img, 0, 0);
+            resolve({ url: c.toDataURL('image/png'), w: c.width, h: c.height });
+          } catch (e) { resolve(null); }
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+
+    async function generateBabaPDF() {
+      const lib = window.jspdf;
+      if (!lib || !lib.jsPDF) { showToast('Gerador de PDF ainda carregando. Tente de novo.', 'warning'); return; }
+      const sheetOpen = !document.getElementById('modal-export').classList.contains('hidden');
+      const btn = sheetOpen ? document.getElementById('btn-export-pdf') : null;
+      const past = sheetOpen && exportSource ? state.pastDays.find(d => d.id === exportSource) : null;
+      const opt = id => !sheetOpen || document.getElementById(id).checked;
+      const showHighlights = opt('export-opt-highlights');
+      const showGames = !past && opt('export-opt-games');
+      const showPlayers = opt('export-opt-players');
+      const note = sheetOpen ? pdfText(document.getElementById('export-note').value) : '';
+      const when = past ? new Date(past.date) : new Date(state.startedAt || Date.now());
+      const dateTxt = isNaN(when) ? '' : when.toLocaleDateString('pt-BR');
+      const typed = sheetOpen ? pdfText(document.getElementById('export-title').value) : '';
+      const base = pdfText(past ? past.title : babaTitle());
+      const title = typed || (base && base !== 'Baba' ? base : `Baba de ${dateTxt}`);
+      const players = past ? past.players : state.players.filter(p => p.present || hasStats(p));
+      const matches = past ? (past.matches || 0) : state.matchHistory.length;
+      const photos = sheetOpen ? exportPhotos.slice() : [];
+      if (btn) setBusy(btn, true, 'Montando o PDF...');
+      try {
+        const mascot = await imageToPng('babinha/champion.webp');
+        const doc = new lib.jsPDF({ unit: 'mm', format: 'a4', compress: true });
+        const W = 210, H = 297, M = 14, CW = W - 2 * M;
+        const GREEN = [0, 54, 49], BUTTER = [255, 237, 168], INK = [18, 48, 43], INK2 = [92, 108, 103], SUNK = [244, 236, 210];
+        let y = 0;
+        const ensure = need => { if (y + need > H - 16) { doc.addPage(); y = 18; } };
+        const heading = text => {
+          ensure(16);
+          doc.setFillColor(...GREEN);
+          doc.roundedRect(M, y - 5.5, CW, 8.5, 2, 2, 'F');
+          doc.setTextColor(...BUTTER);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.text(text, M + 3, y);
+          doc.setTextColor(...INK);
+          y += 9;
+        };
+        const row = (cols, bold) => {
+          ensure(7);
+          doc.setFont('helvetica', bold ? 'bold' : 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(...(bold ? INK2 : INK));
+          cols.forEach(c => {
+            const txt = doc.splitTextToSize(pdfText(c.text), c.w || 200)[0] || '';
+            doc.text(txt, c.x, y, c.align ? { align: c.align } : undefined);
+          });
+          doc.setDrawColor(226, 220, 200);
+          doc.line(M, y + 2, W - M, y + 2);
+          y += 6.5;
+        };
+        const small = text => {
+          ensure(6);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(...INK2);
+          doc.text(doc.splitTextToSize(pdfText(text), CW - 4)[0] || '', M + 2, y - 1.5);
+          y += 3.5;
+        };
+        const fit = (p, maxW, maxH) => { const k = Math.min(maxW / p.w, maxH / p.h); return { w: p.w * k, h: p.h * k }; };
+
+        // Cover band
+        doc.setFillColor(...GREEN);
+        doc.rect(0, 0, W, 46, 'F');
+        try { doc.addImage(document.getElementById('app-logo'), 'PNG', M, 11, 24, 24); } catch (e) {}
+        doc.setTextColor(...BUTTER);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(22);
+        const titleLines = doc.splitTextToSize(title, CW - 32).slice(0, 2);
+        doc.text(titleLines, M + 31, titleLines.length > 1 ? 19 : 23);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(232, 222, 176);
+        doc.text(pdfText(`${dateTxt}  ·  ${matches} partida${matches === 1 ? '' : 's'}  ·  ${players.length} atleta${players.length === 1 ? '' : 's'}`), M + 31, titleLines.length > 1 ? 34 : 31);
+        y = 56;
+
+        if (photos[0]) {
+          const s = fit(photos[0], CW, 104);
+          const x = M + (CW - s.w) / 2;
+          doc.addImage(photos[0].url, 'JPEG', x, y, s.w, s.h);
+          doc.setDrawColor(...GREEN);
+          doc.setLineWidth(0.6);
+          doc.rect(x, y, s.w, s.h);
+          doc.setLineWidth(0.2);
+          y += s.h + 9;
+        }
+
+        if (note) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(11);
+          doc.setTextColor(...INK2);
+          const lines = doc.splitTextToSize(`"${note}"`, CW - 8);
+          ensure(lines.length * 5.2 + 6);
+          doc.setFillColor(...SUNK);
+          doc.roundedRect(M, y - 5, CW, lines.length * 5.2 + 5, 3, 3, 'F');
+          doc.text(lines, M + 4, y + 0.5);
+          y += lines.length * 5.2 + 8;
+        }
+
+        if (showHighlights) {
+          const picks = [['ARTILHEIRO', 'goals', 'gol', 'gols'], ['GARÇOM', 'assists', 'assist.', 'assist.'], ['PAREDÃO', 'saves', 'defesa', 'defesas'], ['MAIS VITÓRIAS', 'wins', 'vitória', 'vitórias']]
+            .map(([label, key, one, many]) => { const p = topOf(players, key); return p ? { label, name: p.name, value: p[key], unit: p[key] === 1 ? one : many } : null; })
+            .filter(Boolean);
+          if (picks.length) {
+            heading('DESTAQUES');
+            ensure(30);
+            const gap = 4, tw = (CW - gap * (picks.length - 1)) / picks.length;
+            picks.forEach((p, i) => {
+              const x = M + i * (tw + gap);
+              doc.setFillColor(...SUNK);
+              doc.roundedRect(x, y - 3, tw, 26, 3, 3, 'F');
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...INK2);
+              doc.text(p.label, x + 3.5, y + 2);
+              doc.setFontSize(10); doc.setTextColor(...INK);
+              doc.text(doc.splitTextToSize(pdfText(p.name), tw - 7)[0] || '', x + 3.5, y + 8.5);
+              doc.setFontSize(17); doc.setTextColor(...GREEN);
+              doc.text(String(p.value), x + 3.5, y + 18.5);
+              doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...INK2);
+              doc.text(pdfText(p.unit), x + 4.5 + doc.getStringUnitWidth(String(p.value)) * 17 * 0.3528, y + 18.5);
+            });
+            y += 31;
+          }
+        }
+
+        if (showGames) {
+          heading('CLASSIFICAÇÃO DOS TIMES');
+          const standings = sortedStandings();
+          if (!standings.length) row([{ text: 'Sem partidas finalizadas.', x: M + 2 }]);
+          else {
+            row([{ text: 'Time', x: M + 2 }, { text: 'J', x: 120, align: 'center' }, { text: 'V', x: 135, align: 'center' }, { text: 'E', x: 150, align: 'center' }, { text: 'D', x: 165, align: 'center' }, { text: 'SG', x: 185, align: 'center' }], true);
+            standings.forEach(s => {
+              ensure(12);
+              row([{ text: `Time ${s.team}`, x: M + 2 }, { text: s.matches, x: 120, align: 'center' }, { text: s.wins, x: 135, align: 'center' }, { text: s.draws, x: 150, align: 'center' }, { text: s.losses, x: 165, align: 'center' }, { text: (s.sg > 0 ? '+' : '') + s.sg, x: 185, align: 'center' }]);
+              if (s.names && s.names.length) small(shortNames(s.names));
+            });
+          }
+          y += 4;
+          heading('HISTÓRICO DE JOGOS');
+          if (!state.matchHistory.length) row([{ text: 'Nenhuma partida finalizada.', x: M + 2 }]);
+          else [...state.matchHistory].reverse().forEach(h => {
+            ensure(12);
+            row([{ text: h.timestamp, x: M + 2 }, { text: `Time ${h.labelA}   ${h.scoreA} x ${h.scoreB}   Time ${h.labelB}`, x: 40 }]);
+            if (h.namesA && h.namesA.length) small(`${shortNames(h.namesA)}  vs  ${shortNames(h.namesB)}`);
+          });
+          y += 4;
+        }
+
+        if (showPlayers) {
+          heading('ATLETAS');
+          const list = [...players].sort((a, b) => (b.goals || 0) - (a.goals || 0) || (b.assists || 0) - (a.assists || 0) || (b.matches || 0) - (a.matches || 0));
+          if (!list.length) row([{ text: 'Nenhum atleta neste baba.', x: M + 2 }]);
+          else {
+            row([{ text: 'Atleta', x: M + 2 }, { text: 'Gols', x: 112, align: 'center' }, { text: 'Assist.', x: 128, align: 'center' }, { text: 'Defesas', x: 146, align: 'center' }, { text: 'Jogos', x: 164, align: 'center' }, { text: 'Vitórias', x: 184, align: 'center' }], true);
+            list.forEach(p => row([
+              { text: p.name + (p.isGoalkeeper ? '  (GOL)' : ''), x: M + 2, w: 88 },
+              { text: p.goals || 0, x: 112, align: 'center' }, { text: p.assists || 0, x: 128, align: 'center' },
+              { text: p.saves || 0, x: 146, align: 'center' }, { text: p.matches || 0, x: 164, align: 'center' },
+              { text: p.wins || 0, x: 184, align: 'center' }
+            ]));
+          }
+          y += 4;
+        }
+
+        const gallery = photos.slice(1);
+        if (gallery.length) {
+          doc.addPage();
+          y = 20;
+          heading('GALERIA');
+          const gap = 6, cw = (CW - gap) / 2, ch = 78;
+          gallery.forEach((p, i) => {
+            const col = i % 2;
+            if (col === 0) { if (i > 0) y += ch + gap; if (y + ch > H - 16) { doc.addPage(); y = 18; } }
+            const s = fit(p, cw, ch);
+            const x = M + col * (cw + gap) + (cw - s.w) / 2;
+            doc.addImage(p.url, 'JPEG', x, y + (ch - s.h) / 2, s.w, s.h);
+          });
+          y += ch + 8;
+        }
+
+        // Sign-off with the mascot
+        if (mascot) {
+          ensure(36);
+          const mh = 30, mw = mascot.w * mh / mascot.h;
+          doc.addImage(mascot.url, 'PNG', M, y, mw, mh);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...GREEN);
+          doc.text('Até o próximo baba!', M + mw + 5, y + 14);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...INK2);
+          doc.text('Feito com o BABA, o app da sua pelada.', M + mw + 5, y + 20);
+        }
+
+        const pages = doc.getNumberOfPages();
+        for (let i = 1; i <= pages; i++) {
+          doc.setPage(i);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150, 150, 140);
+          doc.text(pdfText(`BABA  ·  ${title}`), M, H - 8);
+          doc.text(`${i}/${pages}`, W - M, H - 8, { align: 'right' });
+        }
+        const slug = title.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'Baba';
+        const stamp = isNaN(when) ? todayStamp() : localDate(when.getTime());
+        await offerFile(`BABA_${slug}_${stamp}.pdf`, doc.output('blob'), 'PDF salvo!');
+        if (sheetOpen) closeExportSheet();
+      } catch (e) {
+        console.warn('BABA pdf', e);
+        showToast('Não consegui gerar o PDF. Tente com menos fotos.', 'warning');
+      } finally {
+        if (btn) setBusy(btn, false);
+      }
     }
 
     /* ===================================================================
@@ -1516,6 +2442,7 @@
     }
 
     function buzz(pattern) {
+      if (!prefs.vibrate) return;
       try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
     }
 
@@ -1529,6 +2456,7 @@
     }
 
     function playRefereeWhistle() {
+      if (!prefs.sound) return;
       try {
         unlockAudio();
         if (!audioCtx) return;
@@ -1664,10 +2592,10 @@
         </button>`;
       const cream = ['#FFFFFF', '#FBF5E0', '#E8DDB8'], butter = ['#FFFBEA', '#FBE59A', '#EFC955'], sage = ['#F4FAEE', '#CFE3C1', '#9EC28E'], deep = ['#2F7A6A', '#0B4A42', '#012E2A'];
       document.getElementById('home-shortcuts').innerHTML = [
-        shortcut("switchTab('ficha')", 'bg-gradient-to-br from-[#EAF3E1] to-[#CFE3C1] text-ink border border-white/60',
+        shortcut("switchTab('ficha')", 'keep-light bg-gradient-to-br from-[#EAF3E1] to-[#CFE3C1] text-ink border border-white/60',
           orb(84, 34, 18, ...cream) + orb(54, 18, 52, ...sage.map((c, i) => i ? '#8DB97C' : c)) + orb(30, 98, 30, ...butter),
           'Chegadas', missing ? `${missing} faltam chegar` : `${present} chegaram`),
-        shortcut("switchTab('fila')", 'bg-gradient-to-br from-[#FFF6D3] to-[#FBE08B] text-ink border border-white/60',
+        shortcut("switchTab('fila')", 'keep-light bg-gradient-to-br from-[#FFF6D3] to-[#FBE08B] text-ink border border-white/60',
           orb(84, 40, 14, ...cream) + orb(46, 22, 56, ...butter.map((c, i) => i === 2 ? '#DDA92A' : c)) + orb(32, 104, 34, ...sage),
           'Times e fila', hasCourt ? `${state.queue.length} esperando` : 'Montar times'),
         shortcut("switchTab('stats')", 'bg-gradient-to-br from-[#0B4A42] to-[#002A26] text-butter',
@@ -1698,7 +2626,7 @@
       const last = state.matchHistory[0];
       rows.push(row('bg-pitch text-butter', 'fa-flag-checkered', 'Partidas jogadas',
         last ? `Última: Time ${last.labelA} ${last.scoreA} × ${last.scoreB} Time ${last.labelB}` : 'Nenhuma finalizada ainda', state.matchHistory.length, ''));
-      if (!g && !a && !s) rows.unshift(`<p class="text-[13px] text-ink-2 px-1">Artilheiro, garçom e paredão aparecem aqui depois do primeiro gol.</p>`);
+      if (!g && !a && !s) rows.unshift(`<div class="flex items-center gap-3 px-1"><img src="babinha/tired.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[13px] text-ink-2 leading-snug">Tá parado por aqui... Artilheiro, garçom e paredão aparecem depois do primeiro gol.</p></div>`);
       document.getElementById('home-today').innerHTML = rows.join('');
       renderMine();
     }
@@ -1769,9 +2697,10 @@
             <label class="flex items-center gap-3 min-w-0 flex-1 p-3 cursor-pointer">
               <input type="checkbox" value="${t.id}" ${checked ? 'checked' : ''} class="w-5 h-5 accent-[#003631] flex-shrink-0"
                 onchange="const row=this.closest('.turma-row'); ['bg-butter/70','border-butter-3'].forEach(c => row.classList.toggle(c, this.checked)); ['bg-card','border-ink/10'].forEach(c => row.classList.toggle(c, !this.checked));" />
+              ${avatarHtml(t.icon, t.name, '!rounded-xl w-10 h-10 text-[14px]')}
               <div class="min-w-0">
                 <div class="font-bold text-[15px] truncate">${escapeHtml(t.name)}</div>
-                <div class="text-[12px] text-ink-2">${t.cloud ? (t.role === 'admin' ? 'Admin · ' : 'Membro · ') : ''}${t.players.length} atleta${t.players.length === 1 ? '' : 's'}${t.keepers.length ? ` · ${t.keepers.length} goleiro${t.keepers.length === 1 ? '' : 's'}` : ''}</div>
+                <div class="text-[12px] text-ink-2">${t.cloud ? `${ROLE_LABEL[t.role] || 'Membro'} · ` : ''}${t.players.length} atleta${t.players.length === 1 ? '' : 's'}${t.keepers.length ? ` · ${t.keepers.length} goleiro${t.keepers.length === 1 ? '' : 's'}` : ''}</div>
               </div>
             </label>
             <button onclick="openTurmaEditor('${t.id}')" class="btn-icon" aria-label="Editar turma"><i class="fa-solid fa-pen"></i></button>
@@ -1845,10 +2774,12 @@
     /* ---- Turma editor ---- */
     let editingTurmaId = null;
 
-    const canEditTurma = t => !!t && (!t.cloud || t.role === 'admin');
+    const canEditTurma = t => !!t && (!t.cloud || t.role === 'owner' || t.role === 'admin');
+    // Before the server knew about owners, admins could delete: keep that until it says otherwise.
+    const ownsTurma = t => !!t && (!t.cloud || t.role === 'owner' || (t.role === 'admin' && schemaV2 !== true));
 
     function createTurma() {
-      const t = { id: uuid(), name: 'Nova turma', official: false, cloud: cloudOn(), role: 'admin', invite: null, players: [], keepers: [], meta: {} };
+      const t = { id: uuid(), name: 'Nova turma', official: false, cloud: cloudOn(), role: 'owner', invite: null, players: [], keepers: [], meta: {} };
       state.turmas.push(t);
       saveState();
       markTurmaDirty(t.id);
@@ -1864,6 +2795,8 @@
       const t = turmaById(id);
       if (!t) return;
       editingTurmaId = id;
+      turmaTab('atletas');
+      if (t.cloud) loadTurmaPeople(id);
       const nameInput = document.getElementById('turma-edit-name');
       nameInput.value = t.name;
       nameInput.readOnly = !canEditTurma(t);
@@ -1881,10 +2814,14 @@
       const meta = t.meta || {};
       const mine = Object.values(meta).some(m => m.userId && m.userId === uid);
 
-      document.getElementById('turma-edit-title').innerText = admin ? 'Editar turma' : 'Turma';
-      document.getElementById('turma-edit-role').innerText = !t.cloud ? 'Só neste aparelho' : admin ? 'Você é admin' : 'Você é membro';
+      document.getElementById('turma-edit-title').innerText = t.name.trim() || (admin ? 'Editar turma' : 'Turma');
+      document.getElementById('turma-edit-role').innerText = !t.cloud ? 'Só neste aparelho' : t.role === 'owner' ? 'Você é o dono' : t.role === 'admin' ? 'Você é adm' : 'Você é membro';
       document.getElementById('turma-edit-addbox').classList.toggle('hidden', !admin);
-      document.getElementById('turma-edit-delete').innerText = admin ? 'Excluir turma' : 'Sair da turma';
+      document.getElementById('turma-edit-delete').innerText = ownsTurma(t) ? 'Excluir turma' : 'Sair da turma';
+      paintAvatar(document.getElementById('turma-edit-icon-img'), t.icon, t.name);
+      document.getElementById('turma-edit-icon-cam').classList.toggle('hidden', !admin);
+      document.getElementById('turma-tabs').classList.toggle('hidden', !t.cloud || schemaV2 === false);
+      if (turmaPane === 'pessoas') renderTurmaPeople();
 
       const invite = document.getElementById('turma-edit-invite');
       invite.classList.toggle('hidden', !t.cloud);
@@ -1991,6 +2928,7 @@
       const t = turmaById(editingTurmaId);
       if (!t || !canEditTurma(t)) return;
       t.name = value.replace(/\s+/g, ' ').trimStart() || '';
+      document.getElementById('turma-edit-title').innerText = t.name.trim() || 'Editar turma';
       saveState();
     }
 
@@ -2010,9 +2948,9 @@
     async function deleteTurma() {
       const t = turmaById(editingTurmaId);
       if (!t) return;
-      const admin = canEditTurma(t);
+      const admin = ownsTurma(t);
       const msg = admin
-        ? `Excluir a turma ${t.name}${t.cloud ? ' para todo mundo' : ''}? Os atletas que já chegaram hoje continuam no baba.`
+        ? `Excluir a turma ${t.name}${t.cloud ? ' para todo mundo' : ''}? Os atletas que já chegaram hoje continuam no baba.${t.cloud && (t.people || []).length > 1 ? ' Se quiser só sair, passe a turma pra outra pessoa em "Pessoas e cargos".' : ''}`
         : `Sair da turma ${t.name}? Você deixa de ver o elenco e o histórico dela.`;
       if (!(await askConfirm(msg, admin ? 'Excluir' : 'Sair'))) return;
       if (t.cloud) enqueue({ type: admin ? 'turma_delete' : 'turma_leave', id: t.id });
@@ -3340,117 +4278,6 @@
       showToast(okMessage);
     }
 
-    function generateBabaPDF() {
-      const lib = window.jspdf;
-      if (!lib || !lib.jsPDF) {
-        showToast('Gerador de PDF ainda carregando. Tente de novo.', 'warning');
-        return;
-      }
-      const doc = new lib.jsPDF({ unit: 'mm', format: 'a4' });
-      const W = 210, M = 14;
-      let y = 18;
-
-      const ensure = need => { if (y + need > 285) { doc.addPage(); y = 18; } };
-      const heading = text => {
-        ensure(14);
-        doc.setFillColor(0, 54, 49);
-        doc.rect(M, y - 5, W - 2 * M, 8, 'F');
-        doc.setTextColor(255, 237, 168);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.text(text, M + 2, y);
-        doc.setTextColor(20, 20, 20);
-        y += 8;
-      };
-      const row = (cols, bold) => {
-        ensure(7);
-        doc.setFont('helvetica', bold ? 'bold' : 'normal');
-        doc.setFontSize(9);
-        cols.forEach(c => {
-          const txt = doc.splitTextToSize(String(c.text), c.w || 200)[0] || '';
-          doc.text(txt, c.x, y, c.align ? { align: c.align } : undefined);
-        });
-        doc.setDrawColor(220, 220, 220);
-        doc.line(M, y + 2, W - M, y + 2);
-        y += 6.5;
-      };
-      const note = text => {
-        ensure(6);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(110, 110, 110);
-        doc.text(doc.splitTextToSize(text, W - 2 * M - 4)[0] || '', M + 2, y - 1.5);
-        doc.setTextColor(20, 20, 20);
-        y += 3.5;
-      };
-
-      try { doc.addImage(document.getElementById('app-logo'), 'PNG', W - M - 20, 7, 20, 20); } catch (e) {}
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(0, 54, 49);
-      doc.text('BABA - Resumo da Pelada', M, y);
-      y += 7;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(90, 90, 90);
-      doc.text(`Data: ${new Date().toLocaleDateString('pt-BR')}  ·  Formato: ${FORMAT_LABELS[state.match.gameFormat] || ''}  ·  Partidas: ${state.matchHistory.length}`, M, y);
-      y += 10;
-
-      heading('CLASSIFICAÇÃO DOS TIMES');
-      const standings = sortedStandings();
-      if (!standings.length) {
-        row([{ text: 'Sem partidas finalizadas.', x: M + 2 }]);
-      } else {
-        row([
-          { text: 'Time', x: M + 2 }, { text: 'J', x: 120, align: 'center' }, { text: 'V', x: 135, align: 'center' },
-          { text: 'E', x: 150, align: 'center' }, { text: 'D', x: 165, align: 'center' }, { text: 'SG', x: 185, align: 'center' }
-        ], true);
-        standings.forEach(s => {
-          row([
-            { text: `Time ${s.team}`, x: M + 2 }, { text: s.matches, x: 120, align: 'center' }, { text: s.wins, x: 135, align: 'center' },
-            { text: s.draws, x: 150, align: 'center' }, { text: s.losses, x: 165, align: 'center' }, { text: (s.sg > 0 ? '+' : '') + s.sg, x: 185, align: 'center' }
-          ]);
-          if (s.names && s.names.length) note(shortNames(s.names));
-        });
-      }
-      y += 4;
-
-      heading('HISTÓRICO DE JOGOS');
-      if (!state.matchHistory.length) {
-        row([{ text: 'Nenhuma partida finalizada.', x: M + 2 }]);
-      } else {
-        [...state.matchHistory].reverse().forEach(h => {
-          row([
-            { text: h.timestamp, x: M + 2 },
-            { text: `Time ${h.labelA}   ${h.scoreA} x ${h.scoreB}   Time ${h.labelB}`, x: 40 }
-          ]);
-          if (h.namesA && h.namesA.length) note(`${shortNames(h.namesA)}  vs  ${shortNames(h.namesB)}`);
-        });
-      }
-      y += 4;
-
-      heading('ATLETAS');
-      const players = [...state.players].sort((a, b) => (b.goals || 0) - (a.goals || 0) || (b.assists || 0) - (a.assists || 0) || (b.matches || 0) - (a.matches || 0));
-      if (!players.length) {
-        row([{ text: 'Nenhum atleta cadastrado.', x: M + 2 }]);
-      } else {
-        row([
-          { text: 'Atleta', x: M + 2 }, { text: 'Pos', x: 104, align: 'center' }, { text: 'Gols', x: 120, align: 'center' },
-          { text: 'Ast', x: 135, align: 'center' }, { text: 'Def', x: 150, align: 'center' }, { text: 'Jogos', x: 166, align: 'center' },
-          { text: 'Vit', x: 184, align: 'center' }
-        ], true);
-        players.forEach(p => row([
-          { text: p.name + (p.present ? '' : ' (ausente)'), x: M + 2, w: 82 },
-          { text: p.isGoalkeeper ? 'GOL' : 'LIN', x: 104, align: 'center' },
-          { text: p.goals || 0, x: 120, align: 'center' }, { text: p.assists || 0, x: 135, align: 'center' },
-          { text: p.saves || 0, x: 150, align: 'center' }, { text: p.matches || 0, x: 166, align: 'center' },
-          { text: p.wins || 0, x: 184, align: 'center' }
-        ]));
-      }
-
-      offerFile(`BABA_Resumo_${todayStamp()}.pdf`, doc.output('blob'), 'PDF salvo!');
-    }
-
     function generateBabaPNGCard() {
       const canvas = document.createElement('canvas');
       canvas.width = 600;
@@ -3735,6 +4562,7 @@
               <span class="block text-[14px] font-bold text-ink truncate">${fmtDate(d.date)} · ${escapeHtml(d.title || 'Baba')}</span>
               <span class="block text-[11px] text-ink-2 truncate">${d.matches || 0} partidas · ${d.players.length} atletas${top ? ` · artilheiro ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
             </div>
+            <button onclick="closeBackupModal(); openExportSheet('${d.id}')" class="btn-icon" aria-label="PDF desse baba"><i class="fa-solid fa-file-pdf"></i></button>
             ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Apagar"><i class="fa-solid fa-xmark"></i></button>`}
           </div>`;
       }).join('');
@@ -3917,7 +4745,7 @@
         const name = String(t.name || 'Turma importada').trim();
         let ex = state.turmas.find(x => sameName(x.name, name) && canEditTurma(x));
         if (!ex) {
-          ex = { id: uuid(), name, official: false, cloud: cloudOn(), role: 'admin', invite: null, players: [], keepers: [], meta: {} };
+          ex = { id: uuid(), name, official: false, cloud: cloudOn(), role: 'owner', invite: null, players: [], keepers: [], meta: {} };
           state.turmas.push(ex);
           res.created++;
         } else {
@@ -4007,6 +4835,10 @@
       if (confirmResolver) confirmResolver(false);
       document.getElementById('modal-confirm-text').innerText = message;
       document.getElementById('modal-confirm-ok').innerText = okLabel;
+      // Babinha shows the card for anything that removes or ends something.
+      const harsh = /^(Excluir|Apagar|Remover|Zerar|Tirar|Desconectar|Desligar|Sair|Desfazer tudo)/i.test(okLabel);
+      document.getElementById('modal-confirm-img').src = `babinha/${harsh ? 'red' : 'worried'}.webp`;
+      document.getElementById('modal-confirm-ok').className = `${harsh ? 'btn-danger' : 'btn-primary'} flex-1 h-12 text-[14px]`;
       document.getElementById('modal-confirm').classList.remove('hidden');
       return new Promise(resolve => { confirmResolver = resolve; });
     }
