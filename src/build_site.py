@@ -77,7 +77,11 @@ r = subprocess.run([f'{S}/tw/node_modules/.bin/tailwindcss', '-c', f'{S}/tw/tail
 if r.returncode: print(r.stderr[-1500:]); sys.exit(1)
 css = face + '/* Font Awesome Free 6.5.1 (subset) - fontawesome.com - Icons CC BY 4.0, Font SIL OFL 1.1, Code MIT */\n' + fa + solid + '\n' + open(f'{S}/tw/out.css').read()
 open(f'{OUT}/app.css', 'w').write(css)
-html = html.replace('<!--CSS_LINK-->', '<link rel="stylesheet" href="app.css" />')
+# Versioned URLs: the browser's own cache can never pair a new page with old code.
+hv = lambda path: hashlib.sha256(open(path, 'rb').read()).hexdigest()[:10]
+JS_URL, CSS_URL = f"app.js?v={hv(f'{OUT}/app.js')}", f"app.css?v={hv(f'{OUT}/app.css')}"
+html = html.replace('<!--CSS_LINK-->', f'<link rel="stylesheet" href="{CSS_URL}" />')
+html = html.replace('<script src="app.js"></script>', f'<script src="{JS_URL}"></script>')
 open(f'{OUT}/index.html', 'w').write(html)
 
 # --- PWA
@@ -101,7 +105,7 @@ files = sorted(f for f in files if f != 'sw.js')
 h = hashlib.sha256()
 for f in files: h.update(f.encode()); h.update(open(f'{OUT}/{f}', 'rb').read())
 version = h.hexdigest()[:12]
-precache = ['./'] + [f for f in files if f != 'index.html']
+precache = ['./'] + [{'app.js': JS_URL, 'app.css': CSS_URL}.get(f, f) for f in files if f != 'index.html' and not os.path.basename(f).startswith('.')]
 sw = open(f'{V}/sw.template.js').read().replace('__VERSION__', version).replace('__PRECACHE__', json.dumps(precache))
 open(f'{OUT}/sw.js', 'w').write(sw)
 open(f'{OUT}/.nojekyll', 'w').write('')

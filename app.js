@@ -711,25 +711,22 @@
     /* ---- Installable app (service worker) ---- */
     function registerServiceWorker() {
       if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
+      let hadController = !!navigator.serviceWorker.controller;
       let reloading = false;
+      const reload = () => { if (!reloading) { reloading = true; location.reload(); } };
+      // A new version took over. Reload right away unless a match or a sheet is
+      // open; then offer it, and reload on its own next time the app is hidden.
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (reloading) return;
-        reloading = true;
-        location.reload();
+        // The very first install only takes control; nothing to reload.
+        if (!hadController) { hadController = true; return; }
+        const busy = (state && state.match && state.match.isRunning) || !!document.querySelector('.overlay:not(.hidden), .page:not(.hidden), #tour:not(.hidden)');
+        if (!busy) { reload(); return; }
+        showToast('BABA atualizado.', 'success', { label: 'Recarregar', fn: reload });
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && !(state.match && state.match.isRunning)) reload(); });
       });
       navigator.serviceWorker.register('sw.js').then(reg => {
-        const offer = worker => {
-          // Never swap versions in the middle of a match: ask first.
-          showToast('Nova versão do BABA disponível.', 'success', { label: 'Atualizar', fn: () => worker.postMessage('skipWaiting') });
-        };
-        if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
-        reg.addEventListener('updatefound', () => {
-          const w = reg.installing;
-          if (!w) return;
-          w.addEventListener('statechange', () => {
-            if (w.state === 'installed' && navigator.serviceWorker.controller) offer(w);
-          });
-        });
+        if (reg.waiting) reg.waiting.postMessage('skipWaiting');
+        setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
       }).catch(() => {});
     }
 

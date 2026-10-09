@@ -1,11 +1,14 @@
 /* BABA service worker: the app works offline at the court.
-   App files: cache first (versioned). Server calls (Supabase) never cached. */
+   Page and app files come from the same versioned cache, so a new page
+   never runs with old code. Server calls (Supabase) are never cached. */
 const VERSION = '__VERSION__';
 const CACHE = 'baba-' + VERSION;
 const PRECACHE = __PRECACHE__;
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)));
+  // Take over as soon as the new version is fully cached; the page decides when to reload.
+  // cache: 'reload' skips the browser's HTTP cache, so every file is from this version.
+  event.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -27,16 +30,11 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
-    // Fresh page when online, cached app when not.
-    event.respondWith(fetch(req).then(res => {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put('./', copy));
-      return res;
-    }).catch(() => caches.match('./')));
+    event.respondWith(caches.open(CACHE).then(c => c.match('./')).then(hit => hit || fetch(req)));
     return;
   }
-  event.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => {
-    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+  event.respondWith(caches.open(CACHE).then(c => c.match(req).then(hit => hit || fetch(req).then(res => {
+    if (res.ok) c.put(req, res.clone());
     return res;
-  })));
+  }))));
 });
