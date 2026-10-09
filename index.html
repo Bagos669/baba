@@ -24,9 +24,10 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=49fdfebb8d" />
+  <link rel="stylesheet" href="app.css?v=18ed33ca67" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
+  <script defer src="vendor/qrcode.min.js"></script>
 
   <style>
     :root {
@@ -224,6 +225,65 @@
     .tour-bubble::before { content: ''; position: absolute; left: -7px; bottom: 18px; border: 7px solid transparent; border-left: 0; border-right-color: rgb(var(--c-sunk) / .7); }
     .tour-dot { width: 6px; height: 6px; border-radius: 9999px; background: rgb(var(--c-ink) / .18); transition: all .2s; }
     .tour-dot.on { width: 16px; background: rgb(var(--c-pitch)); }
+
+    /* ---- Lojinha: molduras e nomes ---- */
+    .fr { position: relative; display: inline-flex; flex-shrink: 0; border-radius: 9999px; padding: 3px; background: var(--fr); }
+    .fr > .avatar { box-shadow: 0 0 0 2px rgb(var(--c-paper)); }
+    .fr-bronze { --fr: conic-gradient(from 200deg, #7A4A1E, #E7A866, #8C5A2B, #F2C38E, #7A4A1E); }
+    .fr-prata { --fr: conic-gradient(from 200deg, #6E7883, #F4F7FA, #8A949E, #DDE3E9, #6E7883); }
+    .fr-ouro { --fr: conic-gradient(from 200deg, #A8760A, #FFE38A, #C9971C, #FFF3C4, #A8760A); }
+    .fr-esmeralda { --fr: conic-gradient(from 200deg, #075A40, #5EE0A6, #0B6E4F, #B9F5D8, #075A40); }
+    .fr-rubi { --fr: conic-gradient(from 200deg, #7A0C22, #FF5A7A, #A3122F, #FFC2CE, #7A0C22); }
+    .fr-platina { --fr: conic-gradient(from 200deg, #7F95A6, #FFFFFF, #B9C6CF, #E8F1F8, #7F95A6); }
+    .fr-diamante { --fr: conic-gradient(from 200deg, #6FE7FF, #FFFFFF, #A78BFA, #FFB4F0, #6FE7FF); }
+    .fr.shine::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+      background: conic-gradient(from 0deg, transparent 0 70%, rgba(255,255,255,.95) 82%, transparent 92%);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      animation: frSpin 2.4s linear infinite; }
+    .fr-diamante.shine, .fr-platina.shine, .fr-ouro.shine { filter: drop-shadow(0 0 6px rgba(255, 230, 150, .55)); }
+    @keyframes frSpin { to { transform: rotate(360deg); } }
+
+    .nm { background-image: var(--nm); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; background-size: 100% 100%; }
+    .nm-bronze { --nm: linear-gradient(90deg, #8C5A2B, #C98945, #8C5A2B); }
+    .nm-prata { --nm: linear-gradient(90deg, #5C6670, #9AA6B2, #5C6670); }
+    .nm-ouro { --nm: linear-gradient(90deg, #9A6A05, #D9A520, #9A6A05); }
+    .nm-esmeralda { --nm: linear-gradient(90deg, #08734F, #19A877, #08734F); }
+    .nm-rubi { --nm: linear-gradient(90deg, #A3122F, #E0304F, #A3122F); }
+    .nm-platina { --nm: linear-gradient(90deg, #4E6A80, #8BA6BA, #4E6A80); }
+    .nm-diamante { --nm: linear-gradient(90deg, #2E9FC4, #8A6CF0, #E06CC8, #2E9FC4); }
+    html.dark .nm-bronze { --nm: linear-gradient(90deg, #D89A5C, #F2C38E, #D89A5C); }
+    html.dark .nm-prata { --nm: linear-gradient(90deg, #C3CCD4, #FFFFFF, #C3CCD4); }
+    html.dark .nm-ouro { --nm: linear-gradient(90deg, #E8B83A, #FFE9A0, #E8B83A); }
+    html.dark .nm-esmeralda { --nm: linear-gradient(90deg, #3FD49A, #A6F2D2, #3FD49A); }
+    html.dark .nm-rubi { --nm: linear-gradient(90deg, #FF6A86, #FFC2CE, #FF6A86); }
+    html.dark .nm-platina { --nm: linear-gradient(90deg, #B9CFE0, #FFFFFF, #B9CFE0); }
+    html.dark .nm-diamante { --nm: linear-gradient(90deg, #7FE3FF, #C9B8FF, #FFB4F0, #7FE3FF); }
+    .nm.shine { background-image: linear-gradient(100deg, transparent 0 40%, rgba(255,255,255,.95) 50%, transparent 60% 100%), var(--nm); background-size: 250% 100%, 100% 100%; animation: nmShine 2.8s linear infinite; }
+    @keyframes nmShine { from { background-position: 120% 0, 0 0; } to { background-position: -120% 0, 0 0; } }
+
+    /* ---- Termos ---- */
+    .legal h3 { font-size: 16px; font-weight: 800; margin: 18px 0 6px; }
+    .legal h3:first-child { margin-top: 0; }
+    .legal p, .legal li { font-size: 14px; line-height: 1.6; color: rgb(var(--c-ink-2)); }
+    .legal p + p { margin-top: 8px; }
+    .legal ul { list-style: disc; padding-left: 20px; margin: 6px 0; }
+    .legal b { color: rgb(var(--c-ink)); }
+    .legal table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+    .legal td, .legal th { border-top: 1px solid rgb(var(--c-ink) / .08); padding: 6px 4px; text-align: left; vertical-align: top; color: rgb(var(--c-ink-2)); }
+    .legal th { color: rgb(var(--c-ink)); font-weight: 700; }
+
+    /* ---- Chat ---- */
+    .chat-box { display: flex; flex-direction: column; min-height: 260px; }
+    .chat-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .chat-msg { display: flex; gap: 8px; align-items: flex-end; max-width: 88%; }
+    .chat-msg.me { align-self: flex-end; flex-direction: row-reverse; }
+    .chat-bubble { padding: 8px 12px; border-radius: 18px; background: rgb(var(--c-sunk)); color: rgb(var(--c-ink)); font-size: 14px; line-height: 1.4; word-break: break-word; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+    .chat-msg.me .chat-bubble { background: rgb(var(--c-pitch)); color: rgb(var(--c-butter)); border-bottom-right-radius: 6px; }
+    .chat-msg:not(.me) .chat-bubble { border-bottom-left-radius: 6px; }
+    .chat-meta { font-size: 11px; font-weight: 700; margin: 0 4px 2px; }
+    .chat-del { font-style: italic; opacity: .6; }
+    .chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid rgb(var(--c-ink) / .08); }
 
     .logo-mark { display: inline-block; flex-shrink: 0; background: var(--logo) center / cover no-repeat; }
     .orb { position: absolute; border-radius: 9999px; pointer-events: none; }
@@ -527,8 +587,8 @@
           <img id="app-logo" src="icons/icon-192.png" alt="BABA" width="36" height="36" class="w-9 h-9 rounded-xl ring-1 ring-ink/10" />
           <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
         </button>
-        <button id="header-profile" onclick="openProfile()" class="relative w-10 h-10 rounded-full ring-2 ring-card shadow-md" aria-label="Seu perfil">
-          <span id="header-avatar" class="avatar w-10 h-10 text-[13px]">?</span>
+        <button id="header-profile" onclick="openProfile()" class="relative w-10 h-10 rounded-full ring-2 ring-card shadow-md flex" aria-label="Seu perfil">
+          <span id="header-avatar" class="avatar w-full h-full text-[13px]">?</span>
           <span id="sync-dot" class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-paper"></span>
         </button>
       </div>
@@ -563,6 +623,7 @@
         </div>
 
         <div id="home-mine"></div>
+        <div id="home-v7"></div>
 
         <section>
           <p class="eyebrow">Pra agora</p>
@@ -608,6 +669,10 @@
 
         <div id="placar-clock" class="pitch-card p-4 space-y-3.5">
           <div class="rings"></div>
+          <div id="live-pill" class="relative hidden items-center justify-between gap-2 -mt-0.5">
+            <span class="flex items-center gap-1.5 text-[12px] font-bold text-butter/85 min-w-0"><span id="live-pill-dot" class="live-dot hidden"></span><i class="fa-solid fa-tower-broadcast text-[11px]"></i><span id="live-pill-text" class="truncate">Transmissão desligada</span></span>
+            <button id="live-pill-btn" onclick="openQr()" class="h-8 px-3 rounded-full bg-butter text-pitch text-[12px] font-extrabold flex-shrink-0 active:scale-95 transition"><i class="fa-solid fa-tower-broadcast"></i> Transmitir</button>
+          </div>
           <div class="relative flex items-stretch gap-2.5">
             <div id="timer-box" class="relative flex-1 min-w-0 flex items-center justify-center rounded-2xl bg-black/25 border border-white/10 py-2.5">
               <div id="timer-display" class="font-serif text-[70px] leading-none text-butter">07:00</div>
@@ -942,6 +1007,7 @@
             <option value="1500">25 min</option>
             <option value="1800">30 min</option>
           </select>
+          <button id="cm-qr" onclick="openQr()" class="hidden w-10 h-10 flex-shrink-0 rounded-full bg-butter text-pitch flex items-center justify-center active:scale-95" aria-label="QR do jogo ao vivo"><i class="fa-solid fa-qrcode"></i></button>
           <button onclick="exitCourtMode()" class="w-10 h-10 flex-shrink-0 rounded-full bg-white/10 border border-white/20 text-butter flex items-center justify-center active:scale-95" aria-label="Sair da tela cheia"><i class="fa-solid fa-compress"></i></button>
         </div>
       </div>
@@ -997,7 +1063,7 @@
 
       <section class="flex flex-col items-center text-center pt-1">
         <button onclick="openAvatarPicker('me')" class="relative" aria-label="Trocar foto ou ícone">
-          <span id="profile-avatar" class="avatar w-24 h-24 text-[30px] ring-4 ring-card shadow-lg">?</span>
+          <span id="profile-avatar-wrap" class="inline-flex rounded-full"><span id="profile-avatar" class="avatar w-24 h-24 text-[30px] ring-4 ring-card shadow-lg">?</span></span>
           <span class="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-pitch text-butter ring-4 ring-paper flex items-center justify-center text-[12px]"><i class="fa-solid fa-camera"></i></span>
         </button>
         <div id="profile-name-view" class="mt-3 flex items-center justify-center gap-1.5 max-w-full">
@@ -1054,6 +1120,13 @@
         </div>
       </section>
 
+      <section data-v7 class="hidden">
+        <p class="eyebrow mb-2 px-1">Baba points</p>
+        <div class="card-flat overflow-hidden">
+          <button onclick="openShop()" class="menu-row"><img src="babinha/money.webp" alt="" class="w-9 h-9 object-contain flex-shrink-0" /><span class="flex-1 min-w-0"><span class="block">Lojinha do Babinha</span><span class="block text-[12px] font-medium text-ink-2">Molduras, nomes brilhantes e o bônus do dia</span></span><span id="profile-points" class="text-[13px] font-extrabold text-pitch"></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        </div>
+      </section>
+
       <section>
         <p class="eyebrow mb-2 px-1">Segurança</p>
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
@@ -1088,6 +1161,7 @@
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
           <button onclick="openSupport()" class="menu-row"><img src="babinha/happy.webp" alt="" class="w-9 h-9 object-contain flex-shrink-0" /><span class="flex-1 min-w-0"><span class="block">Suporte e dúvidas</span><span class="block text-[12px] font-medium text-ink-2">Perguntas frequentes com o Babinha</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
           <button onclick="closeProfile(); startTour(true);" class="menu-row"><img src="babinha/coach.webp" alt="" class="w-9 h-9 object-contain flex-shrink-0" /><span class="flex-1">Rever o tutorial</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="openTermsPage('termos')" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-contract"></i></span><span class="flex-1">Termos, privacidade e conduta</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
         </div>
       </section>
 
@@ -1212,6 +1286,207 @@
         <button id="tour-back" onclick="tourGo(-1)" class="btn-outline h-10 w-10 text-[13px]" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
         <button id="tour-next" onclick="tourGo(1)" class="btn-primary h-10 px-5 text-[14px]">Próximo</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================== ACEITE DOS TERMOS (bloqueia o app até aceitar) ===================== -->
+  <div id="page-terms-gate" class="page hidden !z-[86]" aria-label="Aceite dos termos">
+    <div class="page-body max-w-md mx-auto px-5 pb-10" style="padding-top: calc(var(--sat) + 18px);">
+      <div class="relative card overflow-hidden p-4 pr-[120px] min-h-[140px] flex flex-col justify-center">
+        <img src="babinha/coach.webp" alt="Babinha" class="absolute right-1 bottom-0 w-[118px]" />
+        <p class="eyebrow">Antes de entrar em campo</p>
+        <h1 class="text-[24px] font-bold leading-tight mt-1">Combinado é<br><span class="font-serif italic font-normal text-pitch text-[30px]">combinado.</span></h1>
+      </div>
+      <ul class="mt-5 space-y-3 text-[14px] text-ink-2 leading-snug">
+        <li class="flex gap-3"><i class="fa-solid fa-coins text-pitch mt-0.5 w-4 text-center"></i><span><b class="text-ink">Baba points são de brincadeira.</b> Não se compram, não se sacam e não viram prêmio. Palpites só para maiores de 18.</span></li>
+        <li class="flex gap-3"><i class="fa-solid fa-shield-halved text-pitch mt-0.5 w-4 text-center"></i><span><b class="text-ink">Seus dados ficam no Brasil</b> e servem só para a pelada funcionar. Dá pra excluir a conta quando quiser.</span></li>
+        <li class="flex gap-3"><i class="fa-solid fa-handshake text-pitch mt-0.5 w-4 text-center"></i><span><b class="text-ink">Respeito no chat e nas fotos.</b> Nada de discriminação, ofensa ou foto de alguém sem autorização.</span></li>
+      </ul>
+      <div class="mt-5 card-flat overflow-hidden divide-y divide-ink/[0.07]">
+        <button onclick="openTermsPage('termos')" class="menu-row"><i class="fa-solid fa-file-contract text-pitch w-5 text-center"></i><span class="flex-1">Termos de Uso</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="openTermsPage('privacidade')" class="menu-row"><i class="fa-solid fa-user-lock text-pitch w-5 text-center"></i><span class="flex-1">Política de Privacidade</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="openTermsPage('conduta')" class="menu-row"><i class="fa-solid fa-people-group text-pitch w-5 text-center"></i><span class="flex-1">Código de Conduta</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+      </div>
+      <form class="mt-5 space-y-3.5" onsubmit="event.preventDefault(); submitTerms();" novalidate>
+        <label id="terms-birth-wrap" class="block">
+          <span class="label">Data de nascimento</span>
+          <input id="terms-birth" type="date" class="field" autocomplete="bday" />
+          <span class="block text-[12px] text-ink-2 mt-1.5">A conta é para quem tem 16 anos ou mais. Não aparece pra ninguém.</span>
+        </label>
+        <label class="flex items-start gap-3 text-[14px] font-semibold text-ink cursor-pointer">
+          <input id="terms-ack" type="checkbox" class="mt-0.5 w-5 h-5 accent-[#003631] flex-shrink-0" />
+          <span>Li e aceito os Termos de Uso, a Política de Privacidade e o Código de Conduta do BABA.</span>
+        </label>
+        <p id="terms-error" class="hidden text-[13px] font-semibold text-danger"></p>
+        <button id="btn-terms" class="btn-primary w-full h-14 text-[16px]">Aceitar e continuar</button>
+        <button type="button" onclick="termsLogout()" class="w-full h-11 text-[13px] font-bold text-ink-2">Agora não, sair da conta</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== TERMOS (leitura) ===================== -->
+  <div id="page-terms" class="page hidden !z-[87]" aria-label="Termos">
+    <div class="page-head">
+      <button onclick="closeTermsPage()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Termos e privacidade</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-4">
+      <div id="terms-tabs" class="seg grid-cols-3">
+        <button onclick="showTermsTab('termos')" data-t="termos" class="seg-btn">Termos</button>
+        <button onclick="showTermsTab('privacidade')" data-t="privacidade" class="seg-btn">Privacidade</button>
+        <button onclick="showTermsTab('conduta')" data-t="conduta" class="seg-btn">Conduta</button>
+      </div>
+      <p id="terms-accepted" class="text-[12px] text-ink-2 px-1"></p>
+      <article id="terms-body" class="legal card-flat p-4"></article>
+    </div>
+  </div>
+
+  <!-- ===================== LOJINHA ===================== -->
+  <div id="page-shop" class="page hidden !z-[56]" aria-label="Lojinha">
+    <div class="page-head">
+      <button onclick="closeShop()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Lojinha do Babinha</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-5">
+      <section class="pitch-card p-4 pr-[128px] min-h-[150px] flex flex-col justify-center">
+        <div class="rings"></div>
+        <img src="babinha/money.webp" alt="" class="absolute right-1 bottom-0 w-[124px] babinha-bob" />
+        <p class="relative text-[12px] font-semibold text-butter/75">Seus baba points</p>
+        <p class="relative font-serif text-[52px] leading-none mt-1"><span id="shop-balance">0</span></p>
+        <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
+      </section>
+      <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário e acertando palpites. Não se compram e não valem dinheiro.</p>
+      <div class="flex items-center gap-4 card p-4">
+        <span id="shop-preview-avatar"></span>
+        <div class="min-w-0">
+          <p class="text-[12px] text-ink-2">Como a galera te vê</p>
+          <p id="shop-preview-name" class="text-[20px] font-bold truncate"></p>
+        </div>
+      </div>
+      <div id="shop-tabs" class="seg grid-cols-3">
+        <button onclick="shopTab('frame')" data-k="frame" class="seg-btn is-selected">Molduras</button>
+        <button onclick="shopTab('name')" data-k="name" class="seg-btn">Nomes</button>
+        <button onclick="shopTab('fx')" data-k="fx" class="seg-btn">Brilhos</button>
+      </div>
+      <div id="shop-items" class="grid grid-cols-2 gap-2.5"></div>
+      <div>
+        <p class="eyebrow mb-2 px-1">Extrato</p>
+        <div id="shop-ledger" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== JOGO AO VIVO (espectador) ===================== -->
+  <div id="page-live" class="page hidden !z-[83]" aria-label="Jogo ao vivo">
+    <div class="page-head">
+      <button onclick="closeLive()" class="page-head-btn" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      <span class="flex items-center gap-2 text-[15px] font-extrabold min-w-0"><span class="live-dot flex-shrink-0" id="lv-dot"></span><span id="lv-title" class="truncate">Ao vivo</span></span>
+      <span id="lv-balance" class="h-10 px-3 rounded-full bg-card border border-ink/10 text-[13px] font-extrabold flex items-center gap-1.5 hidden"><i class="fa-solid fa-coins text-pitch"></i><span></span></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-4">
+      <section class="pitch-card p-4">
+        <div class="rings"></div>
+        <div class="relative flex items-center justify-between text-[12px] font-semibold text-butter/80">
+          <span id="lv-match">Partida</span>
+          <span id="lv-status" class="rounded-full bg-white/10 px-2.5 py-1">Aguardando</span>
+        </div>
+        <div class="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 mt-3">
+          <div class="text-center min-w-0"><p id="lv-a" class="text-[13px] font-bold text-butter/80 truncate">Time A</p><p id="lv-sa" class="font-serif text-[64px] leading-none text-butter">0</p></div>
+          <div class="text-center"><p id="lv-timer" class="font-serif text-[30px] leading-none text-butter">--:--</p><p class="text-[11px] text-butter/60 mt-1">tempo</p></div>
+          <div class="text-center min-w-0"><p id="lv-b" class="text-[13px] font-bold text-butter/80 truncate">Time B</p><p id="lv-sb" class="font-serif text-[64px] leading-none text-butter">0</p></div>
+        </div>
+        <div class="relative grid grid-cols-2 gap-2 mt-3 text-[12px] text-butter/75">
+          <p id="lv-na" class="leading-snug"></p><p id="lv-nb" class="leading-snug text-right"></p>
+        </div>
+      </section>
+      <div id="lv-events" class="space-y-1.5"></div>
+
+      <section id="lv-palpites-box">
+        <div class="flex items-end justify-between mb-2 px-1">
+          <div><p class="eyebrow">De brincadeira</p><h2 class="title mt-0.5">Palpites</h2></div>
+          <span id="lv-closes" class="text-[12px] font-semibold text-ink-2"></span>
+        </div>
+        <div id="lv-markets" class="space-y-3"></div>
+        <div id="lv-mine" class="mt-3"></div>
+        <p class="text-[11px] text-ink-3 leading-snug mt-2 px-1">Sem dinheiro: baba points não se compram nem se sacam. Só para maiores de 18.</p>
+      </section>
+
+      <section id="lv-ranking-box" class="hidden">
+        <p class="eyebrow mb-2 px-1">Quem mais acertou</p>
+        <div id="lv-ranking" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Chat do jogo</p>
+        <div id="lv-chat" class="chat-box card-flat"></div>
+      </section>
+      <div id="lv-guest" class="hidden card p-4 space-y-3">
+        <div class="flex items-center gap-3"><img src="babinha/wave.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[14px] text-ink-2 leading-snug"><b class="text-ink">Quer palpitar e conversar?</b> Crie sua conta em 30 segundos. Assistir é liberado.</p></div>
+        <div class="grid grid-cols-2 gap-2"><button onclick="liveGoAuth('signup')" class="btn-primary h-11 text-[14px]">Criar conta</button><button onclick="liveGoAuth('login')" class="btn-outline h-11 text-[14px]">Entrar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CHAT DA TURMA ===================== -->
+  <div id="page-chat" class="page hidden !z-[57] flex flex-col" aria-label="Chat da turma">
+    <div class="page-head w-full">
+      <button onclick="closeTurmaChat()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span id="chat-title" class="text-[16px] font-extrabold truncate">Chat</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="flex-1 min-h-0 w-full max-w-lg mx-auto px-4 pb-3 flex flex-col" style="padding-bottom: calc(var(--sab) + 12px);">
+      <div id="chat-turma" class="chat-box flex-1 min-h-0 flex flex-col"></div>
+    </div>
+  </div>
+
+  <!-- QR do jogo ao vivo -->
+  <div id="modal-qr" class="overlay hidden z-[60]" onclick="if(event.target===this) closeQr()">
+    <div class="sheet-panel space-y-4 max-h-[94dvh] overflow-y-auto">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1">
+        <div><h3 class="title">Jogo ao vivo</h3><p class="text-[13px] text-ink-2">Quem escanear acompanha o placar no celular.</p></div>
+        <button onclick="closeQr()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="keep-light mx-auto w-[260px] max-w-full aspect-square rounded-[28px] bg-white p-4 shadow-lg flex items-center justify-center"><div id="qr-img" class="w-full h-full"></div></div>
+      <p class="text-center"><span class="text-[12px] text-ink-2">Código</span><br><span id="qr-code" class="font-serif text-[34px] tracking-[0.12em] text-pitch"></span></p>
+      <div class="grid grid-cols-2 gap-2">
+        <button onclick="shareLive()" class="btn-primary h-12 text-[14px]"><i class="fa-solid fa-share-nodes"></i> Mandar link</button>
+        <button onclick="openLive(liveCode())" class="btn-outline h-12 text-[14px]"><i class="fa-solid fa-eye"></i> Ver como público</button>
+      </div>
+      <div class="card-flat overflow-hidden">
+        <label class="menu-row cursor-pointer">
+          <span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-coins"></i></span>
+          <span class="flex-1 min-w-0"><span class="block">Palpites neste jogo</span><span class="block text-[12px] font-medium text-ink-2">Só maiores de 18, com baba points</span></span>
+          <input type="checkbox" id="qr-palpites" class="sr-only" onchange="setLivePalpites(this.checked)" /><span class="switch"></span>
+        </label>
+        <button onclick="stopLive()" class="menu-row !text-danger border-t border-ink/[0.07]"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-tower-broadcast"></i></span><span class="flex-1">Parar de transmitir</span></button>
+      </div>
+      <p class="text-[12px] text-ink-2 leading-snug">Avise a galera: quem tem o link vê o placar, os nomes em quadra e o chat do jogo.</p>
+    </div>
+  </div>
+
+  <!-- Fazer um palpite -->
+  <div id="modal-palpite" class="overlay hidden z-[84]" onclick="if(event.target===this) closePalpite()">
+    <div class="sheet-panel space-y-4">
+      <div class="grabber"></div>
+      <div class="flex items-start gap-3 -mt-1">
+        <img src="babinha/aura.webp" alt="" class="w-16 h-16 object-contain flex-shrink-0" />
+        <div class="min-w-0 flex-1">
+          <p class="eyebrow">Seu palpite</p>
+          <h3 id="pp-label" class="title mt-0.5"></h3>
+          <p class="text-[13px] text-ink-2">Multiplicador <b id="pp-odd" class="text-ink"></b></p>
+        </div>
+        <button onclick="closePalpite()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div>
+        <span class="label">Quantos pontos?</span>
+        <div id="pp-stakes" class="grid grid-cols-5 gap-1.5"></div>
+      </div>
+      <p class="text-[14px] text-ink-2">Se acertar, você recebe <b id="pp-return" class="text-pitch text-[18px] font-serif"></b> pontos.</p>
+      <p id="pp-error" class="hidden text-[13px] font-semibold text-danger"></p>
+      <button id="btn-palpite" onclick="confirmPalpite()" class="btn-primary w-full h-14 text-[16px]">Confirmar palpite</button>
     </div>
   </div>
 
@@ -1463,7 +1738,7 @@
   </div>
 
   <!-- Confirm -->
-  <div id="modal-confirm" class="overlay hidden z-[70]" onclick="if(event.target===this) resolveConfirm(false)">
+  <div id="modal-confirm" class="overlay hidden z-[90]" onclick="if(event.target===this) resolveConfirm(false)">
     <div class="sheet-panel space-y-4">
       <div class="grabber"></div>
       <div class="flex items-start gap-3">
@@ -1477,6 +1752,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=30744b297d"></script>
+  <script src="app.js?v=512de6a93d"></script>
 </body>
 </html>

@@ -40,7 +40,15 @@ async def signup(pg, name, email, pw):
     if not await pg.vis('#scr-recovery'): return None
     code = await pg.input_value('#recovery-code')
     await pg.check('#recovery-ack'); await pg.ev("recoveryDone()"); await pg.wait_for_timeout(500)
+    await accept_terms(pg)
     return code
+
+async def accept_terms(pg, birth='1995-05-05'):
+    await pg.wait_for_timeout(300)
+    if await pg.vis('#page-terms-gate'):
+        if await pg.ev("!document.getElementById('terms-birth-wrap').classList.contains('hidden')"):
+            await pg.fill('#terms-birth', birth)
+        await pg.check('#terms-ack'); await pg.ev("submitTerms()"); await pg.wait_for_timeout(500)
 
 async def main():
     async with async_playwright() as p:

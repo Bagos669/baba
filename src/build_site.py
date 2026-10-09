@@ -32,6 +32,7 @@ assert 'LOGO_DATA_URI' not in html, 'logo placeholder left'
 # --- vendor libs
 shutil.copy(f'{S}/vendor/sb/package/dist/umd/supabase.js', f'{OUT}/vendor/supabase.js')
 shutil.copy(f'{S}/vendor/jspdf.umd.min.js', f'{OUT}/vendor/jspdf.umd.min.js')
+open(f'{OUT}/vendor/qrcode.min.js', 'w').write('/* qrcode-generator 1.4.4 · Copyright (c) 2009 Kazuhiko Arase · MIT license */\n' + open(f'{S}/vendor/qrcode.min.js').read())
 
 # --- fonts
 fonts = [

@@ -94,7 +94,10 @@
         standings: {},
         lastFinish: null,
         // Summaries of finished babas (this device's and imported ones).
-        pastDays: []
+        pastDays: [],
+        // Live transmission of this baba ({ id, code, palpites }) and whether the QR was offered.
+        live: null,
+        liveAsked: false
       };
     }
 
@@ -219,12 +222,16 @@
       state.savedAt = Date.now();
       cacheState();
       schedulePush();
+      scheduleLivePush();
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
       applyPrefs();
       renderPrefsUI();
       readInviteFromUrl();
+      readLiveFromUrl();
+      // Multipliers depend on the time left: refresh them while the clock runs.
+      setInterval(() => { if (state.live && state.match.isRunning) pushLive(); }, 20000);
       document.addEventListener('pointerdown', unlockAudio, { passive: true });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
@@ -246,7 +253,12 @@
       let session = null;
       try { session = await api.getSession(); } catch (e) {}
       if (session) enterWithSession(session, true);
-      else showAuth(lsGet('baba_last_email') ? 'login' : 'landing');
+      else {
+        showAuth(lsGet('baba_last_email') ? 'login' : 'landing');
+        // A spectator from the QR code watches without an account.
+        const lc = takePendingLive();
+        if (lc) openLive(lc);
+      }
     });
 
     /* ===================================================================
@@ -527,6 +539,8 @@
       if (op.type === 'player_rename') return api.renamePlayer(op.turmaId, op.oldName, op.newName);
       if (op.type === 'turma_sync') return syncTurmaNow(op.id);
       if (op.type === 'profile_update') return api.updateProfile(currentUser.id, op.patch || {});
+      if (op.type === 'live_settle') return api.settlePalpites(op.liveId, op.matchNo, op.result);
+      if (op.type === 'live_end') return api.updateLive(op.id, { active: false, markets: { open: false } });
     }
 
     /* Makes the server roster match the local one (names, goalkeepers). */
@@ -973,7 +987,7 @@
     function enterApp(user) {
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       const cached = readCachedProfile(user.id);
-      if (cached) { if (cached.name) user.name = cached.name; user.avatar = cached.avatar || null; }
+      if (cached) { if (cached.name) user.name = cached.name; user.avatar = cached.avatar || null; user.cosmetics = cached.cosmetics || {}; }
       currentUser = user;
       lastPull = 0;
       loadState();
@@ -987,8 +1001,18 @@
       setSync(readOutbox().length ? 'syncing' : 'ok');
       pullCloud(true).then(() => {
         if (!currentUser || currentUser.id !== user.id) return;
-        // First time on the app: the Babinha tour, then invites and old data.
-        startTour(false, () => { handlePendingInvite(); offerLocalImport(); });
+        refreshAccount().then(() => {
+          if (!currentUser || currentUser.id !== user.id) return;
+          refreshWallet().then(renderHomeV7);
+          loadLiveList();
+          // Terms first, then (first time) the Babinha tour, then invites, old data and a pending live game.
+          ensureTerms(() => startTour(false, () => {
+            handlePendingInvite();
+            offerLocalImport();
+            const lc = takePendingLive();
+            if (lc) openLive(lc);
+          }));
+        });
       });
     }
 
@@ -1001,6 +1025,7 @@
       await api.signOut();
       currentUser = null;
       prefsPulledFor = null;
+      account = null; wallet = null; v7 = null; liveListCache = [];
       state = defaultState();
       showAuth('login');
     }
@@ -1319,6 +1344,9 @@
       paintAvatar(document.getElementById('header-avatar'), acc ? acc.avatar : null, acc ? acc.name : '');
       paintAvatar(document.getElementById('profile-avatar'), acc ? acc.avatar : null, acc ? acc.name : '');
       document.getElementById('profile-name').innerText = acc ? acc.name : '';
+      applyFrame(document.getElementById('header-profile'), acc && acc.cosmetics);
+      applyFrame(document.getElementById('profile-avatar-wrap'), acc && acc.cosmetics);
+      applyNameStyle(document.getElementById('profile-name'), acc && acc.cosmetics);
       document.getElementById('profile-user').innerText = acc ? acc.email || '' : '';
       document.getElementById('profile-bio-toggle').checked = !!(acc && readLock(acc.id));
     }
@@ -1699,7 +1727,7 @@
 
     function cacheProfile() {
       if (!currentUser) return;
-      lsSet(PROFILE_PREFIX + currentUser.id, JSON.stringify({ name: currentUser.name, avatar: currentUser.avatar || null }));
+      lsSet(PROFILE_PREFIX + currentUser.id, JSON.stringify({ name: currentUser.name, avatar: currentUser.avatar || null, cosmetics: currentUser.cosmetics || {} }));
     }
     function readCachedProfile(uid) {
       try { return JSON.parse(lsGet(PROFILE_PREFIX + uid) || 'null'); } catch (e) { return null; }
@@ -1757,26 +1785,35 @@
       box.innerHTML = `<div class="card p-3.5 grid grid-cols-5 gap-1">${cell(mine.babas, mine.babas === 1 ? 'baba' : 'babas')}${cell(mine.matches, 'jogos')}${cell(mine.goals, 'gols')}${cell(mine.assists, 'assist.')}${cell(mine.wins, 'vitórias')}</div>`;
     }
 
-    /* Android back button closes the open page instead of leaving the app. */
+    /* Android back button closes the open page instead of leaving the app.
+       One history entry ("trap") is pushed while pages are open; closing a page
+       with its own button never touches history, so quick open/close sequences
+       can't walk the browser out of the app. */
     const pageStack = [];
-    let ignorePops = 0;
-    function pushPage(id) {
-      if (pageStack.includes(id)) return;
-      pageStack.push(id);
-      try { history.pushState({ babaPage: id }, ''); } catch (e) {}
+    let trapArmed = false;
+    const PAGE_CLOSERS = {
+      'page-profile': () => closeProfile(), 'page-support': () => closeSupport(), 'page-terms': () => closeTermsPage(),
+      'page-shop': () => closeShop(), 'page-live': () => closeLive(), 'page-chat': () => closeTurmaChat()
+    };
+    function armTrap() {
+      if (trapArmed) return;
+      try { history.pushState({ babaTrap: 1 }, ''); trapArmed = true; } catch (e) {}
     }
-    /* Closed by a button: drop our history entry too, without reacting to it. */
+    function pushPage(id) {
+      if (!pageStack.includes(id)) pageStack.push(id);
+      armTrap();
+    }
     function popPage(id) {
       const i = pageStack.lastIndexOf(id);
-      if (i === -1) return;
-      pageStack.splice(i, 1);
-      ignorePops++;
-      try { history.back(); } catch (e) { ignorePops--; }
+      if (i !== -1) pageStack.splice(i, 1);
     }
     window.addEventListener('popstate', () => {
-      if (ignorePops > 0) { ignorePops--; return; }
-      const top = pageStack.pop();
-      if (top) document.getElementById(top).classList.add('hidden');
+      trapArmed = false;
+      const top = pageStack[pageStack.length - 1];
+      if (top) {
+        (PAGE_CLOSERS[top] || (() => { document.getElementById(top).classList.add('hidden'); popPage(top); }))();
+        if (pageStack.length) armTrap();
+      }
     });
 
     /* ===================================================================
@@ -1973,6 +2010,10 @@
         const live = turmaById(id);
         if (!live) return;
         live.people = rows.map(r => ({ id: r.user_id, name: r.name || 'Sem nome', avatar: r.avatar || null, role: r.role, player: r.player_name || null }));
+        if (v7 === true) {
+          await ensurePeople(live.people.map(p => p.id));
+          live.people.forEach(p => { const c = peopleCache.get(p.id); if (c) p.cosmetics = c.cosmetics; });
+        }
         cacheState();
         if (editingTurmaId === id && turmaPane === 'pessoas') renderTurmaPeople();
       } catch (e) {
@@ -2000,9 +2041,9 @@
         const actionable = !me && (t.role === 'owner' || (t.role === 'admin' && p.role === 'member'));
         const badge = p.role === 'owner' ? 'bg-pitch text-butter' : p.role === 'admin' ? 'bg-butter text-pitch border border-butter-3' : 'bg-sunk text-ink-2';
         const inner = `
-          ${avatarHtml(p.avatar, p.name, 'w-10 h-10 text-[13px]')}
+          ${framedAvatar(p.avatar, p.name, 'w-10 h-10 text-[13px]', p.cosmetics)}
           <span class="min-w-0 flex-1 text-left">
-            <span class="block text-[14px] font-bold truncate">${escapeHtml(p.name)}${me ? ' <span class="text-ink-2 font-semibold">(você)</span>' : ''}</span>
+            <span class="block text-[14px] font-bold truncate">${styledName(p.name, p.cosmetics)}${me ? ' <span class="text-ink-2 font-semibold">(você)</span>' : ''}</span>
             <span class="block text-[12px] text-ink-2 truncate">${p.player ? `Joga como ${escapeHtml(p.player)}` : 'Ainda não ligou o nome'}</span>
           </span>
           <span class="text-[11px] font-extrabold rounded-full px-2.5 py-1 flex-shrink-0 ${badge}">${ROLE_LABEL[p.role] || 'Membro'}</span>
@@ -2386,6 +2427,1076 @@
     }
 
     /* ===================================================================
+       V7 · SERVIDOR (termos, pontos, lojinha, ao vivo, palpites, chat)
+       Everything new is optional: on a server without these functions
+       (v7 === false) the app simply hides the new features.
+       =================================================================== */
+    const TERMS_VERSION = '1.0';
+    const CONTACT_EMAIL = 'contatobabaapp@gmail.com';
+    let v7 = null;            // server has the v7 functions (null = not checked yet)
+    let account = null;       // { termsVersion, termsAt, hasBirth, adult }
+    let wallet = null;        // { balance, daily, items: Set }
+    const peopleCache = new Map();
+
+    const isMissingFn = e => !!e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function|does not exist/i.test(String(e.message || '')));
+
+    async function rpc(name, args) {
+      const { data, error } = await sb.rpc(name, args || {});
+      if (error) throw error;
+      return data;
+    }
+
+    const API7 = {
+      myAccount: async () => ((await rpc('my_account')) || [])[0] || null,
+      acceptTerms: (version, birth) => rpc('accept_terms', { version, birth }),
+      myWallet: async () => ((await rpc('my_wallet')) || [])[0] || null,
+      claimDaily: () => rpc('claim_daily'),
+      shopItems: () => q(sb.from('shop_items').select('id, kind, tier, title, price, sort').order('sort')),
+      ledger: () => q(sb.from('points_ledger').select('delta, reason, ref, created_at').order('id', { ascending: false }).limit(25)),
+      buyItem: item => rpc('buy_item', { item }),
+      equipItem: (slot, item) => rpc('equip_item', { slot, item }),
+      async createLive(row) { const { data, error } = await sb.from('live_games').insert(row).select('id, code'); if (error) throw error; return (data || [])[0]; },
+      updateLive: (id, patch) => q(sb.from('live_games').update(patch).eq('id', id)),
+      liveList: () => q(sb.from('live_games').select('id, code, title, owner, updated_at').eq('active', true).order('updated_at', { ascending: false }).limit(10)),
+      getLive: async code => ((await rpc('get_live', { live_code: code })) || [])[0] || null,
+      placePalpite: async (live, market, stake) => ((await rpc('place_palpite', { live, market, stake })) || [])[0],
+      myPalpites: liveId => q(sb.from('palpites').select('id, match_no, market, label, odd, stake, status, payout').eq('live_id', liveId).order('id', { ascending: false }).limit(30)),
+      settlePalpites: (live, matchNo, result) => rpc('settle_palpites', { live, match_no: matchNo, result }),
+      liveRanking: live => rpc('live_ranking', { live }),
+      chatList: (room, afterId) => q(sb.from('chat_messages').select('id, user_id, body, deleted, created_at').eq('room', room).gt('id', afterId || 0).order('id', { ascending: false }).limit(60)),
+      chatSend: (room, body) => q(sb.from('chat_messages').insert({ room, body })),
+      chatDelete: id => rpc('delete_message', { msg: id }),
+      chatReport: (id, why) => rpc('report_message', { msg: id, why }),
+      liveChat: (code, after) => rpc('live_chat', { live_code: code, after_id: after || 0 }),
+      peopleCards: ids => rpc('people_cards', { ids }),
+      subscribe(room, onRow) {
+        try {
+          const ch = sb.channel('room:' + room)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `room=eq.${room}` }, p => onRow(p.new))
+            .subscribe();
+          return () => { try { sb.removeChannel(ch); } catch (e) {} };
+        } catch (e) { return () => {}; }
+      }
+    };
+    // Tests can stand in for any of these with window.__BABA_FAKE_API__.
+    Object.keys(API7).forEach(k => { if (!(window.__BABA_FAKE_API__ || {})[k]) api[k] = API7[k]; });
+
+    async function refreshAccount() {
+      if (!cloudOn()) return;
+      try {
+        const a = await api.myAccount();
+        v7 = true;
+        if (a) {
+          account = { termsVersion: a.terms_version || null, termsAt: a.terms_accepted_at || null, hasBirth: !!a.has_birth, adult: !!a.adult };
+          currentUser.cosmetics = a.cosmetics || {};
+          if (a.terms_version) lsSet('baba_terms_v1:' + currentUser.id, a.terms_version);
+          cacheProfile();
+        }
+      } catch (e) {
+        if (isMissingFn(e)) v7 = false;
+      }
+      renderV7Bits();
+    }
+
+    async function refreshWallet() {
+      if (!cloudOn() || v7 !== true) return null;
+      try {
+        const w = await api.myWallet();
+        if (w) wallet = { balance: w.balance || 0, daily: !!w.daily_available, items: new Set(w.items || []) };
+      } catch (e) {}
+      renderV7Bits();
+      return wallet;
+    }
+
+    /* Bits of the v7 UI that depend on the server and the account. */
+    function renderV7Bits() {
+      const on = v7 === true && cloudOn();
+      document.querySelectorAll('[data-v7]').forEach(el => el.classList.toggle('hidden', !on));
+      const bal = document.getElementById('profile-points');
+      if (bal) bal.innerText = wallet ? `${fmtPts(wallet.balance)} pts` : '';
+      renderProfileBits();
+      renderLivePill();
+    }
+
+    const fmtPts = n => Number(n || 0).toLocaleString('pt-BR');
+
+    /* ===================================================================
+       TERMOS E ACEITE
+       =================================================================== */
+    let termsNext = null;
+
+    function termsAcceptedHere() {
+      if (!currentUser) return false;
+      if (account) return account.termsVersion === TERMS_VERSION;
+      return lsGet('baba_terms_v1:' + currentUser.id) === TERMS_VERSION;
+    }
+
+    /* Runs `next` once the account has accepted this version of the terms. */
+    function ensureTerms(next) {
+      if (v7 !== true || termsAcceptedHere()) { next(); return; }
+      termsNext = next;
+      document.getElementById('terms-birth-wrap').classList.toggle('hidden', !!(account && account.hasBirth));
+      document.getElementById('terms-ack').checked = false;
+      document.getElementById('terms-error').classList.add('hidden');
+      document.getElementById('page-terms-gate').classList.remove('hidden');
+      document.getElementById('page-terms-gate').scrollTop = 0;
+    }
+
+    async function submitTerms() {
+      const btn = document.getElementById('btn-terms');
+      const needBirth = !(account && account.hasBirth);
+      const birth = document.getElementById('terms-birth').value;
+      if (needBirth) {
+        if (!birth) return showErr('terms-error', 'Informe sua data de nascimento.');
+        const age = ageFrom(birth);
+        if (age === null || age > 110) return showErr('terms-error', 'Confira a data de nascimento.');
+        if (age < 16) return showErr('terms-error', 'O BABA é para quem tem 16 anos ou mais. Seu nome ainda pode estar na turma: o organizador cadastra.');
+      }
+      if (!document.getElementById('terms-ack').checked) return showErr('terms-error', 'Marque que leu e aceita os termos.');
+      setBusy(btn, true, 'Salvando...');
+      try {
+        await api.acceptTerms(TERMS_VERSION, needBirth ? birth : null);
+        await refreshAccount();
+        lsSet('baba_terms_v1:' + currentUser.id, TERMS_VERSION);
+        document.getElementById('page-terms-gate').classList.add('hidden');
+        const fn = termsNext; termsNext = null;
+        showToast('Tudo certo. Bom baba!');
+        if (fn) fn();
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showErr('terms-error', isNetworkError(e) ? OFFLINE_MSG : m.includes('too_young') ? 'O BABA é para quem tem 16 anos ou mais.' : m.includes('bad_birth') ? 'Confira a data de nascimento.' : 'Não consegui salvar agora. Tente de novo.');
+      } finally {
+        setBusy(btn, false);
+      }
+    }
+
+    function ageFrom(iso) {
+      const d = new Date(iso + 'T12:00:00');
+      if (isNaN(d)) return null;
+      const now = new Date();
+      let age = now.getFullYear() - d.getFullYear();
+      if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
+      return age;
+    }
+
+    async function termsLogout() {
+      document.getElementById('page-terms-gate').classList.add('hidden');
+      termsNext = null;
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      await api.signOut();
+      currentUser = null;
+      account = null; wallet = null; v7 = null;
+      state = defaultState();
+      showAuth('login');
+    }
+
+    const LEGAL = {
+      termos: `
+        <h3>Termos de Uso · versão ${TERMS_VERSION}</h3>
+        <p>Ao criar sua conta ou continuar usando o BABA, você concorda com estes Termos, com a Política de Privacidade e com o Código de Conduta.</p>
+        <h3>1. O que é o BABA</h3>
+        <p>Um app gratuito para organizar peladas: lista de chegada, times, placar, estatísticas, turmas, chat, palpites de brincadeira e lojinha de itens visuais. Responsável: Contato BABA, e-mail ${CONTACT_EMAIL}.</p>
+        <h3>2. Quem pode usar</h3>
+        <p>Você precisa ter pelo menos 16 anos para criar uma conta. Os Palpites são só para quem tem 18 anos ou mais. Quem tem menos de 16 pode aparecer na lista de uma turma só pelo nome, cadastrado pelo organizador, sem conta própria.</p>
+        <h3>3. Sua conta</h3>
+        <p>Use dados verdadeiros e guarde sua senha e seu código de recuperação. Você responde pelo que é feito na sua conta e pode excluí-la a qualquer momento em Perfil → Excluir minha conta.</p>
+        <h3>4. Turmas</h3>
+        <p>Quem cria a turma é o dono: escolhe os adms, pode passar a turma para outra pessoa e é o único que pode excluí-la. Dono e adms cuidam do elenco, dos convites e da moderação do chat. Quem entra pelo convite vê o elenco, o histórico e as estatísticas da turma.</p>
+        <h3>5. Baba points e Palpites</h3>
+        <ul>
+          <li>Baba points são pontos de brincadeira, sem valor em dinheiro. Não podem ser comprados, vendidos, sacados, transferidos ou trocados por dinheiro, bens ou serviços.</li>
+          <li>Palpites são um passatempo: você usa pontos para palpitar no resultado de uma partida e, se acertar, recebe pontos conforme o multiplicador mostrado na hora. Não existe prêmio, caixa ou pagamento de nenhum tipo.</li>
+          <li>Os multiplicadores são calculados automaticamente a partir das estatísticas e podem mudar durante o jogo. Vale o multiplicador mostrado quando você confirmou o palpite.</li>
+          <li>O resultado vale como registrado pelo organizador no placar. Partida cancelada ou desfeita devolve os pontos.</li>
+          <li>Pontos e itens podem ser ajustados ou zerados para corrigir erros, abusos ou mudanças no jogo, e somem quando a conta é excluída.</li>
+          <li>O BABA não é e não divulga casa de apostas. Se você sente que perdeu o controle com apostas de verdade, procure ajuda no CAPS da sua cidade ou nos Jogadores Anônimos.</li>
+        </ul>
+        <h3>6. Lojinha</h3>
+        <p>Os itens (molduras, cores de nome, brilhos) são só visuais, têm preço fixo em baba points mostrado antes da troca e não têm sorteio. A troca não tem devolução, salvo erro do app.</p>
+        <h3>7. Conteúdo que você publica</h3>
+        <p>Fotos, nomes, mensagens e dados de jogo que você coloca são seus, e você garante que tem direito de usá-los. Você autoriza o BABA a guardá-los e mostrá-los às pessoas da turma ou do jogo ao vivo, só para o app funcionar.</p>
+        <h3>8. Jogo ao vivo e QR code</h3>
+        <p>Quando o organizador transmite uma partida, quem tem o QR code ou o link vê o placar, os nomes dos jogadores em quadra e o chat do jogo, mesmo sem conta. Organizador: avise a galera antes de transmitir.</p>
+        <h3>9. Moderação</h3>
+        <p>Conteúdo que viole o Código de Conduta pode ser removido, e a conta pode ser suspensa ou excluída, com aviso e chance de explicação, salvo casos graves. Denuncie pelo botão Denunciar ou pelo ${CONTACT_EMAIL}.</p>
+        <h3>10. Disponibilidade</h3>
+        <p>O BABA é oferecido como está e pode ficar fora do ar, mudar ou ser encerrado. Avisaremos no app com antecedência sempre que possível, e você pode baixar seus dados (PDF, planilha e backup) antes.</p>
+        <h3>11. Mudanças nos Termos</h3>
+        <p>Quando estes Termos mudarem, o app mostra a nova versão e pede seu aceite antes de continuar.</p>
+        <h3>12. Lei e foro</h3>
+        <p>Valem as leis do Brasil. Fica eleito o foro do seu domicílio.</p>`,
+      privacidade: `
+        <h3>Política de Privacidade</h3>
+        <p>O BABA coleta só o necessário para a pelada funcionar, guarda os dados no Brasil e não vende nem usa nada para anúncio.</p>
+        <p><b>Quem cuida dos dados.</b> Contato BABA, controlador dos dados. Pedidos sobre seus dados: ${CONTACT_EMAIL}. Como agente de pequeno porte, o BABA não nomeia encarregado (Resolução CD/ANPD 2/2022, art. 11) e atende por esse canal.</p>
+        <table>
+          <tr><th>Dado</th><th>Para quê</th></tr>
+          <tr><td>Nome, e-mail, senha (cifrada)</td><td>Criar e proteger sua conta</td></tr>
+          <tr><td>Data de nascimento</td><td>Conferir a idade mínima e liberar os Palpites. Ninguém vê.</td></tr>
+          <tr><td>Foto ou ícone do perfil e da turma</td><td>Mostrar quem é quem</td></tr>
+          <tr><td>Nomes dos atletas, chegadas, gols, assistências, defesas, vitórias</td><td>Times, placar e estatísticas da turma</td></tr>
+          <tr><td>Mensagens do chat e denúncias</td><td>Conversa da turma e do jogo; moderação</td></tr>
+          <tr><td>Baba points, palpites e itens</td><td>Funcionar o passatempo</td></tr>
+          <tr><td>Preferências e aceite destes termos</td><td>Lembrar suas escolhas e provar o aceite</td></tr>
+        </table>
+        <p><b>Bases legais (LGPD, art. 7º):</b> execução do contrato, cumprimento de obrigação legal e legítimo interesse da turma.</p>
+        <p><b>O que fica só no seu celular.</b> As fotos que você escolhe para o PDF do baba não são enviadas a lugar nenhum. O app guarda uma cópia do baba de hoje no aparelho para funcionar sem internet.</p>
+        <p><b>Com quem compartilhamos.</b> Com a Supabase, que hospeda o banco e as contas em servidores de São Paulo, e com o GitHub Pages, que entrega o site. Com mais ninguém, salvo ordem judicial ou da autoridade competente.</p>
+        <p><b>Quem vê o quê.</b> O pessoal das suas turmas vê seu nome, foto, cargo, itens da lojinha, estatísticas e mensagens na turma. Quem assiste a um jogo ao vivo vê o placar, os nomes em quadra e o chat do jogo.</p>
+        <p><b>Por quanto tempo.</b> Enquanto a conta existir. Ao excluir a conta, apagamos perfil, foto, pontos, palpites e itens; suas mensagens ficam como "conta excluída", e o histórico de jogos da turma continua para o grupo, sem vínculo com você.</p>
+        <p><b>Seus direitos (LGPD, art. 18).</b> Confirmar e acessar seus dados, corrigir, pedir anonimização ou exclusão, portabilidade e saber com quem compartilhamos. Quase tudo dá para fazer no app; o resto, pelo ${CONTACT_EMAIL}, com resposta em até 15 dias.</p>
+        <p><b>Segurança.</b> Conexão cifrada, regras de acesso por turma no banco, senha nunca guardada em texto, código de recuperação com tentativas limitadas e trava por digital opcional.</p>
+        <p><b>Menores.</b> Contas só a partir de 16 anos; Palpites só a partir de 18. Não usamos dados de ninguém para perfil comercial ou publicidade.</p>`,
+      conduta: `
+        <h3>Código de Conduta</h3>
+        <p>Pelada boa é a que todo mundo quer voltar: na quadra e no app, respeito vem antes do placar.</p>
+        <p><b>Pode e deve:</b> zoar com respeito, comemorar, cobrar o rachão da cerveja, denunciar o que passar do ponto.</p>
+        <p><b>Não pode, em nenhum lugar do app (chat, nomes, fotos, turmas):</b></p>
+        <ul>
+          <li>Racismo, homofobia, transfobia, machismo, xenofobia, intolerância religiosa ou qualquer discriminação (crime pela Lei 7.716/1989).</li>
+          <li>Ameaça, assédio, perseguição, incitação à violência, ofensa à honra.</li>
+          <li>Conteúdo sexual, e qualquer conteúdo sexual ou de exploração envolvendo menores (denunciado às autoridades).</li>
+          <li>Foto de outra pessoa sem autorização dela, ou publicar dados pessoais de alguém.</li>
+          <li>Divulgar casas de aposta, rifas, vendas, golpes, links suspeitos ou spam.</li>
+          <li>Se passar por outra pessoa, criar contas para ganhar pontos ou explorar falhas do app.</li>
+          <li>Incentivo a autolesão ou suicídio. Se alguém precisar de ajuda: CVV, ligue 188 (24h, gratuito).</li>
+        </ul>
+        <p><b>Palpites.</b> São brincadeira. Não combine resultado, não entregue jogo e não pressione ninguém por causa de palpite. Quem combina resultado perde os pontos e pode perder a conta.</p>
+        <p><b>Se alguém passar do ponto:</b> 1) a mensagem ou foto é apagada pelo dono ou adm da turma, ou pelo dono do jogo ao vivo; 2) a pessoa recebe aviso e pode se explicar pelo ${CONTACT_EMAIL}; 3) reincidência ou caso grave: suspensão ou exclusão da conta. Crimes são comunicados às autoridades quando a lei manda.</p>
+        <p><b>Como denunciar.</b> Toque nos três pontinhos da mensagem → Denunciar, ou escreva para ${CONTACT_EMAIL} com o print e o nome da turma.</p>`
+    };
+
+    function openTermsPage(tab) {
+      showTermsTab(tab || 'termos');
+      const acc = account && account.termsAt ? `Você aceitou a versão ${account.termsVersion} em ${new Date(account.termsAt).toLocaleDateString('pt-BR')}.` : '';
+      document.getElementById('terms-accepted').innerText = acc;
+      document.getElementById('page-terms').classList.remove('hidden');
+      document.getElementById('page-terms').scrollTop = 0;
+      pushPage('page-terms');
+    }
+    function closeTermsPage() {
+      document.getElementById('page-terms').classList.add('hidden');
+      popPage('page-terms');
+    }
+    function showTermsTab(tab) {
+      document.querySelectorAll('#terms-tabs .seg-btn').forEach(b => b.classList.toggle('is-selected', b.dataset.t === tab));
+      document.getElementById('terms-body').innerHTML = LEGAL[tab] || '';
+    }
+
+    /* ===================================================================
+       MOLDURAS E NOMES (o que a lojinha desbloqueia)
+       =================================================================== */
+    const TIERS = ['bronze', 'prata', 'ouro', 'esmeralda', 'rubi', 'platina', 'diamante'];
+    const TIER_LABEL = { bronze: 'Bronze', prata: 'Prata', ouro: 'Ouro', esmeralda: 'Esmeralda', rubi: 'Rubi', platina: 'Platina', diamante: 'Diamante' };
+    const cosOf = c => (c && typeof c === 'object') ? c : {};
+
+    function framedAvatar(value, name, cls, cos) {
+      const c = cosOf(cos);
+      const inner = avatarHtml(value, name, cls);
+      if (!c.frame || !TIERS.includes(c.frame)) return inner;
+      return `<span class="fr fr-${c.frame}${c.frameShine ? ' shine' : ''}">${inner}</span>`;
+    }
+    function styledName(name, cos, extra) {
+      const c = cosOf(cos);
+      const cls = c.name && TIERS.includes(c.name) ? `nm nm-${c.name}${c.nameShine ? ' shine' : ''}` : '';
+      return `<span class="${cls} ${extra || ''}">${escapeHtml(name)}</span>`;
+    }
+    /* Frames an element already on the page (header and profile avatars). */
+    function applyFrame(wrap, cos) {
+      if (!wrap) return;
+      const c = cosOf(cos);
+      TIERS.forEach(t => wrap.classList.remove('fr-' + t));
+      const on = !!(c.frame && TIERS.includes(c.frame));
+      wrap.classList.toggle('fr', on);
+      wrap.classList.toggle('shine', on && !!c.frameShine);
+      if (on) wrap.classList.add('fr-' + c.frame);
+    }
+    function applyNameStyle(el, cos) {
+      if (!el) return;
+      const c = cosOf(cos);
+      TIERS.forEach(t => el.classList.remove('nm-' + t));
+      const on = !!(c.name && TIERS.includes(c.name));
+      el.classList.toggle('nm', on);
+      el.classList.toggle('shine', on && !!c.nameShine);
+      if (on) el.classList.add('nm-' + c.name);
+    }
+
+    /* ===================================================================
+       LOJINHA
+       =================================================================== */
+    let shopItemsCache = null;
+    let shopKind = 'frame';
+
+    async function openShop() {
+      if (v7 !== true) { showToast('A lojinha chega quando o servidor for atualizado.', 'warning'); return; }
+      document.getElementById('page-shop').classList.remove('hidden');
+      document.getElementById('page-shop').scrollTop = 0;
+      pushPage('page-shop');
+      renderShop();
+      try {
+        const [items] = await Promise.all([shopItemsCache ? Promise.resolve(shopItemsCache) : api.shopItems(), refreshWallet()]);
+        shopItemsCache = items;
+      } catch (e) {
+        if (isNetworkError(e)) showToast('A lojinha precisa de internet.', 'warning');
+      }
+      renderShop();
+      loadLedger();
+    }
+    function closeShop() {
+      document.getElementById('page-shop').classList.add('hidden');
+      popPage('page-shop');
+      renderProfileBits();
+    }
+    function shopTab(kind) { shopKind = kind; renderShop(); }
+
+    function renderShop() {
+      const me = currentUser || {};
+      const cos = cosOf(me.cosmetics);
+      document.getElementById('shop-balance').innerText = wallet ? fmtPts(wallet.balance) : '...';
+      const daily = document.getElementById('shop-daily');
+      daily.disabled = !(wallet && wallet.daily);
+      daily.innerHTML = wallet && wallet.daily ? '<i class="fa-solid fa-gift"></i> Pegar bônus do dia (+100)' : '<i class="fa-solid fa-clock"></i> Bônus de hoje já pego';
+      document.getElementById('shop-preview-avatar').innerHTML = framedAvatar(me.avatar, me.name, 'w-16 h-16 text-[20px]', cos);
+      document.getElementById('shop-preview-name').innerHTML = styledName(me.name || '', cos);
+      document.querySelectorAll('#shop-tabs .seg-btn').forEach(b => b.classList.toggle('is-selected', b.dataset.k === shopKind));
+      const box = document.getElementById('shop-items');
+      if (!shopItemsCache) { box.innerHTML = '<p class="col-span-2 text-[14px] text-ink-2 py-4 text-center">Carregando a lojinha...</p>'; return; }
+      const owned = wallet ? wallet.items : new Set();
+      box.innerHTML = shopItemsCache.filter(it => it.kind === shopKind).map(it => {
+        const has = owned.has(it.id);
+        const using = it.kind === 'frame' ? cos.frame === it.tier : it.kind === 'name' ? cos.name === it.tier
+          : it.id === 'fx_frame_shine' ? !!cos.frameShine : !!cos.nameShine;
+        const preview = it.kind === 'frame'
+          ? framedAvatar(me.avatar, me.name, 'w-14 h-14 text-[17px]', { frame: it.tier, frameShine: cos.frameShine && has })
+          : it.kind === 'name'
+            ? `<span class="text-[19px] font-extrabold">${styledName(firstName(me.name) || 'Craque', { name: it.tier, nameShine: cos.nameShine && has })}</span>`
+            : it.id === 'fx_frame_shine'
+              ? framedAvatar(me.avatar, me.name, 'w-14 h-14 text-[17px]', { frame: cos.frame || 'ouro', frameShine: true })
+              : `<span class="text-[19px] font-extrabold">${styledName(firstName(me.name) || 'Craque', { name: cos.name || 'ouro', nameShine: true })}</span>`;
+        const afford = wallet && wallet.balance >= it.price;
+        const action = using
+          ? `<button onclick="equipShopItem('${it.id}', false)" class="btn-butter w-full h-9 text-[12px]"><i class="fa-solid fa-check"></i> Usando</button>`
+          : has ? `<button onclick="equipShopItem('${it.id}', true)" class="btn-primary w-full h-9 text-[12px]">Usar</button>`
+            : `<button onclick="buyShopItem('${it.id}')" ${afford ? '' : 'disabled'} class="btn-outline w-full h-9 text-[12px]"><i class="fa-solid fa-coins"></i> ${fmtPts(it.price)}</button>`;
+        return `
+          <div class="card p-3 flex flex-col items-center gap-2 text-center">
+            <div class="h-[64px] flex items-center justify-center">${preview}</div>
+            <p class="text-[13px] font-bold leading-tight">${escapeHtml(it.title)}</p>
+            ${action}
+          </div>`;
+      }).join('');
+    }
+
+    async function buyShopItem(id) {
+      const it = (shopItemsCache || []).find(x => x.id === id);
+      if (!it || !wallet) return;
+      if (!(await askConfirm(`Trocar ${fmtPts(it.price)} baba points por ${it.title}?`, 'Trocar'))) return;
+      try {
+        await api.buyItem(id);
+        await refreshWallet();
+        await equipShopItem(id, true, true);
+        showToast(`${it.title} é sua!`);
+        loadLedger();
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showToast(isNetworkError(e) ? 'A lojinha precisa de internet.' : m.includes('no_points') ? 'Faltam pontos pra esse item.' : m.includes('owned') ? 'Você já tem esse item.' : 'Não deu certo agora.', 'warning');
+      }
+    }
+
+    async function equipShopItem(id, on, quiet) {
+      const it = (shopItemsCache || []).find(x => x.id === id);
+      if (!it) return;
+      const slot = it.kind === 'frame' ? 'frame' : it.kind === 'name' ? 'name' : it.id === 'fx_frame_shine' ? 'frameShine' : 'nameShine';
+      try {
+        const cos = await api.equipItem(slot, on ? id : null);
+        currentUser.cosmetics = cos || {};
+        cacheProfile();
+        renderShop();
+        renderProfileBits();
+        if (!quiet) showToast(on ? 'Pronto, já está aparecendo pra galera.' : 'Item guardado.');
+      } catch (e) {
+        showToast(isNetworkError(e) ? 'Precisa de internet.' : 'Não deu certo agora.', 'warning');
+      }
+    }
+
+    async function claimDaily() {
+      try {
+        const bal = await api.claimDaily();
+        if (wallet) { wallet.balance = bal; wallet.daily = false; }
+        renderShop();
+        renderV7Bits();
+        showToast('+100 baba points. Volte amanhã!');
+        loadLedger();
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showToast(isNetworkError(e) ? 'Precisa de internet.' : m.includes('already') ? 'O bônus de hoje já foi pego.' : 'Não deu certo agora.', 'warning');
+      }
+    }
+
+    async function loadLedger() {
+      const box = document.getElementById('shop-ledger');
+      try {
+        const rows = await api.ledger();
+        const why = r => ({ 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', 'palpite': 'Palpite feito', 'palpite-certo': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido' })[r.reason]
+          || (r.reason === 'lojinha' ? ((shopItemsCache || []).find(x => x.id === r.ref) || {}).title || 'Lojinha' : r.reason);
+        box.innerHTML = rows.length ? rows.map(r => `
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5 text-[14px]">
+            <span class="min-w-0"><span class="block font-semibold truncate">${escapeHtml(why(r))}</span><span class="block text-[11px] text-ink-3">${new Date(r.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span></span>
+            <span class="font-extrabold tabular ${r.delta > 0 ? 'text-leaf' : 'text-ink-2'}">${r.delta > 0 ? '+' : ''}${fmtPts(r.delta)}</span>
+          </div>`).join('') : '<p class="px-4 py-3 text-[13px] text-ink-2">Nada ainda.</p>';
+      } catch (e) {
+        box.innerHTML = '<p class="px-4 py-3 text-[13px] text-ink-2">O extrato aparece com internet.</p>';
+      }
+    }
+
+    /* ===================================================================
+       JOGO AO VIVO · quem organiza
+       The organizer's phone publishes the scoreboard (and the palpite
+       multipliers) to live_games; anyone with the code watches it.
+       =================================================================== */
+    let livePushTimer = null;
+    let liveCreating = false;
+    const liveCode = () => (state.live && state.live.code) || '';
+    const liveLink = code => `${location.protocol.startsWith('http') ? location.origin + location.pathname : 'https://bagos669.github.io/baba/'}#ao-vivo=${code}`;
+
+    async function ensureLive(openAfter) {
+      if (state.live && state.live.id) { if (openAfter) openQr(); return true; }
+      if (!cloudOn() || v7 !== true || liveCreating) return false;
+      if (navigator.onLine === false) { if (openAfter) showToast('Transmitir ao vivo precisa de internet.', 'warning'); return false; }
+      liveCreating = true;
+      try {
+        const id = uuid();
+        const row = { id, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), palpites: true, state: liveSnapshot(), markets: liveMarkets(true) };
+        const created = await api.createLive(row);
+        state.live = { id, code: (created && created.code) || '', palpites: true };
+        if (!state.live.code) { const g = await api.liveList(); const mine = (g || []).find(x => x.id === id); state.live.code = mine ? mine.code : ''; }
+        saveState();
+        renderLivePill();
+        if (openAfter !== false) openQr();
+        return true;
+      } catch (e) {
+        if (openAfter) showToast(isNetworkError(e) ? 'Transmitir ao vivo precisa de internet.' : 'Não consegui abrir a transmissão.', 'warning');
+        return false;
+      } finally {
+        liveCreating = false;
+      }
+    }
+
+    /* Called on every saved change: the latest scoreboard goes out shortly after. */
+    function scheduleLivePush(now) {
+      if (!state.live || !state.live.id || !cloudOn()) return;
+      clearTimeout(livePushTimer);
+      livePushTimer = setTimeout(pushLive, now ? 0 : 700);
+    }
+
+    async function pushLive() {
+      if (!state.live || !state.live.id || navigator.onLine === false) return;
+      try {
+        await api.updateLive(state.live.id, { title: babaTitle(), state: liveSnapshot(), markets: liveMarkets(state.live.palpites), palpites: !!state.live.palpites });
+      } catch (e) {}
+    }
+
+    function liveSnapshot() {
+      const m = state.match;
+      const { A, B } = state.court;
+      const team = (t, score) => t ? { label: `Time ${t.label}`, names: t.ids.map(nameOf), score, king: (t.streak || 0) > 0 } : null;
+      return {
+        v: 1,
+        matchNo: state.matchHistory.length + 1,
+        running: !!m.isRunning,
+        endAt: m.isRunning ? m.endAt : null,
+        secondsLeft: m.secondsLeft,
+        total: (m.initialSeconds || 420) + (m.addedSeconds || 0),
+        added: m.addedSeconds || 0,
+        rule: m.goalLimitRule,
+        A: team(A, m.scoreA),
+        B: team(B, m.scoreB),
+        events: m.events.slice(0, 8).map(e => ({
+          type: e.type, side: e.side, time: e.time,
+          who: e.type === 'goal' ? nameOf(e.scorerId) : nameOf(e.playerId || e.keeperId || e.scorerId),
+          assist: e.assistId ? nameOf(e.assistId) : null
+        })),
+        history: state.matchHistory.slice(0, 3).map(h => ({ a: `Time ${h.labelA}`, b: `Time ${h.labelB}`, sa: h.scoreA, sb: h.scoreB })),
+        queue: state.queue.length,
+        at: Date.now()
+      };
+    }
+
+    /* ---- Multipliers from the stats ----
+       Each player's goals per match (today + past babas, pulled toward a
+       prior so one lucky day doesn't dominate) gives each team an expected
+       goal rate; a quick simulation of the rest of the match (with the
+       goal-limit rule and the current score) gives the probabilities. */
+    function playerRates() {
+      const tot = new Map();
+      const add = (name, g, mt, w) => {
+        const k = String(name || '').trim().toLowerCase();
+        if (!k) return;
+        const r = tot.get(k) || { g: 0, m: 0, w: 0 };
+        r.g += Number(g) || 0; r.m += Number(mt) || 0; r.w += Number(w) || 0;
+        tot.set(k, r);
+      };
+      state.pastDays.forEach(d => (d.players || []).forEach(p => add(p.name, p.goals, p.matches, p.wins)));
+      state.players.forEach(p => add(p.name, p.goals, p.matches, p.wins));
+      return tot;
+    }
+
+    function teamModel(team, rates) {
+      return team.ids.map(id => {
+        const p = byId(id);
+        const r = rates.get(String(p ? p.name : '').trim().toLowerCase()) || { g: 0, m: 0, w: 0 };
+        const prior = p && p.isGoalkeeper ? 0.05 : 0.32;
+        return { id, key: String(p ? p.name : '').trim().toLowerCase().slice(0, 60), name: p ? p.name : '?', gpm: (r.g + prior * 2) / (r.m + 2), wr: (r.w + 1) / (r.m + 2) };
+      });
+    }
+
+    function simulateMatch(mA, mB, opts) {
+      const avg = a => a.reduce((s, x) => s + x.wr, 0) / Math.max(1, a.length);
+      const tilt = Math.sqrt(avg(mA) / avg(mB));
+      const dur = opts.total / 420;
+      const lA = Math.max(0.15, mA.reduce((s, p) => s + p.gpm, 0) * tilt * dur * 0.85);
+      const lB = Math.max(0.15, mB.reduce((s, p) => s + p.gpm, 0) / tilt * dur * 0.85);
+      const frac = Math.max(0, Math.min(1, opts.left / opts.total));
+      const lim = opts.rule === 'none' || opts.rule === 'diff2' ? 0 : Number(opts.rule) || 0;
+      const pick = (arr, sum) => { let x = Math.random() * sum; for (const p of arr) { x -= p.gpm; if (x <= 0) return p.key; } return arr[arr.length - 1].key; };
+      const sumA = mA.reduce((s, p) => s + p.gpm, 0), sumB = mB.reduce((s, p) => s + p.gpm, 0);
+      const N = 2500;
+      const res = { A: 0, B: 0, draw: 0, over15: 0, both: 0, scorers: new Map() };
+      for (let i = 0; i < N; i++) {
+        let a = opts.sa, b = opts.sb;
+        const scored = new Set();
+        // Goals in the time left: a Poisson draw, each one to A or B by their rates.
+        const lam = (lA + lB) * frac;
+        let k = 0, L = Math.exp(-lam), pr = 1;
+        do { k++; pr *= Math.random(); } while (pr > L && k < 40);
+        k--;
+        for (let g = 0; g < k; g++) {
+          if (lim && (a >= lim || b >= lim)) break;
+          if (opts.rule === 'diff2' && Math.abs(a - b) >= 2) break;
+          if (Math.random() < lA / (lA + lB)) { a++; scored.add(pick(mA, sumA)); } else { b++; scored.add(pick(mB, sumB)); }
+        }
+        if (a > b) res.A++; else if (b > a) res.B++; else res.draw++;
+        if (a + b > 1.5) res.over15++;
+        if (a > 0 && b > 0) res.both++;
+        scored.forEach(key => res.scorers.set(key, (res.scorers.get(key) || 0) + 1));
+      }
+      ['A', 'B', 'draw', 'over15', 'both'].forEach(k => { res[k] /= N; });
+      res.scorers.forEach((v, key) => res.scorers.set(key, v / N));
+      return res;
+    }
+
+    const oddFrom = p => Math.min(15, Math.max(1.05, Math.round((0.9 / p) * 100) / 100));
+
+    function liveMarkets(enabled) {
+      const m = state.match;
+      const { A, B } = state.court;
+      const matchNo = state.matchHistory.length + 1;
+      const left = m.isRunning && m.endAt ? Math.max(0, Math.round((m.endAt - Date.now()) / 1000)) : m.secondsLeft;
+      if (!enabled || !A || !B || left <= 45) return { match_no: matchNo, open: false };
+      const rates = playerRates();
+      const mA = teamModel(A, rates), mB = teamModel(B, rates);
+      const sim = simulateMatch(mA, mB, { sa: m.scoreA, sb: m.scoreB, left, total: (m.initialSeconds || 420) + (m.addedSeconds || 0), rule: m.goalLimitRule });
+      const items = [];
+      const push = (key, label, group, p) => { if (p >= 0.03 && p <= 0.96) items.push({ key, label, group, odd: oddFrom(p) }); };
+      push('res:A', `Time ${A.label} vence`, 'Resultado', sim.A);
+      push('res:draw', 'Empate', 'Resultado', sim.draw);
+      push('res:B', `Time ${B.label} vence`, 'Resultado', sim.B);
+      const already = new Set(m.events.filter(e => e.type === 'goal').map(e => String(nameOf(e.scorerId)).trim().toLowerCase()));
+      [...mA, ...mB].filter(p => !already.has(p.key)).forEach(p => push('gol:' + p.key, `${p.name} marca`, 'Quem marca', sim.scorers.get(p.key) || 0));
+      if (m.scoreA + m.scoreB < 2) push('over:1.5', 'Saem 2 gols ou mais', 'Gols', sim.over15);
+      if (!(m.scoreA > 0 && m.scoreB > 0)) push('ambos', 'Os dois times marcam', 'Gols', sim.both);
+      return {
+        match_no: matchNo, open: items.length > 0,
+        closes_at: m.isRunning && m.endAt ? new Date(m.endAt - 45000).toISOString() : null,
+        items
+      };
+    }
+
+    /* Called by finishMatchAndNextChallenger with the match that just ended. */
+    function queueLiveSettle(matchNo, A, B, scoreA, scoreB, events) {
+      if (!state.live || !state.live.id) return;
+      const scorers = [...new Set(events.filter(e => e.type === 'goal' && e.scorerId != null).map(e => String(nameOf(e.scorerId)).trim().toLowerCase().slice(0, 60)))];
+      const result = { winner: scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : 'draw', goalsA: scoreA, goalsB: scoreB, scorers };
+      enqueue({ type: 'live_settle', liveId: state.live.id, matchNo, result });
+    }
+
+    /* Ends the transmission (new baba, reset, or the button). */
+    function endLiveQuiet() {
+      if (!state.live || !state.live.id) return;
+      enqueue({ type: 'live_end', id: state.live.id });
+      state.live = null;
+    }
+
+    async function stopLive() {
+      if (!(await askConfirm('Parar a transmissão? Quem está assistindo vê o jogo como encerrado.', 'Parar'))) return;
+      endLiveQuiet();
+      saveState();
+      closeQr();
+      renderLivePill();
+      showToast('Transmissão encerrada.');
+    }
+
+    function setLivePalpites(on) {
+      if (!state.live) return;
+      state.live.palpites = !!on;
+      saveState();
+      scheduleLivePush(true);
+      showToast(on ? 'Palpites liberados neste jogo.' : 'Palpites desligados neste jogo.');
+    }
+
+    function openQr() {
+      if (!state.live || !state.live.code) { ensureLive(true); return; }
+      const link = liveLink(state.live.code);
+      document.getElementById('qr-code').innerText = state.live.code;
+      document.getElementById('qr-palpites').checked = !!state.live.palpites;
+      const box = document.getElementById('qr-img');
+      try {
+        const qr = qrcode(0, 'M');
+        qr.addData(link);
+        qr.make();
+        box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+        const svg = box.querySelector('svg');
+        if (svg) { svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%'); }
+      } catch (e) {
+        box.innerHTML = `<p class="text-[13px] text-center text-ink-2">${escapeHtml(link)}</p>`;
+      }
+      document.getElementById('modal-qr').classList.remove('hidden');
+    }
+    function closeQr() { document.getElementById('modal-qr').classList.add('hidden'); }
+
+    async function shareLive() {
+      const code = liveCode();
+      if (!code) return;
+      const text = `Acompanha o baba ao vivo no BABA: ${liveLink(code)}`;
+      if (navigator.share) { try { await navigator.share({ title: 'BABA ao vivo', text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+      copyText(text, null, 'Link copiado. Manda no grupo!');
+    }
+
+    /* The "Ao vivo" strip on the Placar. */
+    function renderLivePill() {
+      const pill = document.getElementById('live-pill');
+      if (!pill) return;
+      const can = v7 === true && cloudOn();
+      pill.classList.toggle('hidden', !can);
+      pill.classList.toggle('flex', can);
+      const on = !!(state.live && state.live.id);
+      document.getElementById('live-pill-text').innerText = on ? `Ao vivo · ${state.live.code}` : 'Transmissão desligada';
+      document.getElementById('live-pill-dot').classList.toggle('hidden', !on);
+      document.getElementById('live-pill-btn').innerHTML = on ? '<i class="fa-solid fa-qrcode"></i> QR' : '<i class="fa-solid fa-tower-broadcast"></i> Transmitir';
+      const cm = document.getElementById('cm-qr');
+      if (cm) cm.classList.toggle('hidden', !on);
+    }
+
+    /* ===================================================================
+       JOGO AO VIVO · quem assiste (com ou sem conta)
+       =================================================================== */
+    let liveView = null;   // { code, data, timers, chat, mine, rankingAt }
+
+    function readLiveFromUrl() {
+      const m = (location.hash + '&' + location.search).match(/ao-vivo=([A-Za-z0-9]{4,12})/);
+      if (m) {
+        try { sessionStorage.setItem('baba_pending_live', m[1].toUpperCase()); } catch (e) {}
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      }
+    }
+    function takePendingLive() {
+      let code = null;
+      try { code = sessionStorage.getItem('baba_pending_live'); sessionStorage.removeItem('baba_pending_live'); } catch (e) {}
+      return code;
+    }
+
+    function openLive(code) {
+      if (!code) return;
+      closeLive(true);
+      closeQr();
+      liveView = { code: String(code).toUpperCase(), data: null, timers: [], chat: null, mine: [], rankingAt: 0 };
+      document.getElementById('lv-title').innerText = 'Ao vivo';
+      document.getElementById('lv-markets').innerHTML = '';
+      document.getElementById('lv-mine').innerHTML = '';
+      document.getElementById('page-live').classList.remove('hidden');
+      document.getElementById('page-live').scrollTop = 0;
+      pushPage('page-live');
+      pollLive();
+      liveView.timers.push(setInterval(pollLive, 2500));
+      liveView.timers.push(setInterval(tickLiveClock, 1000));
+      if (currentUser && v7 === true) refreshWallet();
+    }
+
+    function closeLive(silent) {
+      if (!liveView) { if (!silent) document.getElementById('page-live').classList.add('hidden'); return; }
+      liveView.timers.forEach(t => clearInterval(t));
+      if (liveView.chat) liveView.chat.destroy();
+      liveView = null;
+      document.getElementById('page-live').classList.add('hidden');
+      popPage('page-live');
+      if (!currentUser && document.getElementById('auth-root').classList.contains('hidden')) showAuth('landing');
+    }
+
+    function liveGoAuth(screen) {
+      const code = liveView && liveView.code;
+      if (code) { try { sessionStorage.setItem('baba_pending_live', code); } catch (e) {} }
+      closeLive(true);
+      showAuth(screen);
+    }
+
+    async function pollLive() {
+      if (!liveView) return;
+      const code = liveView.code;
+      let d = null;
+      try { d = await api.getLive(code); } catch (e) { if (!liveView.data) document.getElementById('lv-status').innerText = 'Sem conexão'; return; }
+      if (!liveView || liveView.code !== code) return;
+      if (!d) { renderLiveMissing(); return; }
+      const first = !liveView.data;
+      liveView.data = d;
+      renderLive();
+      if (first) mountLiveChat();
+      const now = Date.now();
+      if (currentUser && d.markets && now - (liveView.mineAt || 0) > 6000) { liveView.mineAt = now; loadMyPalpites(); }
+      if (now - liveView.rankingAt > 15000) { liveView.rankingAt = now; loadLiveRanking(); }
+    }
+
+    function renderLiveMissing() {
+      document.getElementById('lv-title').innerText = 'Jogo não encontrado';
+      document.getElementById('lv-status').innerText = 'Código inválido ou encerrado';
+      document.getElementById('lv-palpites-box').classList.add('hidden');
+    }
+
+    function liveSecondsLeft(s) {
+      if (!s) return 0;
+      if (s.running && s.endAt) return Math.max(0, Math.round((s.endAt - Date.now()) / 1000));
+      return Math.max(0, s.secondsLeft || 0);
+    }
+    function tickLiveClock() {
+      if (!liveView || !liveView.data) return;
+      const s = liveView.data.state || {};
+      document.getElementById('lv-timer').innerText = s.A && s.B ? fmtMMSS(liveSecondsLeft(s)) : '--:--';
+    }
+
+    function renderLive() {
+      const d = liveView.data;
+      const s = d.state || {};
+      document.getElementById('lv-title').innerText = d.title || 'Ao vivo';
+      document.getElementById('lv-dot').classList.toggle('hidden', !(d.active && s.running));
+      document.getElementById('lv-match').innerText = `Partida ${s.matchNo || 1}`;
+      document.getElementById('lv-status').innerText = !d.active ? 'Encerrado' : !(s.A && s.B) ? 'Montando times' : s.running ? 'Rolando' : liveSecondsLeft(s) === 0 ? 'Fim do tempo' : 'Pausado';
+      document.getElementById('lv-a').innerText = s.A ? s.A.label + (s.A.king ? ' 👑' : '') : 'Time A';
+      document.getElementById('lv-b').innerText = s.B ? s.B.label : 'Time B';
+      document.getElementById('lv-sa').innerText = s.A ? s.A.score : 0;
+      document.getElementById('lv-sb').innerText = s.B ? s.B.score : 0;
+      document.getElementById('lv-na').innerText = s.A ? s.A.names.join(', ') : '';
+      document.getElementById('lv-nb').innerText = s.B ? s.B.names.join(', ') : '';
+      tickLiveClock();
+      const ev = (s.events || []).map(e => `
+        <div class="flex items-center gap-2.5 text-[13px]"><span class="text-ink-3 tabular w-11 flex-shrink-0">${escapeHtml(e.time || '')}</span>
+          <span class="min-w-0"><i class="fa-solid ${e.type === 'goal' ? 'fa-futbol text-pitch' : 'fa-hand text-ink-2'} mr-1"></i><b>${escapeHtml(e.who || '?')}</b>${e.assist ? ` <span class="text-ink-2">· passe de ${escapeHtml(e.assist)}</span>` : ''}</span></div>`).join('');
+      const hist = (s.history || []).map(h => `<span class="inline-block mr-3">${escapeHtml(h.a)} ${h.sa}×${h.sb} ${escapeHtml(h.b)}</span>`).join('');
+      document.getElementById('lv-events').innerHTML = (ev ? `<div class="card-flat p-3 space-y-1.5">${ev}</div>` : '') + (hist ? `<p class="text-[12px] text-ink-2 px-1">Últimas: ${hist}</p>` : '');
+      document.getElementById('lv-guest').classList.toggle('hidden', !!currentUser);
+      const bal = document.getElementById('lv-balance');
+      bal.classList.toggle('hidden', !(currentUser && wallet));
+      if (wallet) bal.querySelector('span').innerText = fmtPts(wallet.balance);
+      renderLiveMarkets();
+    }
+
+    function renderLiveMarkets() {
+      const d = liveView.data;
+      const box = document.getElementById('lv-palpites-box');
+      const mk = d.markets;
+      // No palpites for: guests, minors, the organizer, or when switched off.
+      if (!currentUser || !d.palpites || d.is_owner || !mk) {
+        box.classList.toggle('hidden', !(currentUser && d.is_owner && d.palpites));
+        if (currentUser && d.is_owner) document.getElementById('lv-markets').innerHTML = '<p class="card-flat p-3 text-[13px] text-ink-2">Você está transmitindo este jogo, então não palpita nele. A galera vê os multiplicadores aqui.</p>';
+        return;
+      }
+      box.classList.remove('hidden');
+      const closes = mk.closes_at ? Math.max(0, Math.round((new Date(mk.closes_at) - Date.now()) / 1000)) : null;
+      document.getElementById('lv-closes').innerText = !mk.open ? 'Fechado' : closes !== null ? `Fecha em ${fmtMMSS(closes)}` : 'Aberto';
+      if (!mk.open || !(mk.items || []).length) {
+        document.getElementById('lv-markets').innerHTML = '<div class="card-flat p-3 flex items-center gap-3"><img src="babinha/tired.webp" alt="" class="w-12 h-12 object-contain flex-shrink-0" /><p class="text-[13px] text-ink-2 leading-snug">Palpites fechados agora. Abrem quando a próxima partida estiver com os times em quadra.</p></div>';
+        return;
+      }
+      const groups = [...new Set(mk.items.map(i => i.group || 'Palpites'))];
+      document.getElementById('lv-markets').innerHTML = groups.map(g => `
+        <div>
+          <p class="text-[12px] font-bold text-ink-2 mb-1.5 px-1">${escapeHtml(g)}</p>
+          <div class="grid ${g === 'Resultado' ? 'grid-cols-3' : 'grid-cols-2'} gap-2">
+            ${mk.items.filter(i => (i.group || 'Palpites') === g).map(i => `
+              <button onclick="openPalpite(${escapeHtml(JSON.stringify(i.key))})" class="card-flat p-2.5 text-left active:scale-[0.97] transition min-w-0">
+                <span class="block text-[12.5px] font-semibold leading-tight truncate">${escapeHtml(i.label)}</span>
+                <span class="block font-serif text-[22px] text-pitch leading-tight mt-0.5">x${Number(i.odd).toFixed(2).replace('.', ',')}</span>
+              </button>`).join('')}
+          </div>
+        </div>`).join('');
+    }
+
+    async function loadMyPalpites() {
+      if (!liveView || !liveView.data || !currentUser) return;
+      try {
+        const rows = await api.myPalpites(liveView.data.id);
+        if (!liveView) return;
+        liveView.mine = rows;
+        const chip = r => r.status === 'won' ? `<span class="text-leaf font-extrabold">+${fmtPts(r.payout)}</span>`
+          : r.status === 'lost' ? '<span class="text-ink-3 font-bold">Errou</span>'
+          : r.status === 'void' ? '<span class="text-ink-2 font-bold">Devolvido</span>'
+          : `<span class="text-ink-2 font-bold">${fmtPts(r.stake)} → ${fmtPts(Math.floor(r.stake * r.odd))}</span>`;
+        document.getElementById('lv-mine').innerHTML = rows.length ? `
+          <p class="text-[12px] font-bold text-ink-2 mb-1.5 px-1">Seus palpites</p>
+          <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">${rows.slice(0, 8).map(r => `
+            <div class="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
+              <span class="min-w-0 truncate">P${r.match_no} · ${escapeHtml(r.label)} <span class="text-ink-3">x${Number(r.odd).toFixed(2).replace('.', ',')}</span></span>${chip(r)}
+            </div>`).join('')}</div>` : '';
+        if (rows.some(r => r.status !== 'open' && !(liveView.seen || new Set()).has(r.id))) {
+          const fresh = rows.filter(r => r.status === 'won' && liveView.seenInit && !(liveView.seen || new Set()).has(r.id));
+          if (fresh.length) { refreshWallet().then(renderLive); showToast(`Palpite certo! +${fmtPts(fresh.reduce((s, r) => s + r.payout, 0))} pontos`); }
+        }
+        liveView.seen = new Set(rows.filter(r => r.status !== 'open').map(r => r.id));
+        liveView.seenInit = true;
+      } catch (e) {}
+    }
+
+    async function loadLiveRanking() {
+      if (!liveView || !liveView.data) return;
+      try {
+        const rows = await api.liveRanking(liveView.data.id);
+        const box = document.getElementById('lv-ranking-box');
+        box.classList.toggle('hidden', !rows.length);
+        document.getElementById('lv-ranking').innerHTML = rows.map((r, i) => `
+          <div class="flex items-center gap-3 px-3 py-2">
+            <span class="w-5 text-[12px] font-bold text-ink-3 text-right">${i + 1}º</span>
+            ${framedAvatar(r.avatar, r.name, 'w-8 h-8 text-[11px]', r.cosmetics)}
+            <span class="flex-1 min-w-0 text-[14px] font-bold truncate">${styledName(r.name || '?', r.cosmetics)}</span>
+            <span class="text-[12px] text-ink-2">${r.hits} acerto${r.hits === 1 ? '' : 's'}</span>
+            <span class="text-[13px] font-extrabold ${r.net >= 0 ? 'text-leaf' : 'text-ink-2'}">${r.net >= 0 ? '+' : ''}${fmtPts(r.net)}</span>
+          </div>`).join('');
+      } catch (e) {}
+    }
+
+    /* ---- Fazer um palpite ---- */
+    let palpiteDraft = null;
+    const STAKES = [10, 25, 50, 100, 200];
+
+    function openPalpite(key) {
+      if (!liveView || !liveView.data || !liveView.data.markets) return;
+      const it = (liveView.data.markets.items || []).find(i => i.key === key);
+      if (!it) return;
+      palpiteDraft = { key, label: it.label, odd: Number(it.odd), stake: 25 };
+      document.getElementById('pp-label').innerText = it.label;
+      document.getElementById('pp-odd').innerText = 'x' + palpiteDraft.odd.toFixed(2).replace('.', ',');
+      document.getElementById('pp-error').classList.add('hidden');
+      renderPalpiteStakes();
+      document.getElementById('modal-palpite').classList.remove('hidden');
+    }
+    function closePalpite() { document.getElementById('modal-palpite').classList.add('hidden'); palpiteDraft = null; }
+    function setStake(v) { if (palpiteDraft) { palpiteDraft.stake = v; renderPalpiteStakes(); } }
+    function renderPalpiteStakes() {
+      const bal = wallet ? wallet.balance : 0;
+      document.getElementById('pp-stakes').innerHTML = STAKES.map(v => `
+        <button onclick="setStake(${v})" ${v > bal ? 'disabled' : ''} class="h-11 rounded-xl border text-[14px] font-extrabold transition disabled:opacity-30 ${palpiteDraft.stake === v ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'}">${v}</button>`).join('');
+      document.getElementById('pp-return').innerText = fmtPts(Math.floor(palpiteDraft.stake * palpiteDraft.odd));
+    }
+
+    async function confirmPalpite() {
+      if (!palpiteDraft || !liveView || !liveView.data) return;
+      const btn = document.getElementById('btn-palpite');
+      setBusy(btn, true, 'Enviando...');
+      try {
+        const r = await api.placePalpite(liveView.data.id, palpiteDraft.key, palpiteDraft.stake);
+        if (wallet && r) wallet.balance = r.balance;
+        const shown = palpiteDraft.odd, got = r ? Number(r.odd) : shown;
+        closePalpite();
+        showToast(got !== shown ? `Palpite feito com x${got.toFixed(2).replace('.', ',')} (o multiplicador mudou).` : 'Palpite feito. Boa sorte!');
+        liveView.mineAt = 0;
+        pollLive();
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        const msg = isNetworkError(e) ? 'Sem internet agora.'
+          : m.includes('closed') ? 'Os palpites dessa partida acabaram de fechar.'
+          : m.includes('no_market') ? 'Esse palpite saiu do ar (o jogo mudou). Escolha outro.'
+          : m.includes('no_points') ? 'Faltam pontos. Pegue o bônus do dia na lojinha.'
+          : m.includes('limit') ? 'Máximo de 5 palpites por partida.'
+          : m.includes('adult_only') ? 'Palpites são só para maiores de 18.'
+          : m.includes('own_game') ? 'Quem transmite não palpita no próprio jogo.'
+          : 'Não deu certo. Tente de novo.';
+        showErr('pp-error', msg);
+      } finally {
+        if (document.body.contains(btn)) setBusy(btn, false);
+      }
+    }
+
+    /* ===================================================================
+       CHAT (turma e jogo ao vivo)
+       =================================================================== */
+    async function ensurePeople(ids) {
+      const missing = [...new Set(ids.filter(id => id && !peopleCache.has(id)))];
+      if (!missing.length || !api.peopleCards) return;
+      try { (await api.peopleCards(missing)).forEach(p => peopleCache.set(p.id, p)); } catch (e) {}
+    }
+
+    /* opts: { room, live: { code } | null, canModerate: () => bool, canPost: () => bool } */
+    function mountChat(container, opts) {
+      const msgs = new Map();
+      let lastId = 0, stopRT = null, timer = null, open = null;
+      container.innerHTML = `
+        <div class="chat-list"><p class="text-[13px] text-ink-2 text-center py-6 chat-empty">Carregando...</p></div>
+        ${opts.canPost() ? `<form class="chat-input" onsubmit="event.preventDefault();">
+          <input maxlength="500" class="field !py-2.5 !rounded-full" placeholder="Mensagem" enterkeyhint="send" autocomplete="off" />
+          <button class="btn-primary w-11 h-11 flex-shrink-0" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i></button>
+        </form>` : `<p class="chat-input text-[13px] text-ink-2 justify-center">${currentUser ? 'Aceite os termos para conversar.' : 'Entre na sua conta para conversar.'}</p>`}`;
+      const list = container.querySelector('.chat-list');
+      const form = container.querySelector('form');
+
+      const render = () => {
+        const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+        const rows = [...msgs.values()].sort((a, b) => a.id - b.id);
+        if (!rows.length) { list.innerHTML = '<p class="text-[13px] text-ink-2 text-center py-6">Ninguém falou nada ainda. Puxa o assunto!</p>'; return; }
+        let prev = null;
+        list.innerHTML = rows.map(m => {
+          const me = currentUser && m.user_id === currentUser.id;
+          const who = peopleCache.get(m.user_id) || { name: m.name || (m.user_id ? '...' : 'Conta excluída'), avatar: m.avatar, cosmetics: m.cosmetics };
+          const head = !me && (!prev || prev.user_id !== m.user_id);
+          prev = m;
+          const time = new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const actions = open === m.id && !m.deleted ? `<div class="flex gap-1.5 mt-1 ${me ? 'justify-end' : ''}">
+              ${!me ? `<button onclick="chatAction(this, 'report', ${m.id})" class="h-7 px-2.5 rounded-full bg-sunk text-[11px] font-bold">Denunciar</button>` : ''}
+              ${me || opts.canModerate() ? `<button onclick="chatAction(this, 'delete', ${m.id})" class="h-7 px-2.5 rounded-full bg-danger/10 text-danger text-[11px] font-bold">Apagar</button>` : ''}
+            </div>` : '';
+          return `
+            <div class="chat-msg ${me ? 'me' : ''}" data-id="${m.id}">
+              ${me ? '' : `<div class="w-8 flex-shrink-0">${head ? framedAvatar(who.avatar, who.name, 'w-8 h-8 text-[11px]', who.cosmetics) : ''}</div>`}
+              <div class="min-w-0">
+                ${head ? `<p class="chat-meta">${styledName(who.name || '?', who.cosmetics)}</p>` : ''}
+                <div class="flex items-end gap-1 ${me ? 'flex-row-reverse' : ''}">
+                  <div class="chat-bubble ${m.deleted ? 'chat-del' : ''}">${m.deleted ? 'Mensagem apagada' : escapeHtml(m.body)}</div>
+                  ${m.deleted ? '' : `<button onclick="chatToggle(this, ${m.id})" class="w-6 h-6 text-ink-3 text-[11px] flex-shrink-0" aria-label="Opções"><i class="fa-solid fa-ellipsis"></i></button>`}
+                </div>
+                <p class="text-[10px] text-ink-3 mt-0.5 ${me ? 'text-right' : ''}">${time}</p>
+                ${actions}
+              </div>
+            </div>`;
+        }).join('');
+        if (nearBottom || !render.done) list.scrollTop = list.scrollHeight;
+        render.done = true;
+      };
+
+      const merge = rows => {
+        (rows || []).forEach(r => { msgs.set(r.id, Object.assign(msgs.get(r.id) || {}, r)); lastId = Math.max(lastId, r.id); });
+      };
+      const load = async (full) => {
+        try {
+          const rows = opts.live ? await api.liveChat(opts.live.code, full ? 0 : lastId) : await api.chatList(opts.room, full ? 0 : lastId);
+          if (full) { msgs.clear(); lastId = 0; }
+          merge(rows);
+          if (!opts.live) await ensurePeople(rows.map(r => r.user_id));
+          render();
+        } catch (e) {
+          if (!msgs.size) list.innerHTML = `<p class="text-[13px] text-ink-2 text-center py-6">${isNetworkError(e) ? 'O chat precisa de internet.' : 'Não consegui abrir o chat.'}</p>`;
+        }
+      };
+      container.__chat = { reload: () => load(true), toggle: id => { open = open === id ? null : id; render(); } };
+
+      if (form) {
+        const input = form.querySelector('input');
+        form.addEventListener('submit', async () => {
+          const body = input.value.trim();
+          if (!body) return;
+          input.value = '';
+          try {
+            await api.chatSend(opts.room, body);
+            await load();
+          } catch (e) {
+            input.value = body;
+            const m = String((e && e.message) || '');
+            showToast(isNetworkError(e) ? 'Sem internet: a mensagem não foi.' : m.includes('slow_down') ? 'Calma, craque: espera uns segundinhos.' : 'Não consegui mandar a mensagem.', 'warning');
+          }
+        });
+      }
+
+      load(true);
+      if (!opts.live && api.subscribe) stopRT = api.subscribe(opts.room, () => load());
+      timer = setInterval(() => load(), opts.live ? 3000 : 8000);
+      return { destroy() { clearInterval(timer); if (stopRT) stopRT(); }, reload: () => load(true) };
+    }
+
+    function chatToggle(btn, id) { const box = btn.closest('.chat-box'); if (box && box.__chat) box.__chat.toggle(id); }
+    async function chatAction(btn, kind, id) {
+      const box = btn.closest('.chat-box');
+      if (kind === 'report') {
+        if (!(await askConfirm('Denunciar esta mensagem? Com 3 denúncias ela some até alguém revisar.', 'Denunciar'))) return;
+        try { await api.chatReport(id, 'denuncia'); showToast('Denúncia enviada. Valeu por ajudar.'); } catch (e) { showToast('Não consegui denunciar agora.', 'warning'); }
+      } else {
+        if (!(await askConfirm('Apagar esta mensagem para todo mundo?', 'Apagar'))) return;
+        try { await api.chatDelete(id); showToast('Mensagem apagada.'); } catch (e) { showToast('Não consegui apagar.', 'warning'); }
+      }
+      if (box && box.__chat) box.__chat.reload();
+    }
+
+    function mountLiveChat() {
+      if (!liveView || !liveView.data) return;
+      const d = liveView.data;
+      if (liveView.chat) liveView.chat.destroy();
+      liveView.chat = mountChat(document.getElementById('lv-chat'), {
+        room: 'live:' + d.id,
+        live: { code: liveView.code },
+        canPost: () => !!(currentUser && termsAcceptedHere()),
+        canModerate: () => !!d.is_owner
+      });
+    }
+
+    /* ---- Chat da turma ---- */
+    let turmaChat = null;
+    function openTurmaChat(turmaId) {
+      const t = turmaById(turmaId) || state.turmas.find(x => x.cloud);
+      if (!t || !t.cloud) { showToast('O chat é das turmas na nuvem.', 'warning'); return; }
+      if (v7 !== true) { showToast('O chat chega quando o servidor for atualizado.', 'warning'); return; }
+      closeDatabaseModal();
+      document.getElementById('chat-title').innerText = `Chat · ${t.name}`;
+      document.getElementById('page-chat').classList.remove('hidden');
+      pushPage('page-chat');
+      if (turmaChat) turmaChat.destroy();
+      turmaChat = mountChat(document.getElementById('chat-turma'), {
+        room: 'turma:' + t.id, live: null,
+        canPost: () => termsAcceptedHere(),
+        canModerate: () => canEditTurma(turmaById(t.id))
+      });
+    }
+    function closeTurmaChat() {
+      if (turmaChat) { turmaChat.destroy(); turmaChat = null; }
+      document.getElementById('page-chat').classList.add('hidden');
+      popPage('page-chat');
+    }
+
+    /* ---- Início: ao vivo agora + pontos ---- */
+    let liveListCache = [];
+    async function loadLiveList() {
+      if (!cloudOn() || v7 !== true) { liveListCache = []; return; }
+      try {
+        const rows = await api.liveList();
+        const fresh = Date.now() - 3 * 3600 * 1000;
+        liveListCache = (rows || []).filter(r => new Date(r.updated_at).getTime() > fresh && !(state.live && r.id === state.live.id));
+      } catch (e) {}
+      renderHomeV7();
+    }
+
+    function renderHomeV7() {
+      const box = document.getElementById('home-v7');
+      if (!box) return;
+      if (!(v7 === true && cloudOn())) { box.innerHTML = ''; return; }
+      const lives = liveListCache.map(l => `
+        <button onclick="openLive('${escapeHtml(l.code)}')" class="card w-full p-3.5 flex items-center gap-3 text-left">
+          <span class="tile bg-pitch text-butter"><span class="live-dot"></span></span>
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold truncate">${escapeHtml(l.title || 'Baba ao vivo')}</span><span class="block text-[12.5px] text-ink-2">Ao vivo agora · toque pra assistir e palpitar</span></span>
+          <i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>
+        </button>`).join('');
+      const pts = wallet ? `
+        <button onclick="openShop()" class="card w-full p-3.5 flex items-center gap-3 text-left">
+          <img src="babinha/money.webp" alt="" class="w-11 h-11 object-contain flex-shrink-0" />
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${wallet.daily ? 'Bônus do dia esperando · lojinha' : 'Molduras e nomes na lojinha'}</span></span>
+          ${wallet.daily ? '<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">+100</span>' : '<i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>'}
+        </button>` : '';
+      box.innerHTML = lives || pts ? `<section class="space-y-2.5">${lives}${pts}</section>` : '';
+    }
+
+    /* ===================================================================
        HELPERS
        =================================================================== */
     const teamSize = () => FORMAT_SIZES[state.match.gameFormat] || 5;
@@ -2501,6 +3612,8 @@
       renderStatsView();
       renderDailyResumo();
       renderProfileBits();
+      renderLivePill();
+      renderHomeV7();
     }
 
     /* Fixed-width digit cells so the serif clock doesn't jitter as it counts. */
@@ -2700,6 +3813,7 @@
                 <div class="text-[12px] text-ink-2">${t.cloud ? `${ROLE_LABEL[t.role] || 'Membro'} · ` : ''}${t.players.length} atleta${t.players.length === 1 ? '' : 's'}${t.keepers.length ? ` · ${t.keepers.length} goleiro${t.keepers.length === 1 ? '' : 's'}` : ''}</div>
               </div>
             </label>
+            ${t.cloud && v7 === true ? `<button onclick="openTurmaChat('${t.id}')" class="btn-icon" aria-label="Chat da turma"><i class="fa-solid fa-comments"></i></button>` : ''}
             <button onclick="openTurmaEditor('${t.id}')" class="btn-icon" aria-label="Editar turma"><i class="fa-solid fa-pen"></i></button>
           </div>`;
       }).join('');
@@ -3719,6 +4833,12 @@
       state.match.isRunning = true;
       state.match.endAt = Date.now() + state.match.secondsLeft * 1000;
       saveState();
+      // The first kick-off of the day opens the live game and shows its QR code.
+      if (!state.live && !state.liveAsked && v7 === true && cloudOn() && state.court.A && state.court.B) {
+        state.liveAsked = true;
+        cacheState();
+        ensureLive(true);
+      }
       runTicker();
       requestWakeLock();
       updateTimerButton();
@@ -4043,6 +5163,7 @@
           namesA: A.ids.map(nameOf), namesB: B.ids.map(nameOf),
           played: playedSeconds(), added: state.match.addedSeconds || 0
         });
+        queueLiveSettle(state.matchHistory.length, A, B, scoreA, scoreB, state.match.events);
         updateStandingsRecord(A, scoreA, scoreB);
         updateStandingsRecord(B, scoreB, scoreA);
         [...A.ids, ...B.ids].forEach(id => { const p = byId(id); if (p) p.matches = (p.matches || 0) + 1; });
@@ -4489,6 +5610,7 @@
         : 'Começar um novo baba? Placar, fila e chegadas são zerados. Turmas e regras ficam.';
       if (!(await askConfirm(msg, 'Novo baba'))) return;
       pauseMatchTimer();
+      endLiveQuiet();
       if (hasDay) {
         const summary = daySummary();
         state.pastDays.unshift(summary);
@@ -4814,6 +5936,8 @@
     async function confirmResetAllData() {
       if (!(await askConfirm('Zerar o baba de hoje sem salvar no histórico? Chegadas, times, placar e estatísticas de hoje somem. Turmas e babas anteriores ficam.', 'Zerar'))) return;
       pauseMatchTimer();
+      if (state.live && state.live.id) enqueue({ type: 'live_settle', liveId: state.live.id, matchNo: state.matchHistory.length + 1, result: { void: true } });
+      endLiveQuiet();
       if (state.babaId) enqueue({ type: 'baba_delete', id: state.babaId });
       const keep = { turmas: state.turmas, selectedTeams: state.selectedTeams, settings: state.settings, pastDays: state.pastDays, players: state.players };
       const m = state.match;

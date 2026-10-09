@@ -12,6 +12,9 @@ async def main():
         await pg.evaluate("authGo('signup')")
         await pg.fill('#signup-name', 'Gabriel'); await pg.fill('#signup-email', 'g@t.dev'); await pg.fill('#signup-pass', 'segredo1')
         await pg.evaluate("doSignup()"); await pg.wait_for_timeout(300); await pg.check('#recovery-ack'); await pg.evaluate("recoveryDone()"); await pg.wait_for_timeout(900)
+        await pg.wait_for_timeout(400)
+        if await pg.evaluate("!document.getElementById('page-terms-gate').classList.contains('hidden')"):
+            await pg.fill('#terms-birth', '1995-05-05'); await pg.check('#terms-ack'); await pg.evaluate("submitTerms()"); await pg.wait_for_timeout(700)
         await pg.click('#tour-next'); await pg.click('text=Pular'); await pg.wait_for_timeout(300)
         vis = lambda i: pg.evaluate(f"!document.getElementById('{i}').classList.contains('hidden')")
         out = {}

@@ -18,6 +18,10 @@ window.__BABA_FAKE_API__ = (() => {
     replaceStats: m('replaceStats'), upsertTurma: m('upsertTurma'), turmaInvite: m('turmaInvite'), setInvite: m('setInvite'),
     deleteTurma: m('deleteTurma'), leaveTurma: m('leaveTurma'), insertPlayers: m('insertPlayers'), deletePlayers: m('deletePlayers'),
     setKeeper: m('setKeeper'), renamePlayer: m('renamePlayer'), join: m('join'), claim: m('claim'), unclaim: m('unclaim'),
-    updateProfile: m('updateProfile'), signOutOthers: m('signOutOthers'), roster: m('roster'), setRole: m('setRole'), transfer: m('transfer'), removeMember: m('removeMember')
+    updateProfile: m('updateProfile'), signOutOthers: m('signOutOthers'), roster: m('roster'), setRole: m('setRole'), transfer: m('transfer'), removeMember: m('removeMember'),
+    myAccount: m('myAccount'), acceptTerms: m('acceptTerms'), myWallet: m('myWallet'), claimDaily: m('claimDaily'), shopItems: m('shopItems'), ledger: m('ledger'),
+    buyItem: m('buyItem'), equipItem: m('equipItem'), createLive: m('createLive'), updateLive: m('updateLive'), liveList: m('liveList'), getLive: m('getLive'),
+    placePalpite: m('placePalpite'), myPalpites: m('myPalpites'), settlePalpites: m('settlePalpites'), liveRanking: m('liveRanking'),
+    chatList: m('chatList'), chatSend: m('chatSend'), chatDelete: m('chatDelete'), chatReport: m('chatReport'), liveChat: m('liveChat'), peopleCards: m('peopleCards')
   };
 })();

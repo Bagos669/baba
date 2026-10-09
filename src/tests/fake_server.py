@@ -190,3 +190,202 @@ class Fake:
         p = self.players.get(pid)
         if not p or not (p['user_id'] == uid or self.is_admin(p['turma_id'], uid)): return self.err('P0001', 'not_allowed')
         p['user_id'] = None; return self.ok()
+
+# ===================== v7: termos, pontos, lojinha, ao vivo, palpites, chat =====================
+import datetime as _dt, math as _math
+SHOP = [('frame_bronze','frame','bronze','Moldura Bronze',300),('frame_prata','frame','prata','Moldura Prata',600),('frame_ouro','frame','ouro','Moldura Ouro',1200),
+        ('frame_esmeralda','frame','esmeralda','Moldura Esmeralda',2000),('frame_rubi','frame','rubi','Moldura Rubi',3000),('frame_platina','frame','platina','Moldura Platina',4500),
+        ('frame_diamante','frame','diamante','Moldura Diamante',6000),('name_bronze','name','bronze','Nome Bronze',200),('name_prata','name','prata','Nome Prata',400),
+        ('name_ouro','name','ouro','Nome Dourado',900),('name_esmeralda','name','esmeralda','Nome Esmeralda',1500),('name_rubi','name','rubi','Nome Rubi',2200),
+        ('name_platina','name','platina','Nome Platina',3200),('name_diamante','name','diamante','Nome Diamante',4500),('fx_frame_shine','fx',None,'Brilho na moldura',2500),('fx_name_shine','fx',None,'Brilho no nome',2000)]
+
+def _v7init(self):
+    if hasattr(self, 'acct'): return
+    self.acct = {}; self.wallets = {}; self.ledger_rows = []; self.items = {}; self.lives = {}; self.palps = []; self.chat = []; self.reports = set()
+    self.v7_enabled = True
+Fake._v7init = _v7init
+
+def _need(self, uid):
+    self._v7init()
+    if not self.v7_enabled: raise LookupError()
+    if not uid: raise PermissionError('not_authenticated')
+def _adult(self, uid):
+    b = self.acct.get(uid, {}).get('birth')
+    if not b: return False
+    t = _dt.date.today(); return (t.year - b.year - ((t.month, t.day) < (b.month, b.day))) >= 18
+def _add(self, uid, delta, why, ref=None):
+    w = self.wallets.setdefault(uid, {'balance': 0, 'daily': None})
+    if w['balance'] + delta < 0: raise PermissionError('no_points')
+    w['balance'] += delta; self.ledger_rows.append({'user': uid, 'delta': delta, 'reason': why, 'ref': ref, 'created_at': _dt.datetime.now().isoformat()})
+    return w['balance']
+Fake._need = _need; Fake._adult = _adult; Fake._add = _add
+
+def _wrap(fn):
+    def f(self, uid, *a):
+        try:
+            self._need(uid) if fn.__name__ not in ('f_getLive', 'f_liveChat', 'f_liveRanking', 'f_shopItems') else self._v7init()
+            if not self.v7_enabled: return self.err('PGRST202', 'Could not find the function')
+            return fn(self, uid, *a)
+        except LookupError: return self.err('PGRST202', 'Could not find the function')
+        except PermissionError as e: return self.err('P0001', str(e))
+    f.__name__ = fn.__name__; return f
+
+def _reg(fn): setattr(Fake, fn.__name__, _wrap(fn)); return fn
+
+@_reg
+def f_myAccount(self, uid):
+    a = self.acct.get(uid, {}); p = self.profiles.get(uid, {})
+    return self.ok({'name': p.get('name'), 'avatar': p.get('avatar'), 'prefs': p.get('prefs') or {}, 'cosmetics': p.get('cosmetics') or {},
+                    'terms_version': a.get('version'), 'terms_accepted_at': a.get('at'), 'has_birth': bool(a.get('birth')), 'adult': self._adult(uid)})
+@_reg
+def f_acceptTerms(self, uid, version, birth):
+    a = self.acct.setdefault(uid, {})
+    if not a.get('birth'):
+        if not birth: return self.err('P0001', 'bad_birth')
+        b = _dt.date.fromisoformat(birth); t = _dt.date.today()
+        if (t.year - b.year - ((t.month, t.day) < (b.month, b.day))) < 16: return self.err('P0001', 'too_young')
+        a['birth'] = b
+    a['version'] = version; a['at'] = _dt.datetime.now().isoformat(); return self.ok()
+@_reg
+def f_myWallet(self, uid):
+    if uid not in self.wallets: self._add(uid, 1000, 'boas-vindas')
+    w = self.wallets[uid]
+    return self.ok({'balance': w['balance'], 'daily_available': w['daily'] != _dt.date.today(), 'items': list(self.items.get(uid, []))})
+@_reg
+def f_claimDaily(self, uid):
+    self.f_myWallet(uid); w = self.wallets[uid]
+    if w['daily'] == _dt.date.today(): return self.err('P0001', 'already_claimed')
+    w['daily'] = _dt.date.today(); return self.ok(self._add(uid, 100, 'bonus-diario'))
+@_reg
+def f_shopItems(self, uid):
+    return self.ok([{'id': i, 'kind': k, 'tier': t, 'title': ti, 'price': p, 'sort': n} for n, (i, k, t, ti, p) in enumerate(SHOP)])
+@_reg
+def f_ledger(self, uid):
+    return self.ok([dict(r) for r in reversed(self.ledger_rows) if r['user'] == uid][:25])
+@_reg
+def f_buyItem(self, uid, item):
+    it = next((x for x in SHOP if x[0] == item), None)
+    if not it: return self.err('P0001', 'not_found')
+    if item in self.items.get(uid, []): return self.err('P0001', 'owned')
+    self.f_myWallet(uid); bal = self._add(uid, -it[4], 'lojinha', item)
+    self.items.setdefault(uid, []).append(item); return self.ok(bal)
+@_reg
+def f_equipItem(self, uid, slot, item):
+    p = self.profiles[uid]; c = dict(p.get('cosmetics') or {})
+    if item:
+        it = next((x for x in SHOP if x[0] == item), None)
+        want = {'frame': 'frame', 'name': 'name'}.get(slot, 'fx')
+        if not it or it[1] != want: return self.err('P0001', 'bad_item')
+        if item not in self.items.get(uid, []): return self.err('P0001', 'not_owned')
+        c[slot] = it[2] if slot in ('frame', 'name') else True
+    else: c.pop(slot, None)
+    p['cosmetics'] = c; return self.ok(c)
+@_reg
+def f_createLive(self, uid, row):
+    if not all(self.is_member(t, uid) for t in row.get('turma_ids', [])): raise PermissionError('rls')
+    code = ''.join(random.choice('0123456789ABCDEF') for _ in range(8))
+    g = dict(row); g.update({'owner': uid, 'code': code, 'active': True, 'updated_at': _dt.datetime.now().isoformat()}); g.setdefault('palpites', True)
+    self.lives[row['id']] = g; return self.ok({'id': row['id'], 'code': code})
+@_reg
+def f_updateLive(self, uid, lid, patch):
+    g = self.lives.get(lid)
+    if not g or g['owner'] != uid: return self.ok([])
+    g.update(patch); g['updated_at'] = _dt.datetime.now().isoformat(); return self.ok([])
+@_reg
+def f_liveList(self, uid):
+    rows = [g for g in self.lives.values() if g['active'] and (g['owner'] == uid or any(self.is_member(t, uid) for t in g.get('turma_ids', [])))]
+    return self.ok([{'id': g['id'], 'code': g['code'], 'title': g.get('title'), 'owner': g['owner'], 'updated_at': g['updated_at']} for g in rows])
+@_reg
+def f_getLive(self, uid, code):
+    g = next((g for g in self.lives.values() if g['code'] == str(code).upper()), None)
+    if not g: return self.ok(None)
+    return self.ok({'id': g['id'], 'title': g.get('title'), 'state': g.get('state') or {}, 'markets': g.get('markets') if g.get('palpites') and uid and self._adult(uid) else None,
+                    'palpites': g.get('palpites'), 'active': g['active'], 'updated_at': g['updated_at'], 'is_owner': g['owner'] == uid})
+@_reg
+def f_placePalpite(self, uid, lid, market, stake):
+    if not self._adult(uid): return self.err('P0001', 'adult_only')
+    g = self.lives.get(lid)
+    if not g or not g['active']: return self.err('P0001', 'no_game')
+    if g['owner'] == uid: return self.err('P0001', 'own_game')
+    mk = g.get('markets') or {}
+    if not g.get('palpites') or not mk.get('open'): return self.err('P0001', 'closed')
+    if not (10 <= stake <= 500): return self.err('P0001', 'bad_stake')
+    it = next((i for i in mk.get('items', []) if i['key'] == market), None)
+    if not it: return self.err('P0001', 'no_market')
+    odd = min(20, max(1.05, round(float(it['odd']), 2)))
+    if sum(1 for p in self.palps if p['user'] == uid and p['live'] == lid and p['match_no'] == mk['match_no']) >= 5: return self.err('P0001', 'limit')
+    self.f_myWallet(uid); bal = self._add(uid, -stake, 'palpite')
+    pid = len(self.palps) + 1
+    self.palps.append({'id': pid, 'live': lid, 'match_no': mk['match_no'], 'user': uid, 'market': market, 'label': it['label'], 'odd': odd, 'stake': stake, 'status': 'open', 'payout': 0})
+    return self.ok({'palpite_id': pid, 'balance': bal, 'odd': odd})
+@_reg
+def f_myPalpites(self, uid, lid):
+    return self.ok([{k: p[k] for k in ('id', 'match_no', 'market', 'label', 'odd', 'stake', 'status', 'payout')} for p in reversed(self.palps) if p['user'] == uid and p['live'] == lid])
+@_reg
+def f_settlePalpites(self, uid, lid, match_no, result):
+    g = self.lives.get(lid)
+    if not g or g['owner'] != uid: return self.err('P0001', 'only_owner')
+    n = 0
+    for p in self.palps:
+        if p['live'] != lid or p['match_no'] != match_no or p['status'] != 'open': continue
+        n += 1
+        if result.get('void'):
+            p['status'] = 'void'; p['payout'] = p['stake']; self._add(p['user'], p['stake'], 'palpite-devolvido'); continue
+        m = p['market']; ga, gb = result.get('goalsA', 0), result.get('goalsB', 0)
+        won = (m == 'res:A' and result.get('winner') == 'A') or (m == 'res:B' and result.get('winner') == 'B') or (m == 'res:draw' and result.get('winner') == 'draw') \
+            or (m.startswith('gol:') and m[4:] in result.get('scorers', [])) or (m.startswith('over:') and ga + gb > float(m[5:])) or (m == 'ambos' and ga > 0 and gb > 0)
+        if won: p['status'] = 'won'; p['payout'] = _math.floor(p['stake'] * p['odd']); self._add(p['user'], p['payout'], 'palpite-certo')
+        else: p['status'] = 'lost'
+    return self.ok(n)
+@_reg
+def f_liveRanking(self, uid, lid):
+    tot = {}
+    for p in self.palps:
+        if p['live'] != lid or p['status'] == 'open': continue
+        t = tot.setdefault(p['user'], [0, 0]); t[0] += p['payout'] - p['stake']; t[1] += p['status'] == 'won'
+    rows = [{'name': self.profiles[u]['name'], 'avatar': self.profiles[u].get('avatar'), 'cosmetics': self.profiles[u].get('cosmetics') or {}, 'net': v[0], 'hits': v[1]} for u, v in tot.items()]
+    return self.ok(sorted(rows, key=lambda r: -r['net']))
+def _can_room(self, uid, room):
+    kind, rid = room.split(':', 1)
+    return self.is_member(rid, uid) if kind == 'turma' else rid in self.lives
+Fake._can_room = _can_room
+@_reg
+def f_chatList(self, uid, room, after):
+    if not self._can_room(uid, room): return self.ok([])
+    rows = [dict(m) for m in self.chat if m['room'] == room and m['id'] > (after or 0)]
+    return self.ok([{k: m[k] for k in ('id', 'user_id', 'body', 'deleted', 'created_at')} for m in reversed(rows)][:60])
+@_reg
+def f_chatSend(self, uid, room, body):
+    if not self._can_room(uid, room) or not self.acct.get(uid, {}).get('at'): raise PermissionError('new row violates row-level security')
+    if not (1 <= len(body) <= 500): return self.err('23514', 'check')
+    now = _dt.datetime.now()
+    if sum(1 for m in self.chat if m['user_id'] == uid and (now - _dt.datetime.fromisoformat(m['created_at'])).total_seconds() < 10) >= 5: return self.err('P0001', 'slow_down')
+    self.chat.append({'id': len(self.chat) + 1, 'room': room, 'user_id': uid, 'body': body, 'deleted': False, 'created_at': now.isoformat()}); return self.ok([])
+@_reg
+def f_chatDelete(self, uid, mid):
+    m = next((m for m in self.chat if m['id'] == mid), None)
+    if not m: return self.err('P0001', 'not_found')
+    kind, rid = m['room'].split(':', 1)
+    if not (m['user_id'] == uid or (kind == 'turma' and self.is_admin(rid, uid)) or (kind == 'live' and self.lives.get(rid, {}).get('owner') == uid)): return self.err('P0001', 'not_allowed')
+    m['deleted'] = True; m['body'] = '-'; return self.ok()
+@_reg
+def f_chatReport(self, uid, mid, why):
+    self.reports.add((mid, uid))
+    if sum(1 for r in self.reports if r[0] == mid) >= 3:
+        for m in self.chat:
+            if m['id'] == mid: m['deleted'] = True
+    return self.ok()
+@_reg
+def f_liveChat(self, uid, code, after):
+    g = next((g for g in self.lives.values() if g['code'] == str(code).upper()), None)
+    if not g: return self.ok([])
+    rows = [m for m in self.chat if m['room'] == 'live:' + g['id'] and m['id'] > (after or 0)]
+    out = []
+    for m in reversed(rows[-60:]):
+        p = self.profiles.get(m['user_id'], {})
+        out.append({'id': m['id'], 'user_id': m['user_id'], 'name': p.get('name', 'Conta excluída'), 'avatar': p.get('avatar'), 'cosmetics': p.get('cosmetics') or {},
+                    'body': '' if m['deleted'] else m['body'], 'deleted': m['deleted'], 'created_at': m['created_at']})
+    return self.ok(out)
+@_reg
+def f_peopleCards(self, uid, ids):
+    return self.ok([{'id': i, 'name': self.profiles[i]['name'], 'avatar': self.profiles[i].get('avatar'), 'cosmetics': self.profiles[i].get('cosmetics') or {}} for i in ids if i in self.profiles])
