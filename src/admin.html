@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#003631" />
+  <title>BABA · Suporte</title>
+  <link rel="icon" type="image/png" href="icons/favicon-32.png" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('baba_admin_theme');
+        if (t === 'dark' || (!t && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+      } catch (e) {}
+    })();
+  </script>
+  <!--CSS_LINK-->
+  <script src="vendor/supabase.js"></script>
+  <style>
+    :root, .keep-light {
+      --c-paper: 250 243 220; --c-card: 255 252 242; --c-sunk: 241 230 195;
+      --c-ink: 18 48 43; --c-ink-2: 76 98 93; --c-ink-3: 125 141 136;
+      --c-pitch: 0 54 49; --c-pitch-2: 11 74 66; --c-pitch-3: 20 100 87;
+      --c-butter: 255 237 168; --c-butter-2: 247 219 122; --c-butter-3: 229 189 69;
+      --c-sage: 214 231 201; --c-sage-2: 168 201 154;
+      --c-leaf: 46 125 84; --c-danger: 180 65 47; --c-warn: 154 98 16;
+      --bar: 0 54 49; --grid: 18 48 43;
+      color-scheme: light;
+    }
+    html.dark {
+      --c-paper: 12 24 22; --c-card: 21 36 33; --c-sunk: 30 49 45;
+      --c-ink: 242 234 211; --c-ink-2: 184 195 183; --c-ink-3: 132 148 141;
+      --c-pitch: 247 219 122; --c-pitch-2: 236 201 96; --c-pitch-3: 229 189 69;
+      --c-butter: 20 76 67; --c-butter-2: 27 92 81; --c-butter-3: 44 112 99;
+      --c-sage: 33 64 56; --c-sage-2: 52 89 78;
+      --c-leaf: 108 203 149; --c-danger: 240 138 118; --c-warn: 231 176 79;
+      --bar: 247 219 122; --grid: 242 234 211;
+      color-scheme: dark;
+    }
+    html, body { background: rgb(var(--c-paper)); color: rgb(var(--c-ink)); }
+    body { font-family: "Plus Jakarta Sans", -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+    .serif { font-family: "Instrument Serif", Georgia, serif; }
+    html.dark .card { box-shadow: 0 14px 30px -22px rgba(0, 0, 0, .8); }
+    .side { background: #003631; color: #FFEDA8; }
+    .side a.nav { display: flex; align-items: center; gap: .75rem; padding: .65rem .9rem; border-radius: 14px; font-weight: 700; font-size: 14px; color: rgba(255, 237, 168, .78); }
+    .side a.nav:hover { background: rgba(255, 255, 255, .06); color: #FFEDA8; }
+    .side a.nav.on { background: #FFEDA8; color: #003631; }
+    .side a.nav .n { margin-left: auto; font-size: 11px; font-weight: 800; background: #F08A76; color: #3a0f08; border-radius: 999px; padding: 1px 7px; }
+    .tabs a.nav { flex-shrink: 0; display: inline-flex; align-items: center; gap: .45rem; height: 36px; padding: 0 .9rem; border-radius: 999px; font-size: 13px; font-weight: 700; color: rgba(255, 237, 168, .8); }
+    .tabs a.nav.on { background: #FFEDA8; color: #003631; }
+    .tabs a.nav .n { font-size: 10px; font-weight: 800; background: #F08A76; color: #3a0f08; border-radius: 999px; padding: 0 6px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .kpi { padding: 14px 16px; }
+    .kpi .v { font-size: 28px; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+    .kpi .l { font-size: 12.5px; font-weight: 600; color: rgb(var(--c-ink-2)); margin-top: 4px; }
+    .kpi .s { font-size: 11.5px; color: rgb(var(--c-ink-3)); margin-top: 2px; }
+    table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    table.t th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: rgb(var(--c-ink-2)); font-weight: 700; padding: 10px 12px; border-bottom: 1px solid rgb(var(--c-ink) / .1); white-space: nowrap; }
+    table.t td { padding: 10px 12px; border-bottom: 1px solid rgb(var(--c-ink) / .06); vertical-align: middle; }
+    table.t tr.click { cursor: pointer; }
+    table.t tr.click:hover td { background: rgb(var(--c-sunk) / .55); }
+    .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+    .b-staff { background: rgb(var(--c-pitch)); color: rgb(var(--c-butter)); }
+    html.dark .b-staff { color: #0c1816; }
+    .b-ban { background: rgb(var(--c-danger) / .14); color: rgb(var(--c-danger)); }
+    .b-warn { background: rgb(var(--c-warn) / .14); color: rgb(var(--c-warn)); }
+    .b-ok { background: rgb(var(--c-leaf) / .14); color: rgb(var(--c-leaf)); }
+    .b-mute { background: rgb(var(--c-sunk)); color: rgb(var(--c-ink-2)); }
+    .av { width: 34px; height: 34px; border-radius: 999px; background: rgb(var(--c-sage)); color: rgb(var(--c-pitch)); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; flex-shrink: 0; overflow: hidden; }
+    .av img { width: 100%; height: 100%; object-fit: cover; }
+    .av.big { width: 64px; height: 64px; font-size: 22px; }
+    .chart { position: relative; }
+    .chart svg { display: block; width: 100%; height: 150px; overflow: visible; }
+    .chart .bar { fill: rgb(var(--bar)); }
+    .chart .bar.dim { opacity: .35; }
+    .chart .gridline { stroke: rgb(var(--grid) / .1); stroke-width: 1; }
+    .chart .axis { fill: rgb(var(--c-ink-3)); font-size: 10.5px; font-family: inherit; font-variant-numeric: tabular-nums; }
+    .chart .hit { fill: transparent; cursor: default; }
+    .tip { position: absolute; pointer-events: none; background: rgb(var(--c-ink)); color: rgb(var(--c-paper)); font-size: 12px; font-weight: 700; padding: 6px 9px; border-radius: 10px; white-space: nowrap; transform: translate(-50%, calc(-100% - 8px)); z-index: 5; }
+    .tip span { display: block; font-weight: 500; opacity: .75; font-size: 11px; }
+    .funnel-bar { height: 12px; border-radius: 999px; background: rgb(var(--c-sunk)); overflow: hidden; }
+    .funnel-bar > i { display: block; height: 100%; border-radius: 999px; background: rgb(var(--bar)); }
+    .drawer { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: rgba(18, 48, 43, .4); }
+    html.dark .drawer { background: rgba(0, 0, 0, .6); }
+    .drawer > .panel { width: min(640px, 100%); height: 100%; overflow-y: auto; background: rgb(var(--c-paper)); box-shadow: -20px 0 50px -20px rgba(0, 54, 49, .45); animation: slideIn .25s cubic-bezier(.16, 1, .3, 1) both; }
+    @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(18, 48, 43, .45); }
+    html.dark .modal { background: rgba(0, 0, 0, .65); }
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80; background: rgb(var(--c-ink)); color: rgb(var(--c-paper)); font-weight: 700; font-size: 14px; padding: 10px 16px; border-radius: 999px; box-shadow: 0 12px 30px -10px rgba(0, 0, 0, .5); max-width: calc(100% - 32px); }
+    .act { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 14px; text-align: left; font-weight: 700; font-size: 14px; color: rgb(var(--c-ink)); }
+    .act:hover { background: rgb(var(--c-sunk) / .6); }
+    .act i { width: 18px; text-align: center; color: rgb(var(--c-ink-2)); }
+    .act.danger, .act.danger i { color: rgb(var(--c-danger)); }
+    .code-box { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 24px; font-weight: 800; letter-spacing: .12em; }
+    .empty { padding: 28px 16px; text-align: center; color: rgb(var(--c-ink-2)); font-size: 14px; }
+    .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .muted { color: rgb(var(--c-ink-2)); }
+    .faint { color: rgb(var(--c-ink-3)); }
+    .modal.hidden, .drawer.hidden, .toast.hidden, .tip.hidden { display: none; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Login -->
+  <main id="login" class="hidden min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-sm">
+      <div class="side rounded-[28px] p-6 mb-4 text-center">
+        <img src="babinha/coach.webp" alt="" class="w-24 h-24 object-contain mx-auto -mt-2" />
+        <p class="text-[11px] font-bold uppercase tracking-[0.16em] opacity-70 mt-2">Equipe BABA</p>
+        <h1 class="serif text-[38px] leading-none mt-1">Painel de suporte</h1>
+        <p class="text-[13px] opacity-75 mt-2">Acesso só para a conta de suporte.</p>
+      </div>
+      <form id="login-form" class="card p-5 space-y-3" onsubmit="event.preventDefault(); doLogin();">
+        <div>
+          <label class="label" for="login-email">E-mail</label>
+          <input id="login-email" type="email" autocomplete="username" class="field" placeholder="contatobabaapp@gmail.com" required />
+        </div>
+        <div>
+          <label class="label" for="login-pass">Senha</label>
+          <input id="login-pass" type="password" autocomplete="current-password" class="field" required />
+        </div>
+        <p id="login-error" class="hidden text-[13px] font-semibold text-danger"></p>
+        <button id="login-btn" type="submit" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-right-to-bracket"></i> Entrar no painel</button>
+        <a href="./" class="block text-center text-[13px] font-semibold text-ink-2 pt-1">Voltar para o app</a>
+      </form>
+    </div>
+  </main>
+
+  <!-- Loading -->
+  <main id="boot" class="min-h-screen flex items-center justify-center">
+    <p class="muted font-semibold"><i class="fa-solid fa-spinner fa-spin"></i> Abrindo o painel...</p>
+  </main>
+
+  <!-- Panel -->
+  <div id="shell" class="hidden min-h-screen lg:flex">
+    <aside class="side hidden lg:flex lg:flex-col w-[248px] flex-shrink-0 p-4 sticky top-0 h-screen">
+      <div class="flex items-center gap-3 px-2 pt-1 pb-5">
+        <img src="icons/icon-192.png" alt="" class="w-10 h-10 rounded-xl" />
+        <div class="min-w-0">
+          <p class="serif text-[26px] leading-none">BABA</p>
+          <p class="text-[11px] font-bold uppercase tracking-[0.14em] opacity-70">Suporte</p>
+        </div>
+      </div>
+      <nav class="space-y-1 nav-list" aria-label="Seções"></nav>
+      <div class="mt-auto pt-4 space-y-1">
+        <a href="./" class="nav"><i class="fa-solid fa-futbol w-4 text-center"></i> Abrir o app</a>
+        <a href="#" class="nav" onclick="event.preventDefault(); toggleTheme();"><i class="fa-solid fa-circle-half-stroke w-4 text-center"></i> Tema claro/escuro</a>
+        <a href="#" class="nav" onclick="event.preventDefault(); doLogout();"><i class="fa-solid fa-right-from-bracket w-4 text-center"></i> Sair</a>
+        <p id="side-who" class="text-[11.5px] opacity-60 px-3 pt-2 truncate"></p>
+      </div>
+    </aside>
+
+    <div class="flex-1 min-w-0">
+      <header class="side lg:hidden sticky top-0 z-30" style="padding-top: env(safe-area-inset-top, 0px)">
+        <div class="flex items-center gap-3 px-4 pt-3">
+          <img src="icons/icon-192.png" alt="" class="w-8 h-8 rounded-lg" />
+          <p class="serif text-[24px] leading-none flex-1">BABA <span class="text-[12px] font-sans font-bold uppercase tracking-[0.14em] opacity-70">Suporte</span></p>
+          <button onclick="toggleTheme()" class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center" aria-label="Tema claro/escuro"><i class="fa-solid fa-circle-half-stroke"></i></button>
+          <button onclick="doLogout()" class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center" aria-label="Sair"><i class="fa-solid fa-right-from-bracket"></i></button>
+        </div>
+        <nav class="tabs nav-list flex gap-1.5 overflow-x-auto px-3 py-3" aria-label="Seções"></nav>
+      </header>
+
+      <main class="px-4 lg:px-8 py-5 lg:py-7 max-w-[1180px] mx-auto">
+        <div class="flex items-end gap-3 mb-5 flex-wrap">
+          <div class="min-w-0 flex-1 basis-[240px]">
+            <p id="view-eyebrow" class="eyebrow"></p>
+            <h2 id="view-title" class="serif text-[36px] lg:text-[44px] leading-none mt-1"></h2>
+          </div>
+          <div id="view-tools" class="flex items-center gap-2 flex-wrap"></div>
+        </div>
+        <div id="view"></div>
+      </main>
+    </div>
+  </div>
+
+  <div id="drawer" class="drawer hidden" onclick="if (event.target === this) closeDrawer()">
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <div class="sticky top-0 z-10 bg-paper/95 backdrop-blur px-5 py-3 flex items-center gap-3 border-b border-ink/[0.07]">
+        <p id="drawer-title" class="font-bold text-[15px] flex-1 truncate"></p>
+        <button onclick="closeDrawer()" class="btn-icon" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="drawer-body" class="p-5"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden" onclick="if (event.target === this) closeModal()">
+    <div class="card w-full max-w-md p-5" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <p id="modal-title" class="title"></p>
+      <div id="modal-body" class="mt-3"></div>
+      <p id="modal-error" class="hidden text-[13px] font-semibold text-danger mt-3"></p>
+      <div class="flex gap-2 mt-5">
+        <button onclick="closeModal()" class="btn-soft flex-1 h-11 text-[14px]">Cancelar</button>
+        <button id="modal-ok" class="btn-primary flex-1 h-11 text-[14px]">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

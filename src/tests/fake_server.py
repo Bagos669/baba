@@ -389,3 +389,22 @@ def f_liveChat(self, uid, code, after):
 @_reg
 def f_peopleCards(self, uid, ids):
     return self.ok([{'id': i, 'name': self.profiles[i]['name'], 'avatar': self.profiles[i].get('avatar'), 'cosmetics': self.profiles[i].get('cosmetics') or {}} for i in ids if i in self.profiles])
+
+# ---- v8: support status (staff, suspension, notice) and daily activity
+def _v8init(self):
+    if not hasattr(self, 'staff'):
+        self.staff = set(); self.bans = {}; self.notice = None; self.pings = []; self.v8_enabled = True
+Fake._v8init = _v8init
+@_reg
+def f_myStatus(self, uid):
+    self._v8init()
+    if not self.v8_enabled: return self.err('PGRST202', 'Could not find the function')
+    b = self.bans.get(uid)
+    n = self.notice or {}
+    return self.ok({'staff': uid in self.staff, 'banned_until': b['until'] if b else None, 'banned_reason': b['reason'] if b else None,
+                    'notice': n.get('message'), 'notice_level': n.get('level')})
+@_reg
+def f_pingActivity(self, uid):
+    self._v8init()
+    if not self.v8_enabled: return self.err('PGRST202', 'Could not find the function')
+    self.pings.append(uid); return self.ok(None)

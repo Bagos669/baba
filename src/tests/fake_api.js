@@ -22,6 +22,7 @@ window.__BABA_FAKE_API__ = (() => {
     myAccount: m('myAccount'), acceptTerms: m('acceptTerms'), myWallet: m('myWallet'), claimDaily: m('claimDaily'), shopItems: m('shopItems'), ledger: m('ledger'),
     buyItem: m('buyItem'), equipItem: m('equipItem'), createLive: m('createLive'), updateLive: m('updateLive'), liveList: m('liveList'), getLive: m('getLive'),
     placePalpite: m('placePalpite'), myPalpites: m('myPalpites'), settlePalpites: m('settlePalpites'), liveRanking: m('liveRanking'),
-    chatList: m('chatList'), chatSend: m('chatSend'), chatDelete: m('chatDelete'), chatReport: m('chatReport'), liveChat: m('liveChat'), peopleCards: m('peopleCards')
+    chatList: m('chatList'), chatSend: m('chatSend'), chatDelete: m('chatDelete'), chatReport: m('chatReport'), liveChat: m('liveChat'), peopleCards: m('peopleCards'),
+    myStatus: m('myStatus'), pingActivity: m('pingActivity')
   };
 })();

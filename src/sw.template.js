@@ -29,6 +29,8 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  // The support panel always comes from the network (it needs the server anyway).
+  if (/\/admin(\.html|\.js)?$/.test(url.pathname)) return;
   if (req.mode === 'navigate') {
     event.respondWith(caches.open(CACHE).then(c => c.match('./')).then(hit => hit || fetch(req)));
     return;

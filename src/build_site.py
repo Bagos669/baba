@@ -12,6 +12,8 @@ for f in os.listdir(f'{V}/babinha'):
 
 html = open(f'{V}/shell.html').read()
 js = open(f'{V}/app.src.js').read()
+admin_html = open(f'{V}/admin.html').read()
+admin_js = open(f'{V}/admin.src.js').read()
 
 # --- icons from the logo
 from PIL import Image
@@ -46,7 +48,7 @@ for fam, style, w, path in fonts:
     face += f'@font-face{{font-family:"{fam}";font-style:{style};font-weight:{w};font-display:swap;src:url(fonts/{fn}) format("woff2")}}\n'
 
 # --- Font Awesome subset (font as a file)
-used = set(re.findall(r'fa-([a-z0-9-]+)', html + js)) - {'solid', 'icons'}
+used = set(re.findall(r'fa-([a-z0-9-]+)', html + js + admin_html + admin_js)) - {'solid', 'icons'}
 fa = re.sub(r'/\*.*?\*/', '', open(f'{S}/fa/package/css/fontawesome.min.css').read(), flags=re.S)
 cps, found = set(), set()
 def keep(m):
@@ -72,7 +74,9 @@ html = html.replace('/*APP_JS*/', '').replace('  <script>\n\n  </script>', '  <s
 assert '<script src="app.js"></script>' in html
 open(f'{OUT}/index.html', 'w').write(html)
 open(f'{OUT}/app.js', 'w').write(js)
-open(f'{S}/tw/tailwind.config.js', 'w').write("module.exports = Object.assign(" + cfg + ", { content: ['" + OUT + "/index.html', '" + OUT + "/app.js'] });")
+open(f'{OUT}/admin.js', 'w').write(admin_js)
+open(f'{OUT}/admin.html', 'w').write(admin_html)
+open(f'{S}/tw/tailwind.config.js', 'w').write("module.exports = Object.assign(" + cfg + ", { content: ['" + OUT + "/index.html', '" + OUT + "/app.js', '" + OUT + "/admin.html', '" + OUT + "/admin.js'] });")
 open(f'{S}/tw/in.css', 'w').write('@tailwind base;\n@tailwind components;\n@tailwind utilities;\n' + comp)
 r = subprocess.run([f'{S}/tw/node_modules/.bin/tailwindcss', '-c', f'{S}/tw/tailwind.config.js', '-i', f'{S}/tw/in.css', '-o', f'{S}/tw/out.css', '--minify'], capture_output=True, text=True)
 if r.returncode: print(r.stderr[-1500:]); sys.exit(1)
@@ -84,6 +88,11 @@ JS_URL, CSS_URL = f"app.js?v={hv(f'{OUT}/app.js')}", f"app.css?v={hv(f'{OUT}/app
 html = html.replace('<!--CSS_LINK-->', f'<link rel="stylesheet" href="{CSS_URL}" />')
 html = html.replace('<script src="app.js"></script>', f'<script src="{JS_URL}"></script>')
 open(f'{OUT}/index.html', 'w').write(html)
+# The support panel: same stylesheet, its own script, never cached by the service worker.
+ADMIN_JS_URL = f"admin.js?v={hv(f'{OUT}/admin.js')}"
+admin_html = admin_html.replace('<!--CSS_LINK-->', f'<link rel="stylesheet" href="{CSS_URL}" />').replace('<script src="admin.js"></script>', f'<script src="{ADMIN_JS_URL}"></script>')
+assert ADMIN_JS_URL in admin_html and CSS_URL in admin_html
+open(f'{OUT}/admin.html', 'w').write(admin_html)
 
 # --- PWA
 manifest = {
@@ -102,7 +111,7 @@ files = []
 for root, _, names in os.walk(OUT):
     for n in names:
         files.append(os.path.relpath(os.path.join(root, n), OUT))
-files = sorted(f for f in files if f != 'sw.js')
+files = sorted(f for f in files if f not in ('sw.js', 'admin.html', 'admin.js'))
 h = hashlib.sha256()
 for f in files: h.update(f.encode()); h.update(open(f'{OUT}/{f}', 'rb').read())
 version = h.hexdigest()[:12]

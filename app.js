@@ -1025,7 +1025,8 @@
       await api.signOut();
       currentUser = null;
       prefsPulledFor = null;
-      account = null; wallet = null; v7 = null; liveListCache = [];
+      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null;
+      { const ps = document.getElementById('profile-staff'); if (ps) ps.classList.add('hidden'); }
       state = defaultState();
       showAuth('login');
     }
@@ -2469,6 +2470,8 @@
       chatReport: (id, why) => rpc('report_message', { msg: id, why }),
       liveChat: (code, after) => rpc('live_chat', { live_code: code, after_id: after || 0 }),
       peopleCards: ids => rpc('people_cards', { ids }),
+      myStatus: async () => ((await rpc('my_status')) || [])[0] || null,
+      pingActivity: () => rpc('ping_activity'),
       subscribe(room, onRow) {
         try {
           const ch = sb.channel('room:' + room)
@@ -2496,6 +2499,30 @@
         if (isMissingFn(e)) v7 = false;
       }
       renderV7Bits();
+      if (v7 === true) refreshStatus();
+    }
+
+    /* v8: support account, suspension and the notice from the support panel. */
+    let status8 = null;
+    async function refreshStatus() {
+      if (!cloudOn() || !currentUser) return;
+      const uid = currentUser.id;
+      try {
+        const s = await api.myStatus();
+        if (!currentUser || currentUser.id !== uid) return;
+        status8 = s ? { staff: !!s.staff, bannedUntil: s.banned_until || null, bannedReason: s.banned_reason || '', notice: s.notice || '', noticeLevel: s.notice_level || 'info' } : null;
+        const today = localDate();
+        if (lsGet('baba_ping_v1:' + uid) !== today) { await api.pingActivity(); lsSet('baba_ping_v1:' + uid, today); }
+      } catch (e) {
+        if (isMissingFn(e)) status8 = null;
+      }
+      const box = document.getElementById('profile-staff');
+      if (box) box.classList.toggle('hidden', !(status8 && status8.staff));
+      renderHomeV7();
+    }
+    function dismissNotice() {
+      if (status8 && status8.notice) lsSet('baba_notice_seen_v1', status8.notice);
+      renderHomeV7();
     }
 
     async function refreshWallet() {
@@ -2518,7 +2545,8 @@
       renderLivePill();
     }
 
-    const fmtPts = n => Number(n || 0).toLocaleString('pt-BR');
+    // The support account has endless points (999.999.999 on the server).
+    const fmtPts = n => Number(n || 0) >= 999999999 ? '∞' : Number(n || 0).toLocaleString('pt-BR');
 
     /* ===================================================================
        TERMOS E ACEITE
@@ -2585,7 +2613,7 @@
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       await api.signOut();
       currentUser = null;
-      account = null; wallet = null; v7 = null;
+      account = null; wallet = null; v7 = null; status8 = null;
       state = defaultState();
       showAuth('login');
     }
@@ -3493,7 +3521,26 @@
           <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${wallet.daily ? 'Bônus do dia esperando · lojinha' : 'Molduras e nomes na lojinha'}</span></span>
           ${wallet.daily ? '<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">+100</span>' : '<i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>'}
         </button>` : '';
-      box.innerHTML = lives || pts ? `<section class="space-y-2.5">${lives}${pts}</section>` : '';
+      const st = status8 || {};
+      const banned = st.bannedUntil ? `
+        <div class="card w-full p-3.5 flex items-start gap-3 border-danger/30">
+          <img src="babinha/red.webp" alt="" class="w-11 h-11 object-contain flex-shrink-0" />
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold text-danger">Conta suspensa ${/^infinity$/i.test(String(st.bannedUntil)) || new Date(st.bannedUntil).getFullYear() > 9000 ? 'por tempo indeterminado' : 'até ' + new Date(st.bannedUntil).toLocaleString('pt-BR', Object.assign({ day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }, new Date(st.bannedUntil).getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}))}</span><span class="block text-[12.5px] text-ink-2">Chat, palpites e jogo ao vivo estão bloqueados.${st.bannedReason ? ' Motivo: ' + escapeHtml(st.bannedReason) + '.' : ''} Dúvidas: ${CONTACT_EMAIL}</span></span>
+        </div>` : '';
+      const notice = st.notice && lsGet('baba_notice_seen_v1') !== st.notice ? `
+        <div class="card w-full p-3.5 flex items-start gap-3 ${st.noticeLevel === 'warning' ? 'border-warn/40' : ''}">
+          <span class="tile ${st.noticeLevel === 'warning' ? 'bg-warn/15 text-warn' : 'bg-sage text-pitch'}"><i class="fa-solid ${st.noticeLevel === 'warning' ? 'fa-triangle-exclamation' : 'fa-bullhorn'}"></i></span>
+          <span class="min-w-0 flex-1"><span class="block text-[12px] font-bold uppercase tracking-wider text-ink-2">Aviso da equipe BABA</span><span class="block text-[14px] font-semibold mt-0.5">${escapeHtml(st.notice)}</span></span>
+          <button onclick="dismissNotice()" class="btn-icon" aria-label="Fechar aviso"><i class="fa-solid fa-xmark"></i></button>
+        </div>` : '';
+      const staff = st.staff ? `
+        <a href="admin.html" class="card w-full p-3.5 flex items-center gap-3 text-left">
+          <span class="tile bg-pitch text-butter"><i class="fa-solid fa-user-shield"></i></span>
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">Painel de suporte</span><span class="block text-[12.5px] text-ink-2">Conta de suporte · tudo liberado</span></span>
+          <i class="fa-solid fa-arrow-up-right-from-square text-[12px] text-ink-3"></i>
+        </a>` : '';
+      const all = banned + notice + staff + lives + pts;
+      box.innerHTML = all ? `<section class="space-y-2.5">${all}</section>` : '';
     }
 
     /* ===================================================================
