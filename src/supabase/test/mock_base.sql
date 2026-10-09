@@ -1,0 +1,20 @@
+-- Minimal stand-in for the Supabase project (auth, roles, v5/v6 tables) to test migrations locally.
+do $$ begin create role anon nologin; exception when duplicate_object then null; end $$; do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+create schema auth; create schema private;
+grant usage on schema public, private, auth to anon, authenticated;
+create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.uid', true), '')::uuid $$;
+create publication supabase_realtime;
+create table public.profiles (id uuid primary key references auth.users on delete cascade, name text not null, avatar text, prefs jsonb not null default '{}', created_at timestamptz default now());
+create table public.turmas (id uuid primary key default gen_random_uuid(), name text, created_by uuid default auth.uid(), owner_id uuid, icon text, invite_code text);
+create table public.turma_members (turma_id uuid references public.turmas on delete cascade, user_id uuid references auth.users on delete cascade, role text default 'member', joined_at timestamptz default now(), primary key (turma_id, user_id));
+create function private.is_member(t uuid) returns boolean language sql stable security definer set search_path='' as $$ select exists (select 1 from public.turma_members m where m.turma_id = t and m.user_id = (select auth.uid())) $$;
+create function private.is_admin(t uuid) returns boolean language sql stable security definer set search_path='' as $$ select exists (select 1 from public.turma_members m where m.turma_id = t and m.user_id = (select auth.uid()) and m.role = 'admin') $$;
+create function private.is_member_any(ts uuid[]) returns boolean language sql stable security definer set search_path='' as $$ select exists (select 1 from unnest(ts) t(id) join public.turma_members m on m.turma_id = t.id and m.user_id = (select auth.uid())) $$;
+create function public.touch_updated_at() returns trigger language plpgsql set search_path='' as $$ begin new.updated_at = now(); return new; end; $$;
+alter table public.profiles enable row level security;
+create policy profiles_select on public.profiles for select using (true);
+create policy profiles_update on public.profiles for update using (id = (select auth.uid())) with check (id = (select auth.uid()));
+grant select, insert, update, delete on all tables in schema public to anon, authenticated;
+alter default privileges in schema public grant select, insert, update, delete on tables to anon, authenticated;
+alter default privileges in schema public grant usage, select on sequences to anon, authenticated;
