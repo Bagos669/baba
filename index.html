@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#FAF3DC" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>BABA</title>
+  <link rel="icon" type="image/png" href="icons/favicon-32.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="app.css" />
+  <script src="vendor/supabase.js"></script>
+  <script defer src="vendor/jspdf.umd.min.js"></script>
+
+  <style>
+    :root {
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --logo: url(icons/icon-192.png);
+    }
+
+    html, body { background-color: #FAF3DC; }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      color: #12302B;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    input, textarea { user-select: text; -webkit-user-select: text; }
+    :focus-visible { outline: 2px solid #003631; outline-offset: 2px; }
+    .pitch-card :focus-visible { outline-color: #FFEDA8; }
+
+    select {
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23003631' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.85rem center;
+      background-size: 12px 8px;
+      text-overflow: ellipsis;
+    }
+    select.select-dark {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23FFEDA8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    option { color: #12302B; background: #FFFCF2; }
+
+    .app-header { padding-top: var(--sat); }
+    .pt-safe { padding-top: calc(4rem + var(--sat) + 0.5rem); }
+    .pb-safe { padding-bottom: calc(6rem + var(--sab) + 0.75rem); }
+    .toast-area { top: calc(4.5rem + var(--sat)); }
+    .no-scrollbar { scrollbar-width: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+
+    /* Deep green hero card with soft concentric rings (the "dial" world). */
+    /* :not(.absolute) so a positioned card keeps its utility position
+       whichever stylesheet loads last. */
+    .pitch-card:not(.absolute) { position: relative; }
+    .pitch-card {
+      overflow: hidden;
+      border-radius: 28px;
+      color: #FFEDA8;
+      background:
+        radial-gradient(120% 90% at 88% -10%, rgba(52, 140, 120, .55) 0%, rgba(52, 140, 120, 0) 55%),
+        radial-gradient(90% 70% at -5% 105%, rgba(255, 237, 168, .16) 0%, rgba(255, 237, 168, 0) 60%),
+        linear-gradient(160deg, #0B4A42 0%, #003631 55%, #002A26 100%);
+      box-shadow: 0 26px 50px -26px rgba(0, 54, 49, .85), inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+    .rings {
+      position: absolute;
+      left: 50%;
+      top: 46%;
+      width: 520px;
+      height: 520px;
+      transform: translate(-50%, -50%);
+      border-radius: 9999px;
+      pointer-events: none;
+      background: repeating-radial-gradient(circle, rgba(255, 237, 168, 0) 0 58px, rgba(255, 237, 168, .07) 59px 60px);
+      mask-image: radial-gradient(circle, #000 35%, transparent 70%);
+      -webkit-mask-image: radial-gradient(circle, #000 35%, transparent 70%);
+    }
+    .glass {
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      background: rgba(255, 255, 255, .08);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    /* The glowing butter dial at the center of the hero. */
+    .dial {
+      position: relative;
+      border-radius: 9999px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 34% 28%, #FFFEF7 0%, #FFF6D2 42%, #F5DE94 100%);
+      box-shadow:
+        0 0 0 12px rgba(255, 237, 168, .07),
+        0 0 0 26px rgba(255, 237, 168, .04),
+        0 22px 50px -12px rgba(0, 0, 0, .55),
+        inset 0 -10px 22px rgba(196, 150, 40, .28),
+        inset 0 8px 16px rgba(255, 255, 255, .95);
+      color: #003631;
+    }
+    .dial-side {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #FFEDA8;
+      font-weight: 800;
+      font-size: 14px;
+      background: rgba(255, 255, 255, .12);
+      border: 1px solid rgba(255, 255, 255, .22);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: transform .15s;
+    }
+    .dial-side:active { transform: translateY(-50%) scale(.92); }
+
+    .logo-mark { display: inline-block; flex-shrink: 0; background: var(--logo) center / cover no-repeat; }
+    .orb { position: absolute; border-radius: 9999px; pointer-events: none; }
+
+    /* Fixed-width digits so a serif clock never jitters. */
+    .dg { display: inline-block; width: .56em; text-align: center; }
+    .dg-c { display: inline-block; width: .24em; text-align: center; transform: translateY(-.05em); }
+
+    .live-dot { width: 7px; height: 7px; border-radius: 9999px; background: #7BE0A8; box-shadow: 0 0 0 0 rgba(123, 224, 168, .7); animation: livePulse 1.6s ease-out infinite; }
+    @keyframes livePulse { 70% { box-shadow: 0 0 0 7px rgba(123, 224, 168, 0); } 100% { box-shadow: 0 0 0 0 rgba(123, 224, 168, 0); } }
+
+    .nav-tab-btn.is-active { background: #FFEDA8; color: #003631; }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+    tr.is-absent td:not(:last-child) { opacity: 0.5; }
+
+    .timer-low { color: #FFB9A8 !important; border-color: rgba(255, 140, 120, .55) !important; }
+    .timer-out { color: #FF8E7A !important; border-color: #FF8E7A !important; }
+    #timer-display.timer-out { animation: blink 1s steps(2, start) infinite; }
+    @keyframes blink { to { visibility: hidden; } }
+
+    @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.2); } 100% { transform: scale(1); } }
+    .score-pop { animation: pop 0.35s ease-out; }
+
+    @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toastIn { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .animate-toast { animation: toastIn 0.2s ease-out forwards; }
+    @keyframes screenIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .auth-screen:not(.hidden) { animation: screenIn .35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+    /* ---- Modo quadra ----
+       Sizes use container units so they follow the overlay's own box, which
+       is landscape both when the phone is turned and when we rotate it in CSS. */
+    #court-mode { container-type: size; }
+    #court-mode .cm-frame { position: absolute; inset: 0; border-radius: 0; }
+    .cm-rings { width: 140cqw; height: 140cqw; top: 55%; }
+    .cm-top { padding: 10px max(18px, env(safe-area-inset-right)) 10px max(18px, env(safe-area-inset-left)); }
+    .cm-bottom { padding: 10px max(18px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
+    .cm-timer { font-size: 44px; font-size: min(13cqh, 7.5cqw); line-height: 1; }
+    .cm-play { width: 46px; height: 46px; font-size: 16px; }
+    .cm-score { font-size: 120px; font-size: min(40cqh, 21cqw); line-height: .9; margin: 1cqh 0 3cqh; }
+    .cm-btn { height: 44px; padding: 0 20px; font-size: 14px; }
+    .cm-half { padding: 8px 12px; }
+
+    /* Lock the page behind the overlay. */
+    html.fs-on, html.fs-on body { overflow: hidden; }
+    html.fs-on .sheet-panel { max-height: 94% !important; }
+
+    /* Phone held upright and the browser can't lock orientation:
+       turn the whole page so the scoreboard (and its sheets) read in landscape. */
+    @media (orientation: portrait) {
+      html.fs-on.fs-rotate body {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vh;
+        height: 100vw;
+        min-height: 0;
+        transform-origin: top left;
+        transform: rotate(90deg) translateY(-100%);
+      }
+      @supports (height: 100dvh) {
+        html.fs-on.fs-rotate body { width: 100dvh; height: 100dvw; }
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+
+<body class="overflow-x-hidden bg-paper text-ink selection:bg-butter selection:text-pitch">
+
+  <!-- ===================== AUTH ===================== -->
+  <div id="auth-root" class="fixed inset-0 z-[80] bg-paper overflow-y-auto overscroll-contain">
+    <div class="max-w-md mx-auto min-h-full flex flex-col px-5" style="padding-top: calc(var(--sat) + 14px);">
+
+      <!-- Landing -->
+      <section id="scr-landing" class="auth-screen hidden flex-1 flex flex-col">
+        <div class="flex items-center gap-2.5 py-1">
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+          <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
+        </div>
+
+        <h1 class="mt-7 text-[38px] leading-[1.02] font-semibold tracking-[-0.035em]">
+          O baba de sempre,<br><span class="font-serif italic font-normal text-pitch text-[46px] tracking-[-0.01em]">sem bagunça.</span>
+        </h1>
+        <p class="mt-3 text-[15px] text-ink-2 leading-relaxed max-w-[32ch]">Placar, relógio, fila do Rei da Quadra e artilharia, no celular de quem organiza.</p>
+
+        <!-- Showcase: the live dial -->
+        <div class="relative mt-6 h-[318px]" aria-hidden="true">
+          <span class="orb" style="width:150px;height:150px;right:-34px;top:-6px;background:radial-gradient(circle at 32% 30%,#FFFBEA 0%,#FBE59A 45%,#EFC955 100%);"></span>
+          <span class="orb" style="width:96px;height:96px;left:-26px;bottom:6px;background:radial-gradient(circle at 32% 30%,#F4FAEE 0%,#CFE3C1 50%,#9EC28E 100%);"></span>
+          <span class="orb" style="width:38px;height:38px;right:30px;bottom:-4px;background:radial-gradient(circle at 32% 30%,#2F7A6A 0%,#0B4A42 60%,#003631 100%);"></span>
+          <div class="pitch-card absolute inset-x-3 top-5 bottom-6 px-4 pt-4 pb-3 flex flex-col">
+            <div class="rings"></div>
+            <div class="relative flex items-center justify-between text-[12px] font-semibold text-butter/80">
+              <span>Partida 4</span>
+              <span class="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1"><span class="live-dot"></span>Rolando</span>
+            </div>
+            <div class="relative flex-1 flex items-center justify-center">
+              <div class="dial w-[150px] h-[150px]">
+                <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-2">Time 3 × Time 5</span>
+                <span id="landing-timer" class="font-serif text-[50px] leading-none mt-0.5">04:12</span>
+                <span class="text-[11px] text-ink-2">Bola rolando</span>
+              </div>
+            </div>
+            <div class="relative glass grid grid-cols-3 divide-x divide-white/15 py-2 text-center">
+              <div><p class="text-[10px] text-butter/65">Placar</p><p class="font-serif text-[22px] leading-tight">2 × 1</p></div>
+              <div><p class="text-[10px] text-butter/65">Na fila</p><p class="font-serif text-[22px] leading-tight">6</p></div>
+              <div><p class="text-[10px] text-butter/65">Rei</p><p class="font-serif text-[22px] leading-tight">Time 3</p></div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="space-y-3">
+          <li class="flex items-center gap-3">
+            <span class="tile bg-sage text-pitch"><i class="fa-solid fa-users"></i></span>
+            <div><p class="text-[15px] font-bold leading-snug">Quem chega primeiro, joga primeiro</p><p class="text-[13px] text-ink-2 leading-snug">A fila se monta pela ordem de chegada.</p></div>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="tile bg-butter text-pitch"><i class="fa-solid fa-stopwatch"></i></span>
+            <div><p class="text-[15px] font-bold leading-snug">Placar com relógio e acréscimo</p><p class="text-[13px] text-ink-2 leading-snug">Gol, assistência e defesa em dois toques.</p></div>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="tile bg-pitch text-butter"><i class="fa-solid fa-trophy"></i></span>
+            <div><p class="text-[15px] font-bold leading-snug">Artilharia de todos os babas</p><p class="text-[13px] text-ink-2 leading-snug">Ranking do dia e acumulado, com backup.</p></div>
+          </li>
+        </ul>
+
+        <div class="sticky bottom-0 -mx-5 px-5 pt-8 mt-auto space-y-2.5 bg-gradient-to-t from-paper via-paper to-paper/0" style="padding-bottom: calc(var(--sab) + 18px);">
+          <button onclick="authGo('signup')" class="btn-primary w-full h-14 text-[16px]">Criar conta</button>
+          <button onclick="authGo('login')" class="btn-outline w-full h-14 text-[16px]">Entrar</button>
+          <p class="text-center text-[12px] text-ink-2 pt-1"><i class="fa-solid fa-lock text-[10px] mr-1"></i>Os dados ficam salvos neste aparelho.</p>
+        </div>
+      </section>
+
+      <!-- Login -->
+      <section id="scr-login" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center justify-between py-1">
+          <button onclick="authGo('landing')" class="w-10 h-10 rounded-full bg-card border border-ink/10 flex items-center justify-center" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+        </div>
+
+        <h1 class="mt-8 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Bem-vindo<br><span class="font-serif italic font-normal text-pitch text-[42px]">de volta.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2">Entre pra continuar o baba.</p>
+
+        <form class="mt-7 space-y-3.5" onsubmit="event.preventDefault(); doLogin();" novalidate>
+          <label class="block">
+            <span class="label">E-mail</span>
+            <input id="login-email" type="email" inputmode="email" class="field" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="voce@email.com" />
+          </label>
+          <label class="block">
+            <span class="label">Senha</span>
+            <span class="relative block">
+              <input id="login-pass" type="password" class="field pr-12" autocomplete="current-password" placeholder="Sua senha" />
+              <button type="button" onclick="togglePass('login-pass', this)" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl text-ink-2 flex items-center justify-center" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+            </span>
+          </label>
+          <div class="flex justify-end pt-0.5">
+            <button type="button" onclick="authGo('forgot')" class="text-[13px] font-bold text-pitch underline underline-offset-2">Esqueci minha senha</button>
+          </div>
+          <p id="login-error" class="hidden text-[13px] font-semibold text-danger"></p>
+          <button type="submit" id="btn-login" class="btn-primary w-full h-14 text-[16px]">Entrar</button>
+        </form>
+
+        <p class="mt-auto pt-10 text-center text-[14px] text-ink-2">Não tem conta? <button onclick="authGo('signup')" class="font-bold text-pitch underline underline-offset-2">Criar conta</button></p>
+      </section>
+
+      <!-- Signup -->
+      <section id="scr-signup" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center justify-between py-1">
+          <button onclick="authGo('landing')" class="w-10 h-10 rounded-full bg-card border border-ink/10 flex items-center justify-center" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+        </div>
+
+        <h1 class="mt-8 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Crie sua<br><span class="font-serif italic font-normal text-pitch text-[42px]">conta.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2">Uma conta só, que funciona em qualquer celular.</p>
+
+        <form class="mt-7 space-y-3.5" onsubmit="event.preventDefault(); doSignup();" novalidate>
+          <label class="block">
+            <span class="label">Seu nome</span>
+            <input id="signup-name" class="field" autocomplete="name" autocapitalize="words" placeholder="Como a galera te chama" />
+          </label>
+          <label class="block">
+            <span class="label">E-mail</span>
+            <input id="signup-email" type="email" inputmode="email" class="field" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="voce@email.com" />
+          </label>
+          <label class="block">
+            <span class="label">Senha</span>
+            <span class="relative block">
+              <input id="signup-pass" type="password" class="field pr-12" autocomplete="new-password" placeholder="Mínimo de 6 caracteres" />
+              <button type="button" onclick="togglePass('signup-pass', this)" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl text-ink-2 flex items-center justify-center" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+            </span>
+          </label>
+          <p id="signup-error" class="hidden text-[13px] font-semibold text-danger"></p>
+          <button type="submit" id="btn-signup" class="btn-primary w-full h-14 text-[16px]">Criar conta</button>
+        </form>
+
+        <p class="mt-auto pt-10 text-center text-[14px] text-ink-2">Já tem conta? <button onclick="authGo('login')" class="font-bold text-pitch underline underline-offset-2">Entrar</button></p>
+      </section>
+
+      <!-- Recovery code (shown once, after signup) -->
+      <section id="scr-recovery" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="relative h-[150px] mt-4" aria-hidden="true">
+          <span class="orb" style="width:120px;height:120px;left:50%;top:10px;transform:translateX(-50%);background:radial-gradient(circle at 32% 30%,#FFFBEA 0%,#FBE59A 45%,#EFC955 100%);"></span>
+          <span class="orb" style="width:46px;height:46px;left:calc(50% + 44px);top:84px;background:radial-gradient(circle at 32% 30%,#F4FAEE 0%,#CFE3C1 50%,#9EC28E 100%);"></span>
+          <span class="absolute left-1/2 top-[50px] -translate-x-1/2 text-[34px] text-pitch"><i class="fa-solid fa-key"></i></span>
+        </div>
+        <h1 class="text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Guarde seu<br><span class="font-serif italic font-normal text-pitch text-[42px]">código.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2 leading-relaxed">Se você esquecer a senha, é com ele que cria outra. Ele só aparece agora: tire um print ou anote.</p>
+
+        <div class="card mt-6 p-4">
+          <input id="recovery-code" readonly class="w-full bg-transparent text-center font-serif text-[38px] tracking-[0.06em] text-pitch outline-none select-all" value="" aria-label="Código de recuperação" />
+          <button onclick="copyText(document.getElementById('recovery-code').value, document.getElementById('recovery-code'))" class="btn-soft w-full h-11 text-[14px] mt-2"><i class="fa-solid fa-copy"></i> Copiar código</button>
+        </div>
+
+        <label class="mt-5 flex items-start gap-3 text-[14px] font-semibold text-ink cursor-pointer">
+          <input id="recovery-ack" type="checkbox" class="mt-0.5 w-5 h-5 accent-[#003631]" onchange="document.getElementById('btn-recovery-done').disabled = !this.checked" />
+          Anotei o código em um lugar seguro
+        </label>
+        <button id="btn-recovery-done" onclick="recoveryDone()" disabled class="btn-primary w-full h-14 text-[16px] mt-auto">Continuar</button>
+      </section>
+
+      <!-- Fingerprint offer -->
+      <section id="scr-bio" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="relative h-[190px] mt-6" aria-hidden="true">
+          <span class="orb" style="width:170px;height:170px;left:50%;top:6px;transform:translateX(-50%);background:radial-gradient(circle at 32% 30%,#2F7A6A 0%,#0B4A42 55%,#003631 100%);box-shadow:0 0 0 14px rgba(0,54,49,.06),0 0 0 30px rgba(0,54,49,.035);"></span>
+          <span class="absolute left-1/2 top-[56px] -translate-x-1/2 text-[64px] text-butter"><i class="fa-solid fa-fingerprint"></i></span>
+        </div>
+        <h1 class="mt-4 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Proteger com a<br><span class="font-serif italic font-normal text-pitch text-[42px]">digital?</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2 leading-relaxed">Você continua conectado, e o BABA pede a digital sempre que abrir neste celular. Bom pra quando o celular passa de mão em mão. Dá pra mudar depois no seu perfil.</p>
+        <p id="bio-offer-error" class="hidden mt-4 text-[13px] font-semibold text-danger"></p>
+        <div class="mt-auto pt-8 space-y-2.5">
+          <button id="btn-bio-accept" onclick="bioOfferAccept()" class="btn-primary w-full h-14 text-[16px]"><i class="fa-solid fa-fingerprint"></i> Ativar digital</button>
+          <button onclick="finishSignup()" class="btn-outline w-full h-14 text-[16px]">Agora não</button>
+        </div>
+      </section>
+
+      <!-- App lock -->
+      <section id="scr-lock" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center gap-2.5 py-1">
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+          <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
+        </div>
+        <div class="relative h-[190px] mt-10" aria-hidden="true">
+          <span class="orb" style="width:170px;height:170px;left:50%;top:6px;transform:translateX(-50%);background:radial-gradient(circle at 32% 30%,#2F7A6A 0%,#0B4A42 55%,#003631 100%);box-shadow:0 0 0 14px rgba(0,54,49,.06),0 0 0 30px rgba(0,54,49,.035);"></span>
+          <span class="absolute left-1/2 top-[56px] -translate-x-1/2 text-[64px] text-butter"><i class="fa-solid fa-fingerprint"></i></span>
+        </div>
+        <h1 class="mt-6 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Olá de novo,<br><span id="lock-name" class="font-serif italic font-normal text-pitch text-[42px]">craque.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2">Desbloqueie com a digital para abrir o BABA.</p>
+        <p id="lock-error" class="hidden mt-4 text-[13px] font-semibold text-danger"></p>
+        <div class="mt-auto pt-8 space-y-2.5">
+          <button id="btn-unlock" onclick="unlockWithBio()" class="btn-primary w-full h-14 text-[16px]"><i class="fa-solid fa-fingerprint"></i> Desbloquear</button>
+          <button onclick="lockUseOtherAccount()" class="btn-outline w-full h-14 text-[16px]">Entrar com e-mail e senha</button>
+        </div>
+      </section>
+
+      <!-- Forgot password -->
+      <section id="scr-forgot" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center justify-between py-1">
+          <button onclick="authGo('login')" class="w-10 h-10 rounded-full bg-card border border-ink/10 flex items-center justify-center" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+        </div>
+
+        <h1 class="mt-8 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Esqueceu a<br><span class="font-serif italic font-normal text-pitch text-[42px]">senha?</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2 leading-relaxed">Use o código de recuperação que apareceu quando você criou a conta.</p>
+
+        <form class="mt-7 space-y-3.5" onsubmit="event.preventDefault(); doForgot();" novalidate>
+          <label class="block">
+            <span class="label">E-mail</span>
+            <input id="forgot-email" type="email" inputmode="email" class="field" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" />
+          </label>
+          <label class="block">
+            <span class="label">Código de recuperação</span>
+            <input id="forgot-code" class="field uppercase tracking-[0.12em]" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX" />
+          </label>
+          <label class="block">
+            <span class="label">Nova senha</span>
+            <span class="relative block">
+              <input id="forgot-pass" type="password" class="field pr-12" autocomplete="new-password" placeholder="Mínimo de 6 caracteres" />
+              <button type="button" onclick="togglePass('forgot-pass', this)" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl text-ink-2 flex items-center justify-center" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+            </span>
+          </label>
+          <p id="forgot-error" class="hidden text-[13px] font-semibold text-danger"></p>
+          <button type="submit" id="btn-forgot" class="btn-primary w-full h-14 text-[16px]">Criar nova senha</button>
+        </form>
+
+        <p class="mt-auto pt-10 text-center text-[13px] text-ink-2 leading-relaxed">Perdeu o código? Ainda conectado em outro celular, gere um novo em <b>Perfil → Novo código de recuperação</b>.</p>
+      </section>
+    </div>
+  </div>
+
+  <!-- ===================== APP ===================== -->
+  <div id="app-root" class="hidden">
+
+    <header class="app-header fixed top-0 inset-x-0 z-40 bg-paper/85 backdrop-blur-xl">
+      <div class="max-w-lg mx-auto h-16 px-4 flex items-center justify-between">
+        <button class="flex items-center gap-2.5" onclick="switchTab('inicio')" aria-label="Início">
+          <img id="app-logo" src="icons/icon-192.png" alt="BABA" width="36" height="36" class="w-9 h-9 rounded-xl ring-1 ring-ink/10" />
+          <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
+        </button>
+        <button onclick="openProfile()" class="relative w-10 h-10 rounded-full bg-pitch text-butter flex items-center justify-center ring-2 ring-card shadow-md" aria-label="Seu perfil">
+          <span id="header-initials" class="text-[13px] font-extrabold">?</span>
+          <span id="sync-dot" class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-paper"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="w-full max-w-lg mx-auto pt-safe pb-safe px-4">
+
+      <!-- =================== INÍCIO =================== -->
+      <div id="tab-content-inicio" class="tab-content space-y-7">
+        <div class="pt-2">
+          <p id="home-date" class="text-[13px] font-semibold text-ink-2"></p>
+          <h1 class="mt-1 text-[38px] leading-[1.02] font-semibold tracking-[-0.035em]"><span id="home-hello">Bom dia,</span><br><span id="home-name" class="font-serif italic font-normal text-pitch text-[46px] tracking-[-0.01em]">craque.</span></h1>
+          <p id="home-status" class="mt-2 text-[14px] text-ink-2"></p>
+        </div>
+
+        <div class="pitch-card px-4 pt-4 pb-3.5">
+          <div class="rings"></div>
+          <div class="relative flex items-center justify-between text-[12px] font-semibold text-butter/80">
+            <span id="home-match-no">Partida 1</span>
+            <span id="home-live" class="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1"><span id="home-live-dot" class="live-dot"></span><span id="home-live-text">Pausado</span></span>
+          </div>
+          <div class="relative flex items-center justify-center py-6">
+            <button id="home-btn-left" onclick="toggleMatchTimer()" class="dial-side" style="left:2px" aria-label="Iniciar ou pausar"><i id="home-play-icon" class="fa-solid fa-play"></i></button>
+            <button onclick="switchTab('placar')" class="dial w-[188px] h-[188px]" aria-label="Abrir placar">
+              <span id="home-dial-top" class="text-[10.5px] font-bold uppercase tracking-[0.12em] text-ink-2 max-w-[150px] truncate">Sem times</span>
+              <span id="home-timer" class="font-serif text-[62px] leading-none mt-0.5">07:00</span>
+              <span id="home-dial-sub" class="text-[12px] text-ink-2">Pausado</span>
+            </button>
+            <button id="home-btn-right" onclick="addExtraTime(1)" class="dial-side" style="right:2px" aria-label="Mais 1 minuto">+1'</button>
+          </div>
+          <div id="home-strip" class="relative glass"></div>
+        </div>
+
+        <div id="home-mine"></div>
+
+        <section>
+          <p class="eyebrow">Pra agora</p>
+          <h2 class="title mt-0.5 mb-3">Atalhos</h2>
+          <div id="home-shortcuts" class="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2 snap-x"></div>
+        </section>
+
+        <section>
+          <div class="flex items-end justify-between mb-3">
+            <div>
+              <p class="eyebrow">Destaques</p>
+              <h2 class="title mt-0.5">Hoje no baba</h2>
+            </div>
+            <span id="home-live-badge" class="hidden items-center gap-1.5 text-[11px] font-bold text-leaf"><span class="w-1.5 h-1.5 rounded-full bg-leaf"></span>Ao vivo</span>
+          </div>
+          <div id="home-today" class="space-y-2.5"></div>
+        </section>
+      </div>
+
+      <!-- =================== PLACAR =================== -->
+      <div id="tab-content-placar" class="tab-content hidden space-y-3">
+
+        <div class="card p-3.5 grid grid-cols-2 gap-2.5">
+          <label class="block min-w-0">
+            <span class="label">Formato</span>
+            <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select">
+              <option value="futsal">Futsal · 5</option>
+              <option value="society">Society · 8</option>
+              <option value="campo">Campo · 12</option>
+            </select>
+          </label>
+          <label class="block min-w-0">
+            <span class="label">Fim de jogo</span>
+            <select id="match-goal-limit-rule" onchange="updateGoalLimitRule(this.value)" class="select">
+              <option value="none">Só no tempo</option>
+              <option value="2">2 gols</option>
+              <option value="3">3 gols</option>
+              <option value="5">5 gols</option>
+              <option value="diff2">Dif. de 2</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="pitch-card p-4 space-y-3.5">
+          <div class="rings"></div>
+          <div class="relative flex items-stretch gap-2.5">
+            <div id="timer-box" class="relative flex-1 min-w-0 flex items-center justify-center rounded-2xl bg-black/25 border border-white/10 py-2.5">
+              <div id="timer-display" class="font-serif text-[70px] leading-none text-butter">07:00</div>
+              <span id="timer-added-badge" class="hidden absolute -top-2.5 right-2 text-[11px] leading-none font-extrabold text-pitch bg-butter rounded-md px-1.5 py-1 shadow"></span>
+            </div>
+            <button id="btn-timer-toggle" onclick="toggleMatchTimer()" class="w-[68px] flex-shrink-0 rounded-2xl bg-butter text-pitch text-2xl flex items-center justify-center active:scale-95 transition" aria-label="Iniciar ou pausar">
+              <i class="fa-solid fa-play" id="icon-timer-toggle"></i>
+            </button>
+            <div class="w-11 flex-shrink-0 flex flex-col gap-1.5">
+              <button id="btn-court-mode" onclick="enterCourtMode()" class="hidden flex-1 rounded-2xl bg-white/10 border border-white/15 text-butter flex items-center justify-center active:scale-95 transition" aria-label="Placar em tela cheia">
+                <i class="fa-solid fa-expand"></i>
+              </button>
+              <button onclick="resetMatchTimer()" class="flex-1 rounded-2xl bg-white/10 border border-white/15 text-butter/80 flex items-center justify-center active:scale-95 transition" aria-label="Zerar relógio">
+                <i class="fa-solid fa-rotate-right"></i>
+              </button>
+            </div>
+          </div>
+          <div class="relative flex items-end gap-2">
+            <label class="block min-w-0 flex-1">
+              <span class="block text-[12px] font-semibold text-butter/70 mb-1.5">Tempo total</span>
+              <select id="match-duration" onchange="setMatchDuration(Number(this.value))" class="select-dark">
+                <option value="180">3 min</option>
+                <option value="300">5 min</option>
+                <option value="420">7 min</option>
+                <option value="480">8 min</option>
+                <option value="600">10 min</option>
+                <option value="720">12 min</option>
+                <option value="900">15 min</option>
+                <option value="1200">20 min</option>
+                <option value="1500">25 min</option>
+                <option value="1800">30 min</option>
+              </select>
+            </label>
+            <div class="flex-shrink-0">
+              <span class="block text-[12px] font-semibold text-butter/70 mb-1.5">Acréscimo</span>
+              <div class="flex gap-1.5">
+                <button onclick="addExtraTime(1)" class="h-[42px] px-3 rounded-xl bg-white/5 border border-butter/40 text-butter text-sm font-extrabold active:scale-95 transition">+1</button>
+                <button onclick="addExtraTime(2)" class="h-[42px] px-3 rounded-xl bg-white/5 border border-butter/40 text-butter text-sm font-extrabold active:scale-95 transition">+2</button>
+                <button onclick="addExtraTime(3)" class="h-[42px] px-3 rounded-xl bg-white/5 border border-butter/40 text-butter text-sm font-extrabold active:scale-95 transition">+3</button>
+              </div>
+            </div>
+          </div>
+          <p id="timer-meta" class="relative text-[12px] font-medium text-butter/65 text-center"></p>
+        </div>
+
+        <!-- Shown when the court is not fully set -->
+        <div id="court-cta" class="hidden rounded-[22px] p-3.5 border-2 border-dashed border-pitch/25 bg-card/60 flex items-center gap-3">
+          <div class="min-w-0 flex-1">
+            <p id="court-cta-title" class="text-[15px] font-bold leading-tight"></p>
+            <p id="court-cta-text" class="text-[13px] text-ink-2 leading-snug mt-0.5"></p>
+          </div>
+          <button id="court-cta-btn" class="btn-primary px-4 h-11 text-[14px] flex-shrink-0"></button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="card p-3 flex flex-col gap-2 min-w-0">
+            <span class="text-[12px] font-semibold text-ink-2" id="team-eyebrow-a">Lado A</span>
+            <div class="flex items-center justify-between gap-1 min-w-0 h-9 px-3 rounded-xl bg-sunk">
+              <span id="team-label-a" class="font-bold text-[15px] truncate">Sem time</span>
+              <span id="team-badge-a" class="hidden text-[11px] font-extrabold text-pitch bg-butter rounded-md px-1.5 py-0.5 flex-shrink-0"></span>
+            </div>
+            <div class="text-center font-serif text-[92px] leading-[0.95] text-pitch py-0.5" id="match-score-a">0</div>
+            <button id="btn-goal-a" onclick="openGoalModal('A')" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="btn-save-a" onclick="openSaveModal('A')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+          <div class="card p-3 flex flex-col gap-2 min-w-0">
+            <span class="text-[12px] font-semibold text-ink-2" id="team-eyebrow-b">Lado B</span>
+            <div class="flex items-center justify-between gap-1 min-w-0 h-9 px-3 rounded-xl bg-sunk">
+              <span id="team-label-b" class="font-bold text-[15px] truncate">Sem time</span>
+              <span id="team-badge-b" class="hidden text-[11px] font-extrabold text-pitch bg-butter rounded-md px-1.5 py-0.5 flex-shrink-0"></span>
+            </div>
+            <div class="text-center font-serif text-[92px] leading-[0.95] text-pitch py-0.5" id="match-score-b">0</div>
+            <button id="btn-goal-b" onclick="openGoalModal('B')" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="btn-save-b" onclick="openSaveModal('B')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+        </div>
+
+        <button id="btn-finish" onclick="finishMatchAndNextChallenger()" class="btn w-full rounded-[22px] bg-butter text-pitch border border-butter-3/60 py-3 px-4 justify-start gap-3">
+          <span class="tile bg-pitch text-butter w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
+          <span class="text-left leading-tight">
+            <span class="block font-extrabold text-[15px]">Finalizar partida</span>
+            <span class="block text-[12px] font-semibold opacity-75" id="finish-subtitle">Vencedor fica · próximo da fila entra</span>
+          </span>
+        </button>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="card p-3 min-w-0">
+            <div class="flex items-center justify-between gap-1 mb-1.5">
+              <span class="text-[13px] font-bold truncate" id="roster-title-a">Lado A</span>
+              <button onclick="switchTab('fila')" class="text-[12px] font-bold text-pitch flex items-center gap-1 flex-shrink-0"><i class="fa-solid fa-pen text-[10px]"></i> Editar</button>
+            </div>
+            <div id="match-roster-a" class="text-[13px] text-ink space-y-0.5"></div>
+          </div>
+          <div class="card p-3 min-w-0">
+            <div class="flex items-center justify-between gap-1 mb-1.5">
+              <span class="text-[13px] font-bold truncate" id="roster-title-b">Lado B</span>
+              <button onclick="switchTab('fila')" class="text-[12px] font-bold text-pitch flex items-center gap-1 flex-shrink-0"><i class="fa-solid fa-pen text-[10px]"></i> Editar</button>
+            </div>
+            <div id="match-roster-b" class="text-[13px] text-ink space-y-0.5"></div>
+          </div>
+        </div>
+
+        <div class="card p-3.5">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-list-check text-pitch"></i> Lances da partida</h4>
+            <button onclick="undoLastEvent()" id="btn-undo" class="h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
+              <i class="fa-solid fa-rotate-left"></i> Desfazer
+            </button>
+          </div>
+          <div id="match-events-log" class="space-y-1.5 text-[13px] text-ink max-h-44 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+
+      <!-- =================== LISTA =================== -->
+      <div id="tab-content-ficha" class="tab-content hidden space-y-3">
+        <div class="card p-4 space-y-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="title">Lista de chegada</h3>
+              <p class="text-[13px] text-ink-2 mt-0.5">Chegaram <b id="sheet-active-count" class="text-pitch">0</b> · faltam <b id="sheet-waiting-count" class="text-ink">0</b></p>
+            </div>
+            <button onclick="openAddPlayerModal()" class="btn-primary px-4 h-11 text-[14px] flex-shrink-0"><i class="fa-solid fa-user-plus"></i> Atleta</button>
+          </div>
+          <p class="text-[13px] text-ink-2 leading-snug">Toque em <b class="text-ink">Chegou</b> na ordem em que a galera chega. Essa ordem monta os times e a fila: quem chega cedo joga primeiro.</p>
+          <button id="btn-check-all" onclick="checkInAll()" class="btn-soft w-full h-11 text-[14px]"><i class="fa-solid fa-check-double"></i> Marcar todos que faltam</button>
+        </div>
+
+        <div class="card p-1.5 overflow-hidden">
+          <table class="w-full text-left text-[13px]">
+            <thead>
+              <tr class="text-ink-2 font-bold text-[10.5px] uppercase tracking-wide">
+                <th class="py-2.5 px-2">Atleta</th>
+                <th class="py-2.5 px-0.5 text-center">Pos</th>
+                <th class="py-2.5 px-0.5 text-center">G</th>
+                <th class="py-2.5 px-0.5 text-center">A</th>
+                <th class="py-2.5 px-0.5 text-center">D</th>
+                <th class="py-2.5 px-0.5 text-center">J</th>
+                <th class="py-2.5 px-1 text-center"></th>
+              </tr>
+            </thead>
+            <tbody id="sheet-players-tbody" class="divide-y divide-ink/[0.07]"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- =================== TIMES =================== -->
+      <div id="tab-content-fila" class="tab-content hidden space-y-3">
+        <div class="card p-4 space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="tile bg-butter text-pitch w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
+            <h3 class="title">Regras do Rei da Quadra</h3>
+          </div>
+          <p class="text-[13px] text-ink-2 leading-snug">Quem chega primeiro joga primeiro. Quem perde volta pro fim da fila, então quem chegou cedo acumula mais jogos.</p>
+          <div class="grid grid-cols-2 gap-2.5">
+            <label class="block min-w-0">
+              <span class="label">No empate</span>
+              <select id="set-draw" onchange="updateSetting('drawRule', this.value)" class="select">
+                <option value="king">Sai o rei</option>
+                <option value="both">Saem os dois</option>
+              </select>
+            </label>
+            <label class="block min-w-0">
+              <span class="label">Vitórias seguidas</span>
+              <select id="set-streak" onchange="updateSetting('maxStreak', Number(this.value))" class="select">
+                <option value="0">Sem limite</option>
+                <option value="2">Máximo 2</option>
+                <option value="3">Máximo 3</option>
+              </select>
+            </label>
+          </div>
+          <label class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-sunk/70 cursor-pointer">
+            <span class="min-w-0">
+              <span class="block text-[14px] font-bold">1 goleiro por time</span>
+              <span class="block text-[12px] text-ink-2 leading-snug">Se o time não tem goleiro, puxa o próximo goleiro da fila</span>
+            </span>
+            <input type="checkbox" id="set-keeper" class="peer sr-only" onchange="updateSetting('keeperBalance', this.checked)" />
+            <span class="relative w-12 h-7 flex-shrink-0 rounded-full bg-ink/15 transition peer-checked:bg-pitch after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:w-[22px] after:h-[22px] after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5"></span>
+          </label>
+        </div>
+
+        <div id="court-manager" class="space-y-3"></div>
+
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-users text-pitch"></i> Fila de espera</h4>
+            <span id="queue-count" class="text-[12px] font-bold text-ink-2"></span>
+          </div>
+          <div id="queue-list" class="space-y-1.5"></div>
+        </div>
+      </div>
+
+      <!-- =================== STATS =================== -->
+      <div id="tab-content-stats" class="tab-content hidden space-y-3">
+        <div class="seg grid-cols-2">
+          <button onclick="switchStatsView('atletas')" id="btn-view-atletas" class="seg-btn is-selected">Atletas</button>
+          <button onclick="switchStatsView('jogos')" id="btn-view-jogos" class="seg-btn">Times e jogos</button>
+        </div>
+
+        <div id="stats-view-atletas" class="space-y-3">
+          <div class="flex items-center gap-2">
+            <div class="seg grid-cols-2 flex-1">
+              <button onclick="switchStatsScope('today')" id="btn-scope-today" class="seg-btn is-selected">Hoje</button>
+              <button onclick="switchStatsScope('all')" id="btn-scope-all" class="seg-btn">Todos os babas</button>
+            </div>
+          </div>
+          <p id="stats-scope-note" class="hidden text-[12px] text-ink-2 px-1 -mt-1"></p>
+
+          <div class="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
+            <button onclick="switchStatsCategory('goals')" id="btn-stats-goals" class="chip is-selected">Gols</button>
+            <button onclick="switchStatsCategory('assists')" id="btn-stats-assists" class="chip">Garçom</button>
+            <button onclick="switchStatsCategory('saves')" id="btn-stats-saves" class="chip">Paredão</button>
+            <button onclick="switchStatsCategory('total')" id="btn-stats-total" class="chip">G+A</button>
+            <button onclick="switchStatsCategory('wins')" id="btn-stats-wins" class="chip">Vitórias</button>
+          </div>
+
+          <div class="card p-5 text-center">
+            <h3 id="stats-podium-title" class="text-[15px] font-bold mb-5">Artilharia</h3>
+            <div id="stats-podium-container" class="grid grid-cols-3 gap-2 items-end max-w-xs mx-auto"></div>
+          </div>
+
+          <div class="card overflow-hidden">
+            <table class="w-full text-left text-[13px]">
+              <thead>
+                <tr class="text-ink-2 font-bold uppercase text-[10.5px] tracking-wide border-b border-ink/[0.07]">
+                  <th class="py-2.5 px-3 w-12 text-center">#</th>
+                  <th class="py-2.5 px-2">Atleta</th>
+                  <th class="py-2.5 px-3 text-center" id="stats-col-title">Gols</th>
+                </tr>
+              </thead>
+              <tbody id="stats-ranking-tbody" class="divide-y divide-ink/[0.07]"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="stats-view-jogos" class="hidden space-y-3">
+          <div class="card p-4 space-y-3">
+            <h3 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-file-export text-pitch"></i> Exportar resumo</h3>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="generateBabaPDF()" class="btn bg-sunk text-ink rounded-2xl py-3 text-[13px] flex-col gap-1"><i class="fa-solid fa-file-pdf text-[18px] text-pitch"></i> PDF</button>
+              <button onclick="generateBabaPNGCard()" class="btn bg-sunk text-ink rounded-2xl py-3 text-[13px] flex-col gap-1"><i class="fa-solid fa-image text-[18px] text-pitch"></i> Imagem</button>
+              <button onclick="exportBabaCSV()" class="btn bg-sunk text-ink rounded-2xl py-3 text-[13px] flex-col gap-1"><i class="fa-solid fa-file-excel text-[18px] text-pitch"></i> Excel</button>
+            </div>
+          </div>
+
+          <div class="card overflow-hidden">
+            <div class="px-4 pt-4 pb-2">
+              <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-table-list text-pitch"></i> Classificação dos times</h4>
+            </div>
+            <table class="w-full text-left text-[13px] table-fixed">
+              <thead>
+                <tr class="text-ink-2 font-bold text-[10.5px] uppercase tracking-wide border-b border-ink/[0.07]">
+                  <th class="py-2 px-4">Time</th>
+                  <th class="py-2 px-1 text-center w-7">J</th>
+                  <th class="py-2 px-1 text-center w-7">V</th>
+                  <th class="py-2 px-1 text-center w-7">E</th>
+                  <th class="py-2 px-1 text-center w-7">D</th>
+                  <th class="py-2 px-2 text-center w-11">SG</th>
+                </tr>
+              </thead>
+              <tbody id="daily-standings-tbody" class="divide-y divide-ink/[0.07]"></tbody>
+            </table>
+          </div>
+
+          <div class="card p-4 space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-pitch"></i> Histórico de jogos</h4>
+              <button id="btn-undo-finish" onclick="undoFinish()" class="hidden h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
+                <i class="fa-solid fa-rotate-left"></i> Desfazer última
+              </button>
+            </div>
+            <div id="match-history-timeline" class="space-y-2 max-h-80 overflow-y-auto"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Floating pill navigation -->
+    <nav class="fixed inset-x-0 bottom-0 z-40 px-3 pointer-events-none" style="padding-bottom: calc(var(--sab) + 10px);">
+      <div class="pointer-events-auto max-w-lg mx-auto h-[66px] rounded-[24px] bg-card/90 backdrop-blur-xl border border-ink/[0.07] grid grid-cols-5 gap-1 p-1.5" style="box-shadow: 0 18px 40px -18px rgba(0,54,49,.5);">
+        <button onclick="switchTab('inicio')" id="tab-nav-inicio" class="nav-tab-btn is-active rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-house text-[17px]"></i><span class="text-[10.5px] font-bold">Início</span>
+        </button>
+        <button onclick="switchTab('placar')" id="tab-nav-placar" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-stopwatch text-[17px]"></i><span class="text-[10.5px] font-bold">Placar</span>
+        </button>
+        <button onclick="switchTab('ficha')" id="tab-nav-ficha" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-clipboard-list text-[17px]"></i><span class="text-[10.5px] font-bold">Lista</span>
+        </button>
+        <button onclick="switchTab('fila')" id="tab-nav-fila" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-users text-[17px]"></i><span class="text-[10.5px] font-bold">Times</span>
+        </button>
+        <button onclick="switchTab('stats')" id="tab-nav-stats" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-trophy text-[17px]"></i><span class="text-[10.5px] font-bold">Stats</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <!-- ===================== MODO QUADRA (placar em tela cheia, paisagem) ===================== -->
+  <div id="court-mode" class="hidden fixed inset-0 z-[45]" aria-label="Placar em tela cheia">
+    <div class="pitch-card cm-frame absolute inset-0 flex flex-col">
+      <div class="rings cm-rings"></div>
+
+      <!-- Top bar: status · clock · rules + exit -->
+      <div class="cm-top relative grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-white/10">
+        <div class="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.12em] text-butter/75 min-w-0">
+          <span id="cm-dot" class="live-dot hidden"></span><span id="cm-dot-idle" class="w-[7px] h-[7px] rounded-full bg-butter/40"></span>
+          <span id="cm-status" class="truncate">Pronto</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="cm-timer" class="cm-timer font-serif text-butter">07:00</span>
+          <span id="cm-added" class="hidden text-[12px] font-extrabold text-pitch bg-butter rounded-md px-1.5 py-1 leading-none"></span>
+          <button onclick="toggleMatchTimer()" class="cm-play rounded-full bg-butter text-pitch flex items-center justify-center active:scale-95 transition" aria-label="Iniciar ou pausar"><i id="cm-play-icon" class="fa-solid fa-play"></i></button>
+        </div>
+        <div class="flex items-center justify-end gap-2 min-w-0">
+          <select id="cm-rule" onchange="updateGoalLimitRule(this.value); renderMatchView();" class="select-dark !w-auto !py-2 !text-[13px]" aria-label="Fim de jogo">
+            <option value="none">Só no tempo</option>
+            <option value="2">2 gols</option>
+            <option value="3">3 gols</option>
+            <option value="5">5 gols</option>
+            <option value="diff2">Dif. de 2</option>
+          </select>
+          <select id="cm-duration" onchange="setMatchDuration(Number(this.value))" class="select-dark !w-auto !py-2 !text-[13px]" aria-label="Tempo total">
+            <option value="180">3 min</option>
+            <option value="300">5 min</option>
+            <option value="420">7 min</option>
+            <option value="480">8 min</option>
+            <option value="600">10 min</option>
+            <option value="720">12 min</option>
+            <option value="900">15 min</option>
+            <option value="1200">20 min</option>
+            <option value="1500">25 min</option>
+            <option value="1800">30 min</option>
+          </select>
+          <button onclick="exitCourtMode()" class="w-10 h-10 flex-shrink-0 rounded-full bg-white/10 border border-white/20 text-butter flex items-center justify-center active:scale-95" aria-label="Sair da tela cheia"><i class="fa-solid fa-compress"></i></button>
+        </div>
+      </div>
+
+      <!-- Scoreboard halves -->
+      <div class="relative flex-1 min-h-0 grid grid-cols-2">
+        <div class="cm-half flex flex-col items-center justify-center min-w-0 border-r border-white/10">
+          <p class="text-[12px] font-bold uppercase tracking-[0.14em] text-butter/70 truncate max-w-full px-3"><span id="cm-role-a">Lado A</span> · <span id="cm-label-a" class="text-butter">Time 1</span></p>
+          <div id="cm-score-a" class="cm-score font-serif text-butter">0</div>
+          <div class="flex gap-2">
+            <button id="cm-goal-a" onclick="openGoalModal('A')" class="btn-butter cm-btn"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="cm-save-a" onclick="openSaveModal('A')" class="btn cm-btn rounded-full border border-white/25 text-butter bg-white/5"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+        </div>
+        <div class="cm-half flex flex-col items-center justify-center min-w-0">
+          <p class="text-[12px] font-bold uppercase tracking-[0.14em] text-butter/70 truncate max-w-full px-3"><span id="cm-role-b">Lado B</span> · <span id="cm-label-b" class="text-butter">Time 2</span></p>
+          <div id="cm-score-b" class="cm-score font-serif text-butter">0</div>
+          <div class="flex gap-2">
+            <button id="cm-goal-b" onclick="openGoalModal('B')" class="btn-butter cm-btn"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="cm-save-b" onclick="openSaveModal('B')" class="btn cm-btn rounded-full border border-white/25 text-butter bg-white/5"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+        </div>
+        <span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-11 h-11 rounded-full border border-white/20 bg-pitch flex items-center justify-center font-serif italic text-[18px] text-butter/80">vs</span>
+      </div>
+
+      <!-- Bottom bar: extra time · undo · finish -->
+      <div class="cm-bottom relative flex items-center justify-between gap-3 bg-black/15 border-t border-white/10">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-[12px] font-bold text-butter/65 mr-1 hidden sm:inline">Acréscimo</span>
+          <button onclick="addExtraTime(1)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+1</button>
+          <button onclick="addExtraTime(2)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+2</button>
+          <button onclick="addExtraTime(3)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+3</button>
+          <button id="cm-undo" onclick="undoLastEvent()" class="h-9 px-3 rounded-xl text-butter/75 text-[13px] font-bold flex items-center gap-1.5 active:scale-95"><i class="fa-solid fa-rotate-left"></i> Desfazer</button>
+        </div>
+        <button id="cm-finish" onclick="finishMatchAndNextChallenger()" class="btn-butter h-11 px-5 text-[14px] flex-shrink-0">Finalizar partida <i class="fa-solid fa-arrow-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts (above everything, auth screens included) -->
+  <div id="toast-container" class="toast-area fixed inset-x-4 z-[95] max-w-lg mx-auto flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ===================== SHEETS ===================== -->
+
+  <!-- Profile -->
+  <div id="modal-profile" class="overlay hidden" onclick="if(event.target===this) closeProfile()">
+    <div class="sheet-panel space-y-4 max-h-[92dvh] overflow-y-auto overscroll-contain">
+      <div class="grabber"></div>
+      <div class="flex items-center gap-3">
+        <span id="profile-avatar" class="w-14 h-14 rounded-full bg-pitch text-butter flex items-center justify-center text-[18px] font-extrabold flex-shrink-0">?</span>
+        <div class="min-w-0 flex-1">
+          <p id="profile-name" class="text-[18px] font-bold truncate"></p>
+          <p id="profile-user" class="text-[13px] text-ink-2 truncate"></p>
+          <p class="text-[12px] text-ink-2 truncate mt-0.5"><i class="fa-solid fa-cloud text-[10px] mr-1"></i><span id="profile-sync">Tudo sincronizado</span></p>
+        </div>
+        <button onclick="closeProfile()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="card-flat overflow-hidden">
+        <label class="menu-row cursor-pointer">
+          <span class="tile w-9 h-9 rounded-xl bg-pitch text-butter text-[15px]"><i class="fa-solid fa-fingerprint"></i></span>
+          <span class="flex-1 min-w-0">
+            <span class="block">Pedir digital ao abrir</span>
+            <span id="profile-bio-sub" class="block text-[12px] font-medium text-ink-2"></span>
+          </span>
+          <input type="checkbox" id="profile-bio-toggle" class="peer sr-only" onchange="toggleBio(this)" />
+          <span class="relative w-12 h-7 flex-shrink-0 rounded-full bg-ink/15 transition peer-checked:bg-pitch peer-disabled:opacity-40 after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:w-[22px] after:h-[22px] after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5"></span>
+        </label>
+      </div>
+
+      <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+        <button onclick="closeProfile(); openDatabaseModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sage text-pitch text-[14px]"><i class="fa-solid fa-users-rectangle"></i></span><span class="flex-1">Turmas e atletas</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="closeProfile(); offerLocalImport(true);" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-cloud-arrow-up"></i></span><span class="flex-1">Trazer dados antigos deste aparelho</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="closeProfile(); openBackupModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-file-import"></i></span><span class="flex-1">Backup e importar</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="closeProfile(); generateBabaPDF();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-pdf"></i></span><span class="flex-1">Baixar resumo em PDF</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="closeProfile(); startNewDay();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-calendar-plus"></i></span><span class="flex-1">Começar novo baba</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+      </div>
+
+      <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+        <button onclick="openAccountSheet('password')" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-lock"></i></span><span class="flex-1">Trocar senha</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="openAccountSheet('recovery')" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-key"></i></span><span class="flex-1">Novo código de recuperação</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="closeProfile(); confirmResetAllData();" class="menu-row !text-danger"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-trash-arrow-up"></i></span><span class="flex-1">Zerar o baba de hoje</span></button>
+        <button onclick="openAccountSheet('delete')" class="menu-row !text-danger"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-user-xmark"></i></span><span class="flex-1">Excluir conta deste aparelho</span></button>
+      </div>
+
+      <button onclick="logout()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
+    </div>
+  </div>
+
+  <!-- Account forms (password / recovery / delete) -->
+  <div id="modal-account" class="overlay hidden z-[60]" onclick="if(event.target===this) closeAccountSheet()">
+    <div class="sheet-panel space-y-4">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between">
+        <h3 id="account-title" class="title"></h3>
+        <button onclick="closeAccountSheet()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="account-body"></div>
+    </div>
+  </div>
+
+  <!-- Turmas -->
+  <div id="modal-database" class="overlay hidden" onclick="if(event.target===this) closeDatabaseModal()">
+    <div class="sheet-panel space-y-4 max-h-[85dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <div>
+          <h3 class="title">Turmas do BABA</h3>
+          <p class="text-[13px] text-ink-2">Marque quem joga hoje · lápis para editar</p>
+        </div>
+        <button onclick="closeDatabaseModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="db-checkboxes-container" class="space-y-2 overflow-y-auto pr-1 flex-grow"></div>
+      <button onclick="openJoinSheet()" class="btn-soft w-full h-11 text-[14px] flex-shrink-0"><i class="fa-solid fa-ticket"></i> Entrar numa turma com convite</button>
+      <div class="pt-1 flex items-center gap-2 flex-shrink-0">
+        <button onclick="createTurma()" class="btn-outline flex-1 h-12 text-[14px]"><i class="fa-solid fa-plus"></i> Nova turma</button>
+        <button onclick="applyDatabaseSelection()" class="btn-primary flex-1 h-12 text-[14px]"><i class="fa-solid fa-check"></i> Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Turma editor -->
+  <div id="modal-turma-edit" class="overlay hidden z-[60]" onclick="if(event.target===this) closeTurmaEditor()">
+    <div class="sheet-panel space-y-3 max-h-[90dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <div class="min-w-0">
+          <h3 class="title" id="turma-edit-title">Editar turma</h3>
+          <p class="text-[12px] font-semibold text-ink-2" id="turma-edit-role"></p>
+        </div>
+        <button onclick="closeTurmaEditor()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="flex-shrink-0 space-y-3">
+        <label class="block">
+          <span class="label">Nome da turma</span>
+          <input type="text" id="turma-edit-name" enterkeyhint="done" class="field" oninput="renameTurma(this.value)" />
+        </label>
+        <div id="turma-edit-invite" class="hidden rounded-2xl bg-butter/60 border border-butter-3/60 p-3.5"></div>
+        <div id="turma-edit-addbox">
+          <label class="label" for="turma-edit-add">Adicionar atletas</label>
+          <div class="flex gap-2">
+            <textarea id="turma-edit-add" rows="1" enterkeyhint="enter" autocapitalize="words" placeholder="Nome (ou cole uma lista)" class="field resize-none flex-1 min-w-0"></textarea>
+            <button onclick="addMembersFromInput()" class="btn-primary w-12 h-12 flex-shrink-0 text-[18px] self-start" aria-label="Adicionar"><i class="fa-solid fa-plus"></i></button>
+          </div>
+          <p class="text-[12px] text-ink-2 mt-1.5">Vários de uma vez: um nome por linha ou separados por vírgula.</p>
+        </div>
+        <div class="flex items-start justify-between gap-3">
+          <span class="text-[13px] font-bold flex-shrink-0" id="turma-edit-count">Atletas</span>
+          <span class="text-[12px] text-ink-2 text-right" id="turma-edit-hint">GOL = goleiro</span>
+        </div>
+      </div>
+      <div id="turma-edit-list" class="space-y-1.5 overflow-y-auto flex-grow pr-1 overscroll-contain min-h-[6rem]"></div>
+      <div class="pt-1 flex gap-2 flex-shrink-0">
+        <button onclick="deleteTurma()" id="turma-edit-delete" class="btn-danger flex-1 h-12 text-[14px]">Excluir turma</button>
+        <button onclick="closeTurmaEditor()" class="btn-primary flex-1 h-12 text-[14px]">Concluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Goal -->
+  <div id="modal-goal" class="overlay hidden" onclick="if(event.target===this) closeGoalModal()">
+    <div class="sheet-panel space-y-3 max-h-[88dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <h3 class="title flex items-center gap-2" ><i class="fa-solid fa-futbol text-pitch"></i><span id="modal-goal-title">Registrar gol</span></h3>
+        <button onclick="closeGoalModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5 flex-shrink-0 text-[12px] font-bold">
+        <div id="goal-step-1" class="py-2 rounded-xl text-center">1 · Quem fez</div>
+        <div id="goal-step-2" class="py-2 rounded-xl text-center">2 · Quem deu o passe</div>
+      </div>
+      <div id="goal-pane-scorer" class="overflow-y-auto flex-grow pr-1 overscroll-contain">
+        <div id="modal-goal-scorers-list" class="space-y-1.5"></div>
+      </div>
+      <div id="goal-pane-assist" class="hidden overflow-y-auto flex-grow pr-1 overscroll-contain space-y-2">
+        <div class="flex items-center justify-between gap-2 p-3 rounded-2xl bg-butter border border-butter-3">
+          <span class="text-[15px] font-bold truncate min-w-0"><i class="fa-solid fa-futbol text-pitch mr-1.5"></i><span id="goal-scorer-name"></span></span>
+          <button onclick="goalStep('scorer')" class="text-[13px] font-bold text-pitch underline underline-offset-2 flex-shrink-0">Trocar</button>
+        </div>
+        <button onclick="confirmGoalRecord(null)" class="w-full h-12 rounded-2xl border-2 border-dashed border-pitch/25 text-[14px] font-bold text-ink active:scale-[0.98]">Sem assistência (jogada individual)</button>
+        <div id="modal-goal-assists-list" class="space-y-1.5"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save -->
+  <div id="modal-save" class="overlay hidden" onclick="if(event.target===this) closeSaveModal()">
+    <div class="sheet-panel space-y-3 max-h-[85dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <h3 class="title flex items-center gap-2"><i class="fa-solid fa-hand text-pitch"></i><span id="modal-save-title">Registrar defesa</span></h3>
+        <button onclick="closeSaveModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="modal-save-goalkeepers-list" class="space-y-1.5 overflow-y-auto flex-grow pr-1 overscroll-contain"></div>
+    </div>
+  </div>
+
+  <!-- Substitution -->
+  <div id="modal-sub" class="overlay hidden" onclick="if(event.target===this) closeSubModal()">
+    <div class="sheet-panel space-y-3 max-h-[88dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1 gap-2">
+        <div class="min-w-0">
+          <h3 class="title truncate" id="modal-sub-title">Substituição</h3>
+          <p class="text-[13px] text-ink-2 truncate" id="modal-sub-subtitle"></p>
+        </div>
+        <button onclick="closeSubModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="flex-shrink-0">
+        <span class="label">E quem sai, vai pra onde?</span>
+        <div id="modal-sub-dest" class="seg grid-cols-3"></div>
+      </div>
+      <div class="overflow-y-auto flex-grow pr-1 overscroll-contain">
+        <span class="label">Quem entra</span>
+        <div id="modal-sub-list" class="space-y-1.5"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add player -->
+  <div id="modal-add-player" class="overlay hidden" onclick="if(event.target===this) closeAddPlayerModal()">
+    <div class="sheet-panel space-y-3.5">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1">
+        <h3 class="title">Novo atleta</h3>
+        <button onclick="closeAddPlayerModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label class="block">
+        <span class="label">Nome do atleta</span>
+        <input type="text" id="input-new-player-name" enterkeyhint="done" autocapitalize="words" placeholder="Ex: Rodrigo Capita" class="field" />
+      </label>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-pos" value="linha" checked class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Linha</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-pos" value="goleiro" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">🧤 Goleiro</span>
+        </label>
+      </div>
+      <label class="block">
+        <span class="label">Turma</span>
+        <select id="input-new-player-turma" class="select"></select>
+      </label>
+      <label class="flex items-center gap-2.5 text-[14px] font-semibold cursor-pointer">
+        <input type="checkbox" id="input-new-player-arrived" checked class="w-5 h-5 accent-[#003631]" /> Já chegou (entra no fim da fila)
+      </label>
+      <div class="pt-1 flex gap-2">
+        <button onclick="closeAddPlayerModal()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+        <button onclick="saveNewPlayer()" class="btn-primary flex-1 h-12 text-[14px]">Salvar atleta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Player sheet -->
+  <div id="modal-player" class="overlay hidden" onclick="if(event.target===this) closePlayerSheet()">
+    <div class="sheet-panel space-y-3.5">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1">
+        <h3 class="title">Atleta</h3>
+        <button onclick="closePlayerSheet()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label class="block">
+        <span class="label">Nome</span>
+        <input type="text" id="player-edit-name" enterkeyhint="done" autocapitalize="words" class="field" />
+      </label>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-pos" value="linha" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Linha</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-pos" value="goleiro" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">🧤 Goleiro</span>
+        </label>
+      </div>
+      <label class="block" id="player-edit-turma-wrap">
+        <span class="label">Salvar numa turma</span>
+        <select id="player-edit-turma" class="select"></select>
+      </label>
+      <p id="player-edit-info" class="text-[13px] text-ink-2 leading-snug"></p>
+      <div class="pt-1 flex gap-2">
+        <button id="player-edit-delete" onclick="deletePlayerFromSheet()" class="btn-danger flex-1 h-12 text-[14px]">Excluir</button>
+        <button onclick="savePlayerSheet()" class="btn-primary flex-1 h-12 text-[14px]">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup & import -->
+  <div id="modal-backup" class="overlay hidden" onclick="if(event.target===this) closeBackupModal()">
+    <div class="sheet-panel space-y-3 max-h-[90dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div>
+          <h3 class="title">Backup e importar</h3>
+          <p class="text-[13px] text-ink-2 leading-snug">Os dados ficam só neste aparelho: use o backup para levar pra outro.</p>
+        </div>
+        <button onclick="closeBackupModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="overflow-y-auto flex-grow pr-1 overscroll-contain space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="exportBackup()" class="btn bg-card border border-ink/10 text-ink rounded-2xl py-3.5 text-[14px] flex-col gap-1"><i class="fa-solid fa-download text-[18px] text-pitch"></i> Salvar backup</button>
+          <label class="btn bg-card border border-ink/10 text-ink rounded-2xl py-3.5 text-[14px] flex-col gap-1 cursor-pointer">
+            <i class="fa-solid fa-file-import text-[18px] text-pitch"></i> Importar arquivo
+            <input type="file" id="import-file" accept=".json,.csv,.txt,application/json,text/csv,text/plain" class="sr-only" onchange="handleImportFile(this)" />
+          </label>
+        </div>
+        <p class="text-[12px] text-ink-2 leading-snug">Aceita o backup do BABA (.json) de qualquer pelada, a planilha exportada pelo BABA (.csv) ou uma lista de nomes (.txt).</p>
+        <div id="import-preview" class="hidden rounded-[22px] p-4 bg-butter/60 border border-butter-3/60 space-y-2.5"></div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[14px] font-bold">Babas anteriores</span>
+            <span id="past-days-count" class="text-[12px] text-ink-2"></span>
+          </div>
+          <div id="past-days-list" class="space-y-1.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm -->
+  <div id="modal-confirm" class="overlay hidden z-[70]" onclick="if(event.target===this) resolveConfirm(false)">
+    <div class="sheet-panel space-y-4">
+      <div class="grabber"></div>
+      <div class="flex items-start gap-3">
+        <span class="tile bg-butter text-pitch"><i class="fa-solid fa-triangle-exclamation"></i></span>
+        <p id="modal-confirm-text" class="text-[15px] font-semibold leading-snug pt-1"></p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="resolveConfirm(false)" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+        <button onclick="resolveConfirm(true)" id="modal-confirm-ok" class="btn-primary flex-1 h-12 text-[14px]">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
