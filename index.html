@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=43f0ce1a38" />
+  <link rel="stylesheet" href="app.css?v=46f5f78461" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -243,6 +243,22 @@
       animation: frSpin 2.4s linear infinite; }
     .fr-diamante.shine, .fr-platina.shine, .fr-ouro.shine { filter: drop-shadow(0 0 6px rgba(255, 230, 150, .55)); }
     @keyframes frSpin { to { transform: rotate(360deg); } }
+    /* Teal & Orange metálico (exclusivo da equipe) */
+    .fr-tealorange { --fr: conic-gradient(from 200deg, #0B5C63, #3FD8CC, #0E7C86, #F28C28, #FFD7AE, #E2661A, #0B5C63); }
+    /* Aura de Fogo Azul (fundadores): chama azul girando em volta, com pulsar */
+    .fr.fogo { isolation: isolate; animation: fogoPulse 1.6s ease-in-out infinite; }
+    .fr.fogo::before { content: ''; position: absolute; inset: -5px; border-radius: inherit; pointer-events: none; z-index: -1;
+      background: conic-gradient(from 0deg, rgba(0,120,255,0), rgba(90,195,255,.95) 12%, rgba(0,80,255,0) 28%, rgba(140,215,255,.9) 52%, rgba(0,80,255,0) 68%, rgba(60,170,255,.95) 86%, rgba(0,120,255,0));
+      filter: blur(3px); animation: frSpin 1.7s linear infinite, fogoFlick .45s ease-in-out infinite alternate; }
+    .fr.fogo::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+      background: conic-gradient(from 0deg, transparent 0 62%, rgba(200,236,255,.95) 78%, transparent 90%);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      animation: frSpin 1.1s linear infinite reverse; }
+    @keyframes fogoPulse { 0%, 100% { filter: drop-shadow(0 0 4px rgba(64,156,255,.8)) drop-shadow(0 0 10px rgba(30,110,255,.45)); } 50% { filter: drop-shadow(0 0 7px rgba(110,195,255,.95)) drop-shadow(0 -2px 16px rgba(30,110,255,.6)); } }
+    @keyframes fogoFlick { from { opacity: .7; } to { opacity: 1; } }
+    .shop-badge { position: absolute; top: 8px; left: 8px; font-size: 10px; font-weight: 800; letter-spacing: .02em; padding: 2px 7px; border-radius: 9999px; background: rgb(var(--c-pitch)); color: rgb(var(--c-butter)); }
+    .shop-exclusive { box-shadow: 0 0 0 1.5px rgb(var(--c-butter-3) / .7), 0 14px 30px -24px rgba(0,54,49,.55); }
 
     .nm { background-image: var(--nm); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; background-size: 100% 100%; }
     .nm-bronze { --nm: linear-gradient(90deg, #8C5A2B, #C98945, #8C5A2B); }
@@ -261,6 +277,11 @@
     html.dark .nm-diamante { --nm: linear-gradient(90deg, #7FE3FF, #C9B8FF, #FFB4F0, #7FE3FF); }
     .nm.shine { background-image: linear-gradient(100deg, transparent 0 40%, rgba(255,255,255,.95) 50%, transparent 60% 100%), var(--nm); background-size: 250% 100%, 100% 100%; animation: nmShine 2.8s linear infinite; }
     @keyframes nmShine { from { background-position: 120% 0, 0 0; } to { background-position: -120% 0, 0 0; } }
+    .nm-tealorange { --nm: linear-gradient(90deg, #0E7C86, #22B3A8 30%, #E8761E 68%, #C5560F); }
+    html.dark .nm-tealorange { --nm: linear-gradient(90deg, #3FD8CC, #8FF0E6 30%, #FFB066 68%, #FF8A3D); }
+    .nm.fogo { background-image: linear-gradient(100deg, transparent 0 40%, rgba(200,236,255,.95) 50%, transparent 60% 100%), var(--nm); background-size: 250% 100%, 100% 100%;
+      animation: nmShine 1.9s linear infinite, nmFogo 1.3s ease-in-out infinite; }
+    @keyframes nmFogo { 0%, 100% { filter: drop-shadow(0 0 2px rgba(64,156,255,.95)) drop-shadow(0 -1px 5px rgba(30,110,255,.55)); } 50% { filter: drop-shadow(0 0 4px rgba(120,200,255,1)) drop-shadow(0 -3px 9px rgba(30,110,255,.75)); } }
 
     /* ---- Termos ---- */
     .legal h3 { font-size: 16px; font-weight: 800; margin: 18px 0 6px; }
@@ -418,7 +439,8 @@
         <div class="sticky bottom-0 -mx-5 px-5 pt-8 mt-auto space-y-2.5 bg-gradient-to-t from-paper via-paper to-paper/0" style="padding-bottom: calc(var(--sab) + 18px);">
           <button onclick="authGo('signup')" class="btn-primary w-full h-14 text-[16px]">Criar conta</button>
           <button onclick="authGo('login')" class="btn-outline w-full h-14 text-[16px]">Entrar</button>
-          <p class="text-center text-[12px] text-ink-2 pt-1"><i class="fa-solid fa-cloud text-[10px] mr-1"></i>Uma conta, qualquer celular. Funciona até sem internet.</p>
+          <button onclick="openWatch()" class="w-full h-11 text-[14px] font-bold text-pitch flex items-center justify-center gap-2"><span class="live-dot"></span> Assistir um jogo ao vivo com código</button>
+          <p class="text-center text-[12px] text-ink-2"><i class="fa-solid fa-cloud text-[10px] mr-1"></i>Uma conta, qualquer celular. Funciona até sem internet.</p>
         </div>
       </section>
 
@@ -452,6 +474,7 @@
         </form>
 
         <p class="mt-auto pt-10 text-center text-[14px] text-ink-2">Não tem conta? <button onclick="authGo('signup')" class="font-bold text-pitch underline underline-offset-2">Criar conta</button></p>
+        <button onclick="openWatch()" class="mt-2 w-full h-11 text-[14px] font-bold text-pitch flex items-center justify-center gap-2"><span class="live-dot"></span> Assistir um jogo ao vivo com código</button>
       </section>
 
       <!-- Signup -->
@@ -650,8 +673,11 @@
           <label class="block min-w-0">
             <span class="label">Formato</span>
             <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select">
+              <option value="futsal4">Futsal · 4 + GOL fixo</option>
               <option value="futsal">Futsal · 5</option>
+              <option value="society7">Society · 7 + GOL fixo</option>
               <option value="society">Society · 8</option>
+              <option value="campo11">Campo · 11 + GOL fixo</option>
               <option value="campo">Campo · 12</option>
             </select>
           </label>
@@ -665,6 +691,7 @@
               <option value="diff2">Dif. de 2</option>
             </select>
           </label>
+          <p id="fixed-keepers" class="hidden col-span-2 flex items-start gap-2 text-[12.5px] leading-snug text-ink bg-sunk/70 rounded-xl px-3 py-2.5"></p>
         </div>
 
         <div id="placar-clock" class="pitch-card p-4 space-y-3.5">
@@ -1364,7 +1391,8 @@
         <p class="relative font-serif text-[52px] leading-none mt-1"><span id="shop-balance">0</span></p>
         <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
       </section>
-      <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário e acertando palpites. Não se compram e não valem dinheiro.</p>
+      <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
+      <section id="shop-missions" class="hidden"></section>
       <div class="flex items-center gap-4 card p-4">
         <span id="shop-preview-avatar"></span>
         <div class="min-w-0">
@@ -1449,6 +1477,26 @@
   </div>
 
   <!-- QR do jogo ao vivo -->
+  <!-- Assistir um jogo pelo código -->
+  <div id="modal-watch" class="overlay hidden z-[85]" onclick="if(event.target===this) closeWatch()">
+    <div class="sheet-panel space-y-4">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1 gap-3">
+        <div class="min-w-0"><h3 class="title">Assistir um jogo ao vivo</h3><p class="text-[13px] text-ink-2">Digite o código que aparece no celular de quem organiza o baba.</p></div>
+        <button onclick="closeWatch()" class="w-9 h-9 flex-shrink-0 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="event.preventDefault(); submitWatch();" class="space-y-3" novalidate>
+        <label class="block">
+          <span class="label">Código do jogo</span>
+          <input id="watch-code" class="field text-center font-serif !text-[30px] tracking-[0.18em] uppercase" maxlength="16" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="A1B2C3D4" oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)" />
+        </label>
+        <p id="watch-error" class="hidden text-[13px] font-semibold text-danger"></p>
+        <button id="watch-btn" type="submit" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-eye"></i> Assistir</button>
+      </form>
+      <p class="text-[12px] text-ink-2 leading-snug">Dá pra assistir sem conta. Para palpitar e conversar no chat do jogo, entre na sua conta.</p>
+    </div>
+  </div>
+
   <div id="modal-qr" class="overlay hidden z-[60]" onclick="if(event.target===this) closeQr()">
     <div class="sheet-panel space-y-4 max-h-[94dvh] overflow-y-auto">
       <div class="grabber"></div>
@@ -1458,6 +1506,10 @@
       </div>
       <div class="keep-light mx-auto w-[260px] max-w-full aspect-square rounded-[28px] bg-white p-4 shadow-lg flex items-center justify-center"><div id="qr-img" class="w-full h-full"></div></div>
       <p class="text-center"><span class="text-[12px] text-ink-2">Código</span><br><span id="qr-code" class="font-serif text-[34px] tracking-[0.12em] text-pitch"></span></p>
+      <div class="rounded-2xl bg-sunk/70 px-4 py-3 text-[13px] leading-snug">
+        <p class="font-bold">Sem câmera? Use o código</p>
+        <p class="text-ink-2 mt-0.5">Abra <b id="qr-site" class="text-ink break-all"></b> e toque em <b class="text-ink">Assistir um jogo ao vivo</b> (na entrada do app ou na tela Início). Depois é só digitar o código.</p>
+      </div>
       <div class="grid grid-cols-2 gap-2">
         <button onclick="shareLive()" class="btn-primary h-12 text-[14px]"><i class="fa-solid fa-share-nodes"></i> Mandar link</button>
         <button onclick="openLive(liveCode())" class="btn-outline h-12 text-[14px]"><i class="fa-solid fa-eye"></i> Ver como público</button>
@@ -1759,6 +1811,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=44b3545d4a"></script>
+  <script src="app.js?v=e45d9f7d19"></script>
 </body>
 </html>

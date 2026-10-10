@@ -12,8 +12,10 @@
        =================================================================== */
     const STORAGE_KEY = 'baba_gestao_digital_v3';
     const STATE_VERSION = 4;
-    const FORMAT_SIZES = { futsal: 5, society: 8, campo: 12 };
-    const FORMAT_LABELS = { futsal: 'Futsal (5)', society: 'Society (8)', campo: 'Campo (12)' };
+    const FORMAT_SIZES = { futsal4: 4, futsal: 5, society7: 7, society: 8, campo11: 11, campo: 12 };
+    const FORMAT_LABELS = { futsal4: 'Futsal (4 + goleiro fixo)', futsal: 'Futsal (5)', society7: 'Society (7 + goleiro fixo)', society: 'Society (8)', campo11: 'Campo (11 + goleiro fixo)', campo: 'Campo (12)' };
+    // In these formats the goalkeepers stay on court: teams are line players only.
+    const FIXED_KEEPER_FORMATS = { futsal4: true, society7: true, campo11: true };
 
     const PRELOADED_DATABASES = {
       fiasco: {
@@ -1004,6 +1006,7 @@
         refreshAccount().then(() => {
           if (!currentUser || currentUser.id !== user.id) return;
           refreshWallet().then(renderHomeV7);
+          loadMissions().then(renderHomeV7);
           loadLiveList();
           // Terms first, then (first time) the Babinha tour, then invites, old data and a pending live game.
           ensureTerms(() => startTour(false, () => {
@@ -1025,7 +1028,7 @@
       await api.signOut();
       currentUser = null;
       prefsPulledFor = null;
-      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null;
+      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null; missionsCache = null;
       { const ps = document.getElementById('profile-staff'); if (ps) ps.classList.add('hidden'); }
       state = defaultState();
       showAuth('login');
@@ -1830,6 +1833,9 @@
       ['Na quadra', 'Alguém se machucou. Dá pra trocar?', 'Sim. Em Times, toque no jogador em quadra e escolha quem entra. Quem sai pode ir pro começo ou fim da fila, ou sair do baba.'],
       ['Na quadra', 'Como deixo o placar em tela cheia?', 'No Placar, com os times em quadra, toque no botão de expandir ao lado do relógio. O celular vira um placar deitado pra galera ver.'],
       ['Na quadra', 'Como funciona o goleiro?', 'Marque "GOL" no nome do goleiro na turma. Com a opção "1 goleiro por time" ligada, cada time puxa um goleiro da fila.'],
+      ['Na quadra', 'O que é "GOL fixo" no formato?', 'Nos formatos <b>Futsal · 4</b>, <b>Society · 7</b> e <b>Campo · 11</b> os goleiros ficam no gol a noite toda: quem tem GOL marcado não entra na fila nem nos times, e os times são só de linha. Cada partida conta pra eles do mesmo jeito.'],
+      ['Ao vivo', 'Como assisto um jogo pelo código?', 'Na tela de entrada do app (ou em <b>Início</b>, se já tem conta), toque em <b>Assistir um jogo ao vivo</b> e digite o código que aparece no celular de quem organiza. Não precisa de conta pra assistir.'],
+      ['Baba points', 'Como ganho baba points?', 'No bônus do dia, nas <b>Missões da semana</b> (na Lojinha) e acertando palpites. As missões renovam toda segunda.'],
       ['Turmas e convites', 'Como chamo a galera pra turma?', 'Abra a turma e toque em <b>Convidar</b>. Mande o link no grupo: quem entrar vê a turma e o histórico, e toca no próprio nome pra ligar à conta.'],
       ['Turmas e convites', 'Qual a diferença entre dono e adm?', 'O <b>adm</b> adiciona e remove atletas, marca goleiro, convida e tira pessoas. O <b>dono</b> faz tudo isso e ainda escolhe os adms, passa a turma pra outra pessoa e é o único que pode excluir a turma.'],
       ['Turmas e convites', 'Como dou adm pra alguém?', 'O dono abre a turma → <b>Pessoas e cargos</b> → toca na pessoa → <b>Tornar adm</b>. A pessoa precisa ter entrado pelo convite.'],
@@ -2452,7 +2458,9 @@
       acceptTerms: (version, birth) => rpc('accept_terms', { version, birth }),
       myWallet: async () => ((await rpc('my_wallet')) || [])[0] || null,
       claimDaily: () => rpc('claim_daily'),
-      shopItems: () => q(sb.from('shop_items').select('id, kind, tier, title, price, sort').order('sort')),
+      shopItems: () => q(sb.from('shop_items').select('*').order('sort')),
+      myMissions: async () => (await rpc('my_missions')) || [],
+      claimMission: id => rpc('claim_mission', { mission: id }),
       ledger: () => q(sb.from('points_ledger').select('delta, reason, ref, created_at').order('id', { ascending: false }).limit(25)),
       buyItem: item => rpc('buy_item', { item }),
       equipItem: (slot, item) => rpc('equip_item', { slot, item }),
@@ -2613,7 +2621,7 @@
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       await api.signOut();
       currentUser = null;
-      account = null; wallet = null; v7 = null; status8 = null;
+      account = null; wallet = null; v7 = null; status8 = null; missionsCache = null;
       state = defaultState();
       showAuth('login');
     }
@@ -2714,19 +2722,21 @@
     /* ===================================================================
        MOLDURAS E NOMES (o que a lojinha desbloqueia)
        =================================================================== */
-    const TIERS = ['bronze', 'prata', 'ouro', 'esmeralda', 'rubi', 'platina', 'diamante'];
-    const TIER_LABEL = { bronze: 'Bronze', prata: 'Prata', ouro: 'Ouro', esmeralda: 'Esmeralda', rubi: 'Rubi', platina: 'Platina', diamante: 'Diamante' };
+    const TIERS = ['bronze', 'prata', 'ouro', 'esmeralda', 'rubi', 'platina', 'diamante', 'tealorange'];
+    const TIER_LABEL = { bronze: 'Bronze', prata: 'Prata', ouro: 'Ouro', esmeralda: 'Esmeralda', rubi: 'Rubi', platina: 'Platina', diamante: 'Diamante', tealorange: 'Teal & Orange' };
+    // Effect on a frame or a name: true = the classic shine, 'fogo-azul' = blue fire aura.
+    const fxClass = v => v === 'fogo-azul' ? 'fogo' : v ? 'shine' : '';
     const cosOf = c => (c && typeof c === 'object') ? c : {};
 
     function framedAvatar(value, name, cls, cos) {
       const c = cosOf(cos);
       const inner = avatarHtml(value, name, cls);
       if (!c.frame || !TIERS.includes(c.frame)) return inner;
-      return `<span class="fr fr-${c.frame}${c.frameShine ? ' shine' : ''}">${inner}</span>`;
+      return `<span class="fr fr-${c.frame} ${fxClass(c.frameShine)}">${inner}</span>`;
     }
     function styledName(name, cos, extra) {
       const c = cosOf(cos);
-      const cls = c.name && TIERS.includes(c.name) ? `nm nm-${c.name}${c.nameShine ? ' shine' : ''}` : '';
+      const cls = c.name && TIERS.includes(c.name) ? `nm nm-${c.name} ${fxClass(c.nameShine)}` : '';
       return `<span class="${cls} ${extra || ''}">${escapeHtml(name)}</span>`;
     }
     /* Frames an element already on the page (header and profile avatars). */
@@ -2736,7 +2746,8 @@
       TIERS.forEach(t => wrap.classList.remove('fr-' + t));
       const on = !!(c.frame && TIERS.includes(c.frame));
       wrap.classList.toggle('fr', on);
-      wrap.classList.toggle('shine', on && !!c.frameShine);
+      wrap.classList.toggle('shine', on && fxClass(c.frameShine) === 'shine');
+      wrap.classList.toggle('fogo', on && fxClass(c.frameShine) === 'fogo');
       if (on) wrap.classList.add('fr-' + c.frame);
     }
     function applyNameStyle(el, cos) {
@@ -2745,7 +2756,8 @@
       TIERS.forEach(t => el.classList.remove('nm-' + t));
       const on = !!(c.name && TIERS.includes(c.name));
       el.classList.toggle('nm', on);
-      el.classList.toggle('shine', on && !!c.nameShine);
+      el.classList.toggle('shine', on && fxClass(c.nameShine) === 'shine');
+      el.classList.toggle('fogo', on && fxClass(c.nameShine) === 'fogo');
       if (on) el.classList.add('nm-' + c.name);
     }
 
@@ -2768,7 +2780,8 @@
         if (isNetworkError(e)) showToast('A lojinha precisa de internet.', 'warning');
       }
       renderShop();
-      loadLedger();
+      renderMissions();
+      loadMissions().then(loadLedger);
     }
     function closeShop() {
       document.getElementById('page-shop').classList.add('hidden');
@@ -2790,24 +2803,32 @@
       const box = document.getElementById('shop-items');
       if (!shopItemsCache) { box.innerHTML = '<p class="col-span-2 text-[14px] text-ink-2 py-4 text-center">Carregando a lojinha...</p>'; return; }
       const owned = wallet ? wallet.items : new Set();
-      box.innerHTML = shopItemsCache.filter(it => it.kind === shopKind).map(it => {
+      // Team-only items show up only for whoever has them.
+      const list = shopItemsCache.filter(it => it.kind === shopKind && (it.exclusive !== 'dono' || owned.has(it.id)));
+      box.innerHTML = list.map(it => {
         const has = owned.has(it.id);
+        const fxVal = it.tier || true;
+        const isFrameFx = String(it.id).startsWith('fx_frame_');
         const using = it.kind === 'frame' ? cos.frame === it.tier : it.kind === 'name' ? cos.name === it.tier
-          : it.id === 'fx_frame_shine' ? !!cos.frameShine : !!cos.nameShine;
+          : isFrameFx ? cos.frameShine === fxVal : cos.nameShine === fxVal;
         const preview = it.kind === 'frame'
-          ? framedAvatar(me.avatar, me.name, 'w-14 h-14 text-[17px]', { frame: it.tier, frameShine: cos.frameShine && has })
+          ? framedAvatar(me.avatar, me.name, 'w-14 h-14 text-[17px]', { frame: it.tier, frameShine: has ? cos.frameShine : false })
           : it.kind === 'name'
-            ? `<span class="text-[19px] font-extrabold">${styledName(firstName(me.name) || 'Craque', { name: it.tier, nameShine: cos.nameShine && has })}</span>`
-            : it.id === 'fx_frame_shine'
-              ? framedAvatar(me.avatar, me.name, 'w-14 h-14 text-[17px]', { frame: cos.frame || 'ouro', frameShine: true })
-              : `<span class="text-[19px] font-extrabold">${styledName(firstName(me.name) || 'Craque', { name: cos.name || 'ouro', nameShine: true })}</span>`;
+            ? `<span class="text-[19px] font-extrabold">${styledName(firstName(me.name) || 'Craque', { name: it.tier, nameShine: has ? cos.nameShine : false })}</span>`
+            : isFrameFx
+              ? framedAvatar(me.avatar, me.name, 'w-14 h-14 text-[17px]', { frame: cos.frame || 'ouro', frameShine: fxVal })
+              : `<span class="text-[19px] font-extrabold">${styledName(firstName(me.name) || 'Craque', { name: cos.name || 'ouro', nameShine: fxVal })}</span>`;
         const afford = wallet && wallet.balance >= it.price;
+        const badge = it.exclusive === 'fundador' ? '<span class="shop-badge"><i class="fa-solid fa-medal"></i> Fundador</span>'
+          : it.exclusive === 'dono' ? '<span class="shop-badge"><i class="fa-solid fa-crown"></i> Exclusivo</span>' : '';
         const action = using
           ? `<button onclick="equipShopItem('${it.id}', false)" class="btn-butter w-full h-9 text-[12px]"><i class="fa-solid fa-check"></i> Usando</button>`
           : has ? `<button onclick="equipShopItem('${it.id}', true)" class="btn-primary w-full h-9 text-[12px]">Usar</button>`
+            : it.exclusive ? `<p class="w-full min-h-9 flex items-center justify-center text-[11.5px] font-bold text-ink-2 leading-tight">${it.exclusive === 'fundador' ? 'Só para os 100 primeiros do BABA' : 'Exclusivo da equipe BABA'}</p>`
             : `<button onclick="buyShopItem('${it.id}')" ${afford ? '' : 'disabled'} class="btn-outline w-full h-9 text-[12px]"><i class="fa-solid fa-coins"></i> ${fmtPts(it.price)}</button>`;
         return `
-          <div class="card p-3 flex flex-col items-center gap-2 text-center">
+          <div class="card p-3 flex flex-col items-center gap-2 text-center relative${it.exclusive ? ' shop-exclusive' : ''}">
+            ${badge}
             <div class="h-[64px] flex items-center justify-center">${preview}</div>
             <p class="text-[13px] font-bold leading-tight">${escapeHtml(it.title)}</p>
             ${action}
@@ -2827,14 +2848,14 @@
         loadLedger();
       } catch (e) {
         const m = String((e && e.message) || '');
-        showToast(isNetworkError(e) ? 'A lojinha precisa de internet.' : m.includes('no_points') ? 'Faltam pontos pra esse item.' : m.includes('owned') ? 'Você já tem esse item.' : 'Não deu certo agora.', 'warning');
+        showToast(isNetworkError(e) ? 'A lojinha precisa de internet.' : m.includes('no_points') ? 'Faltam pontos pra esse item.' : m.includes('owned') ? 'Você já tem esse item.' : m.includes('exclusive') ? 'Esse item é exclusivo: não está à venda.' : 'Não deu certo agora.', 'warning');
       }
     }
 
     async function equipShopItem(id, on, quiet) {
       const it = (shopItemsCache || []).find(x => x.id === id);
       if (!it) return;
-      const slot = it.kind === 'frame' ? 'frame' : it.kind === 'name' ? 'name' : it.id === 'fx_frame_shine' ? 'frameShine' : 'nameShine';
+      const slot = it.kind === 'frame' ? 'frame' : it.kind === 'name' ? 'name' : String(it.id).startsWith('fx_frame_') ? 'frameShine' : 'nameShine';
       try {
         const cos = await api.equipItem(slot, on ? id : null);
         currentUser.cosmetics = cos || {};
@@ -2844,6 +2865,69 @@
         if (!quiet) showToast(on ? 'Pronto, já está aparecendo pra galera.' : 'Item guardado.');
       } catch (e) {
         showToast(isNetworkError(e) ? 'Precisa de internet.' : 'Não deu certo agora.', 'warning');
+      }
+    }
+
+    /* ===================================================================
+       MISSÕES DA SEMANA
+       Progress is counted by the server from real records (days in the app,
+       babas, goals, chat, palpites); the reward is claimed once per week.
+       =================================================================== */
+    let missionsCache = null;   // null = not loaded / server without missions
+    async function loadMissions() {
+      if (!cloudOn() || v7 !== true) return null;
+      try { missionsCache = await api.myMissions(); }
+      catch (e) { if (isMissingFn(e)) missionsCache = null; }
+      renderMissions();
+      return missionsCache;
+    }
+    const missionsReady = () => (missionsCache || []).filter(m => !m.claimed && m.progress >= m.target).length;
+    function renderMissions() {
+      const box = document.getElementById('shop-missions');
+      if (!box) return;
+      if (!missionsCache || !missionsCache.length) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      const end = missionsCache[0].week_end ? new Date(missionsCache[0].week_end + 'T12:00:00') : null;
+      const done = missionsCache.filter(m => m.claimed).length;
+      box.innerHTML = `
+        <div class="flex items-end justify-between gap-3 px-1 mb-2">
+          <div><p class="eyebrow">Missões da semana</p><p class="text-[12px] text-ink-2 mt-0.5">${done} de ${missionsCache.length} feitas${end ? ` · renova na segunda` : ''}</p></div>
+          <img src="babinha/coach.webp" alt="" class="w-12 h-12 object-contain -mb-1" />
+        </div>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          ${missionsCache.map(m => {
+            const ready = !m.claimed && m.progress >= m.target;
+            const pct = Math.round(Math.min(1, m.progress / m.target) * 100);
+            return `
+            <div class="px-4 py-3 flex items-center gap-3">
+              <div class="min-w-0 flex-1">
+                <p class="text-[14px] font-bold leading-tight ${m.claimed ? 'text-ink-2' : ''}">${escapeHtml(m.title)}</p>
+                <p class="text-[12px] text-ink-2 leading-snug mt-0.5">${escapeHtml(m.description)}</p>
+                <div class="flex items-center gap-2 mt-1.5">
+                  <span class="flex-1 h-1.5 rounded-full bg-sunk overflow-hidden"><span class="block h-full rounded-full ${m.claimed ? 'bg-ink-3' : 'bg-pitch'}" style="width:${pct}%"></span></span>
+                  <span class="text-[11px] font-bold text-ink-2 tabular">${m.progress}/${m.target}</span>
+                </div>
+              </div>
+              ${m.claimed ? `<span class="text-[12px] font-extrabold text-leaf flex-shrink-0"><i class="fa-solid fa-check"></i> +${fmtPts(m.reward)}</span>`
+                : ready ? `<button onclick="claimMissionUI('${escapeHtml(m.id)}')" class="btn-primary h-9 px-3 text-[12px] flex-shrink-0">Pegar +${fmtPts(m.reward)}</button>`
+                : `<span class="text-[12px] font-extrabold text-ink-2 bg-sunk rounded-full px-2.5 py-1 flex-shrink-0">+${fmtPts(m.reward)}</span>`}
+            </div>`;
+          }).join('')}
+        </div>`;
+    }
+    async function claimMissionUI(id) {
+      const m = (missionsCache || []).find(x => x.id === id);
+      try {
+        const bal = await api.claimMission(id);
+        if (wallet) wallet.balance = bal;
+        if (m) m.claimed = true;
+        renderMissions(); renderShop(); renderV7Bits(); renderHomeV7(); loadLedger();
+        buzz([20, 40, 20]);
+        showToast(`Missão cumprida! +${fmtPts(m ? m.reward : 0)} baba points`);
+      } catch (e) {
+        const msg = String((e && e.message) || '');
+        showToast(isNetworkError(e) ? 'Precisa de internet.' : msg.includes('already') ? 'Essa missão já foi resgatada.' : msg.includes('not_done') ? 'Ainda falta um pouco pra essa.' : 'Não deu certo agora.', 'warning');
+        loadMissions();
       }
     }
 
@@ -2865,7 +2949,8 @@
       const box = document.getElementById('shop-ledger');
       try {
         const rows = await api.ledger();
-        const why = r => ({ 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', 'palpite': 'Palpite feito', 'palpite-certo': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido' })[r.reason]
+        const why = r => ({ 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', 'palpite': 'Palpite feito', 'palpite-certo': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido', 'suporte': 'Ajuste do suporte' })[r.reason]
+          || (r.reason === 'missao' ? 'Missão: ' + (((missionsCache || []).find(m => m.id === String(r.ref || '').split(':')[0]) || {}).title || 'da semana') : null)
           || (r.reason === 'lojinha' ? ((shopItemsCache || []).find(x => x.id === r.ref) || {}).title || 'Lojinha' : r.reason);
         box.innerHTML = rows.length ? rows.map(r => `
           <div class="flex items-center justify-between gap-3 px-4 py-2.5 text-[14px]">
@@ -3076,6 +3161,7 @@
       if (!state.live || !state.live.code) { ensureLive(true); return; }
       const link = liveLink(state.live.code);
       document.getElementById('qr-code').innerText = state.live.code;
+      document.getElementById('qr-site').innerText = liveLink('').replace(/^https?:\/\//, '').replace(/#ao-vivo=$/, '');
       document.getElementById('qr-palpites').checked = !!state.live.palpites;
       const box = document.getElementById('qr-img');
       try {
@@ -3092,10 +3178,35 @@
     }
     function closeQr() { document.getElementById('modal-qr').classList.add('hidden'); }
 
+    /* Watching by typing the code (for whoever can't scan the QR). */
+    function openWatch() {
+      const input = document.getElementById('watch-code');
+      input.value = '';
+      document.getElementById('watch-error').classList.add('hidden');
+      document.getElementById('modal-watch').classList.remove('hidden');
+      setTimeout(() => input.focus(), 60);
+    }
+    function closeWatch() { document.getElementById('modal-watch').classList.add('hidden'); }
+    async function submitWatch() {
+      const code = document.getElementById('watch-code').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const err = document.getElementById('watch-error');
+      const fail = msg => { err.innerText = msg; err.classList.remove('hidden'); };
+      if (code.length < 4) return fail('Digite o código inteiro.');
+      const btn = document.getElementById('watch-btn');
+      btn.disabled = true;
+      let d = null;
+      try { d = await api.getLive(code); }
+      catch (e) { btn.disabled = false; return fail(isMissingFn(e) ? 'O jogo ao vivo ainda não está ligado no servidor.' : 'Sem conexão. Confira a internet e tente de novo.'); }
+      btn.disabled = false;
+      if (!d) return fail('Não achei um jogo com esse código. Confira com quem está organizando.');
+      closeWatch();
+      openLive(code);
+    }
+
     async function shareLive() {
       const code = liveCode();
       if (!code) return;
-      const text = `Acompanha o baba ao vivo no BABA: ${liveLink(code)}`;
+      const text = `Acompanha o baba ao vivo no BABA: ${liveLink(code)}\nOu abra o app, toque em "Assistir um jogo ao vivo" e digite o código ${code}`;
       if (navigator.share) { try { await navigator.share({ title: 'BABA ao vivo', text }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
       copyText(text, null, 'Link copiado. Manda no grupo!');
     }
@@ -3518,8 +3629,8 @@
       const pts = wallet ? `
         <button onclick="openShop()" class="card w-full p-3.5 flex items-center gap-3 text-left">
           <img src="babinha/money.webp" alt="" class="w-11 h-11 object-contain flex-shrink-0" />
-          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${wallet.daily ? 'Bônus do dia esperando · lojinha' : 'Molduras e nomes na lojinha'}</span></span>
-          ${wallet.daily ? '<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">+100</span>' : '<i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>'}
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${missionsReady() ? `${missionsReady()} missão${missionsReady() > 1 ? 'ões' : ''} pronta${missionsReady() > 1 ? 's' : ''} pra resgatar` : wallet.daily ? 'Bônus do dia esperando · missões da semana' : missionsCache && missionsCache.length ? 'Missões da semana e lojinha' : 'Molduras e nomes na lojinha'}</span></span>
+          ${missionsReady() ? `<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">${missionsReady()}</span>` : wallet.daily ? '<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">+100</span>' : '<i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>'}
         </button>` : '';
       const st = status8 || {};
       const banned = st.bannedUntil ? `
@@ -3539,7 +3650,13 @@
           <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">Painel de suporte</span><span class="block text-[12.5px] text-ink-2">Conta de suporte · tudo liberado</span></span>
           <i class="fa-solid fa-arrow-up-right-from-square text-[12px] text-ink-3"></i>
         </a>` : '';
-      const all = banned + notice + staff + lives + pts;
+      const watch = `
+        <button onclick="openWatch()" class="card w-full p-3.5 flex items-center gap-3 text-left">
+          <span class="tile bg-sage text-pitch"><i class="fa-solid fa-tower-broadcast"></i></span>
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">Assistir um jogo ao vivo</span><span class="block text-[12.5px] text-ink-2">Tem o código de um baba? Digite aqui</span></span>
+          <i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>
+        </button>`;
+      const all = banned + notice + staff + lives + watch + pts;
       box.innerHTML = all ? `<section class="space-y-2.5">${all}</section>` : '';
     }
 
@@ -3547,6 +3664,9 @@
        HELPERS
        =================================================================== */
     const teamSize = () => FORMAT_SIZES[state.match.gameFormat] || 5;
+    const fixedKeepers = () => !!FIXED_KEEPER_FORMATS[state.match.gameFormat];
+    const isFixedKeeper = p => !!(p && p.isGoalkeeper && fixedKeepers());
+    const fixedKeeperList = () => fixedKeepers() ? state.players.filter(p => p.present && p.isGoalkeeper).sort((a, b) => (a.arrival || 0) - (b.arrival || 0)) : [];
     const byId = id => state.players.find(p => p.id === id) || null;
     const nameOf = id => { const p = byId(id); return p ? p.name : '?'; };
     const presentPlayers = () => state.players.filter(p => p.present);
@@ -3579,7 +3699,7 @@
       const seen = new Set();
       const keep = id => {
         const p = known.get(id);
-        if (!p || !p.present || seen.has(id)) return false;
+        if (!p || !p.present || seen.has(id) || isFixedKeeper(p)) return false;
         seen.add(id);
         return true;
       };
@@ -3591,7 +3711,7 @@
       });
       state.queue = state.queue.filter(keep);
       state.players
-        .filter(p => p.present && !seen.has(p.id))
+        .filter(p => p.present && !seen.has(p.id) && !isFixedKeeper(p))
         .sort((a, b) => (a.arrival || 0) - (b.arrival || 0))
         .forEach(p => { seen.add(p.id); state.queue.push(p.id); });
     }
@@ -3646,6 +3766,7 @@
     }
 
     function commit(message, type) {
+      repair();
       saveState();
       renderAllComponents();
       if (message) showToast(message, type);
@@ -4139,7 +4260,7 @@
       p.arrival = ++state.arrivalSeq;
       p.arrivedAt = Date.now();
       if (!state.startedAt) state.startedAt = p.arrivedAt;
-      state.queue.push(id);
+      if (!isFixedKeeper(p)) state.queue.push(id);
     }
 
     function checkOut(id) {
@@ -4701,6 +4822,7 @@
       document.getElementById('match-score-a').innerText = state.match.scoreA;
       document.getElementById('match-score-b').innerText = state.match.scoreB;
       document.getElementById('match-game-format').value = state.match.gameFormat || 'futsal';
+      renderFixedKeepers();
       document.getElementById('match-goal-limit-rule').value = state.match.goalLimitRule || '2';
 
       renderCourtCta();
@@ -4710,6 +4832,18 @@
       renderMatchRosterText('A');
       renderMatchRosterText('B');
       renderMatchEventsLog();
+    }
+
+    /* Fixed-goalkeeper formats: who is in goal today (they never rotate). */
+    function renderFixedKeepers() {
+      const box = document.getElementById('fixed-keepers');
+      if (!box) return;
+      if (!fixedKeepers()) { box.classList.add('hidden'); return; }
+      const ks = fixedKeeperList();
+      box.classList.remove('hidden');
+      box.innerHTML = ks.length
+        ? `<i class="fa-solid fa-hand text-pitch"></i><span class="min-w-0"><b>Goleiro${ks.length > 1 ? 's' : ''} fixo${ks.length > 1 ? 's' : ''}:</b> ${ks.map(p => escapeHtml(p.name)).join(' · ')}<span class="block text-ink-2 font-medium">Não entram na fila: ficam no gol a noite toda.</span></span>`
+        : `<i class="fa-solid fa-triangle-exclamation text-warn"></i><span class="min-w-0"><b>Nenhum goleiro fixo.</b><span class="block text-ink-2 font-medium">Marque GOL em quem vai ficar no gol, na Lista.</span></span>`;
     }
 
     function renderCourtCta() {
@@ -4742,7 +4876,10 @@
     }
 
     function updateGameFormat(val) {
+      const wasFixed = fixedKeepers();
       state.match.gameFormat = val;
+      // Fixed goalkeepers leave the teams and the line; back to normal, they rejoin the line.
+      if (wasFixed !== fixedKeepers()) repair();
       // Before kickoff, the teams on court grow to the new size right away.
       let added = 0;
       if (matchNotStarted()) added = topUp('A').length + topUp('B').length;
@@ -5214,6 +5351,7 @@
         updateStandingsRecord(A, scoreA, scoreB);
         updateStandingsRecord(B, scoreB, scoreA);
         [...A.ids, ...B.ids].forEach(id => { const p = byId(id); if (p) p.matches = (p.matches || 0) + 1; });
+        fixedKeeperList().forEach(p => { p.matches = (p.matches || 0) + 1; });
 
         const leaving = [];
         let stay = null;

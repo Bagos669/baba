@@ -408,3 +408,79 @@ def f_pingActivity(self, uid):
     self._v8init()
     if not self.v8_enabled: return self.err('PGRST202', 'Could not find the function')
     self.pings.append(uid); return self.ok(None)
+
+# ---- v9: exclusive items and weekly missions
+EXCL = {'frame_teal_orange': ('frame', 'tealorange', 'Moldura Teal & Orange Metálico', 'dono', 17),
+        'name_teal_orange': ('name', 'tealorange', 'Nome Teal & Orange Metálico', 'dono', 27),
+        'fx_frame_fogo_azul': ('fx', 'fogo-azul', 'Brilho Moldura · Aura de Fogo Azul', 'fundador', 32),
+        'fx_name_fogo_azul': ('fx', 'fogo-azul', 'Brilho Nome · Aura de Fogo Azul', 'fundador', 33)}
+OWNER_EMAILS = {'gabrieljastim13@gmail.com', 'contatobabaapp@gmail.com'}
+MISSIONS = [('presenca', 'Presença garantida', 'Abra o BABA em 3 dias diferentes da semana', 'days_active', 3, 100, False),
+            ('bonus', 'Bônus em dia', 'Pegue o bônus do dia 4 vezes na semana', 'daily_bonus', 4, 100, False),
+            ('jogar', 'Bola rolando', 'Jogue 1 baba (com seu nome ligado à conta na turma)', 'babas_played', 1, 150, False),
+            ('organizar', 'Organizador da semana', 'Finalize 1 baba que você organizou', 'babas_organized', 1, 200, False),
+            ('artilheiro', 'Faro de gol', 'Marque 3 gols nos babas da semana', 'goals', 3, 200, False),
+            ('resenha', 'Resenha em dia', 'Mande 3 mensagens no chat da turma ou do jogo', 'chat', 3, 50, False),
+            ('palpiteiro', 'Palpiteiro', 'Faça 3 palpites em jogos ao vivo', 'palpites', 3, 80, True)]
+def _v9init(self):
+    if not hasattr(self, 'founders'):
+        self.founders = None; self.mprog = {}; self.mclaims = set(); self.v9_enabled = True
+Fake._v9init = _v9init
+def _shop_all():
+    rows = [{'id': i, 'kind': k, 'tier': t, 'title': ti, 'price': p, 'sort': n, 'exclusive': None} for n, (i, k, t, ti, p) in enumerate(SHOP)]
+    rows += [{'id': i, 'kind': v[0], 'tier': v[1], 'title': v[2], 'price': 0, 'sort': v[4], 'exclusive': v[3]} for i, v in EXCL.items()]
+    return sorted(rows, key=lambda r: r['sort'])
+@_reg
+def f_shopItems(self, uid):
+    self._v9init(); return self.ok(_shop_all() if self.v9_enabled else [r for r in _shop_all() if not r['exclusive']])
+@_reg
+def f_myWallet(self, uid):
+    self._v9init()
+    if uid not in self.wallets: self._add(uid, 1000, 'boas-vindas')
+    if self.v9_enabled:
+        mine = self.items.setdefault(uid, [])
+        is_founder = self.founders is None or uid in self.founders
+        is_owner = self.email_of(uid).lower() in OWNER_EMAILS
+        for i, v in EXCL.items():
+            if ((v[3] == 'fundador' and is_founder) or (v[3] == 'dono' and is_owner)) and i not in mine: mine.append(i)
+    w = self.wallets[uid]
+    return self.ok({'balance': w['balance'], 'daily_available': w['daily'] != _dt.date.today(), 'items': list(self.items.get(uid, []))})
+@_reg
+def f_buyItem(self, uid, item):
+    if item in EXCL: return self.err('P0001', 'exclusive')
+    it = next((x for x in SHOP if x[0] == item), None)
+    if not it: return self.err('P0001', 'not_found')
+    if item in self.items.get(uid, []): return self.err('P0001', 'owned')
+    self.f_myWallet(uid); bal = self._add(uid, -it[4], 'lojinha', item)
+    self.items.setdefault(uid, []).append(item); return self.ok(bal)
+@_reg
+def f_equipItem(self, uid, slot, item):
+    p = self.profiles[uid]; c = dict(p.get('cosmetics') or {})
+    if item:
+        it = next(({'kind': x[1], 'tier': x[2]} for x in SHOP if x[0] == item), None) or ({'kind': EXCL[item][0], 'tier': EXCL[item][1]} if item in EXCL else None)
+        want = {'frame': 'frame', 'name': 'name'}.get(slot, 'fx')
+        if not it or it['kind'] != want: return self.err('P0001', 'bad_item')
+        if slot == 'frameShine' and not item.startswith('fx_frame_'): return self.err('P0001', 'bad_item')
+        if slot == 'nameShine' and not item.startswith('fx_name_'): return self.err('P0001', 'bad_item')
+        if item not in self.items.get(uid, []): return self.err('P0001', 'not_owned')
+        c[slot] = it['tier'] if slot in ('frame', 'name') else (it['tier'] or True)
+    else: c.pop(slot, None)
+    p['cosmetics'] = c; return self.ok(c)
+@_reg
+def f_myMissions(self, uid):
+    self._v9init()
+    if not self.v9_enabled: return self.err('PGRST202', 'Could not find the function')
+    ws = _dt.date.today() - _dt.timedelta(days=_dt.date.today().weekday())
+    prog = self.mprog.get(uid, {}); adult = self._adult(uid)
+    return self.ok([{'id': i, 'title': t, 'description': d, 'target': tg, 'reward': r, 'progress': min(prog.get(mt, 0), tg),
+                     'claimed': (uid, i) in self.mclaims, 'week_start': ws.isoformat(), 'week_end': (ws + _dt.timedelta(days=6)).isoformat()}
+                    for i, t, d, mt, tg, r, ao in MISSIONS if adult or not ao])
+@_reg
+def f_claimMission(self, uid, mission):
+    self._v9init()
+    m = next((x for x in MISSIONS if x[0] == mission), None)
+    if not m: return self.err('P0001', 'not_found')
+    if self.mprog.get(uid, {}).get(m[3], 0) < m[4]: return self.err('P0001', 'not_done')
+    if (uid, mission) in self.mclaims: return self.err('P0001', 'already_claimed')
+    self.mclaims.add((uid, mission)); self.f_myWallet(uid)
+    return self.ok(self._add(uid, m[5], 'missao', mission + ':week'))

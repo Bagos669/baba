@@ -407,7 +407,7 @@
   async function reloadUser() { if (current && current.kind === 'user') { const u = await B.rpc('admin_user', { uid: current.id }); current.data = u; renderUser(); } }
   const fact = (label, value) => `<div class="bg-sunk/60 rounded-2xl px-3.5 py-2.5"><p class="text-[11px] font-bold uppercase tracking-wider muted">${label}</p><p class="text-[14px] font-bold mt-0.5">${value}</p></div>`;
   const actBtn = (icon, label, fn, danger) => `<button class="act${danger ? ' danger' : ''}" onclick="${fn}"><i class="fa-solid ${icon}"></i>${label}</button>`;
-  const LEDGER = { 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', lojinha: 'Lojinha', palpite: 'Palpite', 'palpite-ganho': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido', suporte: 'Suporte' };
+  const LEDGER = { 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', lojinha: 'Lojinha', palpite: 'Palpite', 'palpite-certo': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido', suporte: 'Suporte', missao: 'Missão da semana' };
   const STATUS = { open: 'Esperando', won: 'Acertou', lost: 'Errou', void: 'Devolvido' };
   function renderUser() {
     const u = current.data;
