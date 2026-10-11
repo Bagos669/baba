@@ -25,15 +25,17 @@ async def main():
         fake.notice = {'message': 'Manutenção hoje às 23h', 'level': 'warning'}
         await pg.reload(wait_until='load'); await pg.wait_for_timeout(1500)
         h = await home()
+        out['notice_popup'] = await pg.evaluate("!document.getElementById('modal-popup').classList.contains('hidden') && document.getElementById('popup-body').innerText.includes('Manutenção hoje às 23h')")
         out['staff_home'] = ['Painel de suporte' in h, '∞ baba points' in h, 'Manutenção hoje às 23h' in h]
+        await pg.evaluate("localStorage.setItem('baba_notes_seen_v1', '9.5')")
         out['pinged_once_per_day'] = len(fake.pings)
+        await pg.click('#popup-ok'); await pg.wait_for_timeout(300)
         await pg.screenshot(path=f'{SHOTS}/v8_home_staff.png')
         await pg.click('#header-profile'); await pg.wait_for_timeout(400)
         out['profile_panel_link'] = await pg.evaluate("!document.getElementById('profile-staff').classList.contains('hidden') && document.querySelector('#profile-staff a').getAttribute('href')")
         out['profile_points'] = await pg.evaluate("document.getElementById('profile-points').innerText")
         await pg.locator('#profile-staff').scroll_into_view_if_needed(); await pg.screenshot(path=f'{SHOTS}/v8_profile_staff.png')
         await pg.go_back(); await pg.wait_for_timeout(300)
-        await pg.click('button[aria-label="Fechar aviso"]'); await pg.wait_for_timeout(200)
         out['notice_dismissed'] = 'Manutenção' not in await home()
         await pg.reload(wait_until='load'); await pg.wait_for_timeout(1500)
         out['notice_stays_dismissed'] = 'Manutenção' not in await home()

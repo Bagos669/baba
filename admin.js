@@ -760,7 +760,7 @@
             <button class="btn-primary h-11 px-5 text-[14px]" onclick="publishNotice()"><i class="fa-solid fa-bullhorn"></i> Publicar aviso</button>
             ${cur && cur.notice ? '<button class="btn-danger h-11 px-5 text-[14px]" onclick="clearNotice()"><i class="fa-solid fa-xmark"></i> Tirar o aviso atual</button>' : ''}
           </div>
-          <p class="text-[12px] faint mt-3">Só um aviso fica no ar por vez: publicar um novo substitui o anterior. Cada pessoa pode fechar o aviso no app.</p>
+          <p class="text-[12px] faint mt-3">Só um aviso fica no ar por vez: publicar um novo substitui o anterior. Cada pessoa vê o aviso em pop-up quando abre o app (uma vez) e ele fica na tela inicial até ela fechar.</p>
         </div>
         <div>
           <p class="eyebrow mb-2 px-1">No ar agora</p>
@@ -779,7 +779,7 @@
   function publishNotice() {
     const m = val('notice-msg');
     if (!m) { toast('Escreva o aviso primeiro'); return; }
-    ask({ title: 'Publicar este aviso?', body: noticeCard(m, noticeLvl) + '<p class="text-[13px] muted mt-3">Todo mundo vê na tela inicial do app.</p>', ok: 'Publicar', run: async () => { await B.rpc('admin_set_notice', { message: m, lvl: noticeLvl }); route(); return 'Aviso no ar'; } });
+    ask({ title: 'Publicar este aviso?', body: noticeCard(m, noticeLvl) + '<p class="text-[13px] muted mt-3">Aparece em pop-up para todo mundo que abrir o app.</p>', ok: 'Publicar', run: async () => { await B.rpc('admin_set_notice', { message: m, lvl: noticeLvl }); route(); return 'Aviso no ar'; } });
   }
   function clearNotice() {
     ask({ title: 'Tirar o aviso do ar?', body: '', ok: 'Tirar aviso', danger: true, run: async () => { await B.rpc('admin_set_notice', { message: '', lvl: 'info' }); route(); return 'Aviso retirado'; } });

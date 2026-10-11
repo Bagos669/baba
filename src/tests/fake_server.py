@@ -159,6 +159,7 @@ class Fake:
                 return self.err('23505', 'duplicate')
         for r in rows:
             pid = str(uuid.uuid4()); self.players[pid] = {'id': pid, 'turma_id': r['turma_id'], 'name': r['name'], 'is_goalkeeper': r['is_goalkeeper'], 'user_id': None, 'seq': next(self.seq)}
+            if getattr(self, 'female_col', True): self.players[pid]['is_female'] = bool(r.get('is_female', False))
         return self.ok([])
     def f_deletePlayers(self, uid, ids):
         for i in ids:
@@ -484,3 +485,11 @@ def f_claimMission(self, uid, mission):
     if (uid, mission) in self.mclaims: return self.err('P0001', 'already_claimed')
     self.mclaims.add((uid, mission)); self.f_myWallet(uid)
     return self.ok(self._add(uid, m[5], 'missao', mission + ':week'))
+
+# ---- v9.5: jogadoras
+def f_setFemale(self, uid, pid, v):
+    p = self.players[pid]
+    if not self.is_admin(p['turma_id'], uid): raise PermissionError('admin')
+    if not getattr(self, 'female_col', True): return self.err('42703', 'column is_female does not exist')
+    p['is_female'] = v; return self.ok([])
+Fake.f_setFemale = f_setFemale

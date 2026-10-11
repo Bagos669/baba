@@ -13,7 +13,7 @@
     const STORAGE_KEY = 'baba_gestao_digital_v3';
     const STATE_VERSION = 4;
     const FORMAT_SIZES = { futsal4: 4, futsal: 5, society7: 7, society: 8, campo11: 11, campo: 12 };
-    const FORMAT_LABELS = { futsal4: 'Futsal (4 + goleiro fixo)', futsal: 'Futsal (5)', society7: 'Society (7 + goleiro fixo)', society: 'Society (8)', campo11: 'Campo (11 + goleiro fixo)', campo: 'Campo (12)' };
+    const FORMAT_LABELS = { futsal4: 'Futsal (4 na linha + goleiro)', futsal: 'Futsal (5)', society7: 'Society (7 na linha + goleiro)', society: 'Society (8)', campo11: 'Campo (11 na linha + goleiro)', campo: 'Campo (12)' };
     // In these formats the goalkeepers stay on court: teams are line players only.
     const FIXED_KEEPER_FORMATS = { futsal4: true, society7: true, campo11: true };
 
@@ -68,7 +68,10 @@
     }
 
     function defaultSettings() {
-      return { keeperBalance: true, drawRule: 'king', maxStreak: 0 };
+      // queueOrder: 'chegada' | 'menos-jogos' · lateAfter: minutes after the first kick-off
+      // from which a new arrival goes to the front of the line (0 = off) · keeperMode for the
+      // line-only formats: 'fixo' (keepers never rotate) | 'fila' (the next two in line keep goal).
+      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'fixo' };
     }
 
     function seedTurmas() {
@@ -99,7 +102,9 @@
         pastDays: [],
         // Live transmission of this baba ({ id, code, palpites }) and whether the QR was offered.
         live: null,
-        liveAsked: false
+        liveAsked: false,
+        // First kick-off of the day (the time ruler for late arrivals counts from here).
+        firstKickoffAt: null
       };
     }
 
@@ -134,6 +139,7 @@
       s.turmas.forEach(t => {
         if (!Array.isArray(t.players)) t.players = [];
         if (!Array.isArray(t.keepers)) t.keepers = [];
+        if (t.women && !Array.isArray(t.women)) t.women = [];
       });
       s.selectedTeams = (s.selectedTeams || []).filter(id => s.turmas.some(t => t.id === id));
 
@@ -147,6 +153,8 @@
         id: p.id,
         name: String(p.name),
         isGoalkeeper: !!p.isGoalkeeper,
+        female: !!p.female,
+        jumped: !!p.jumped,
         goals: p.goals || 0,
         assists: p.assists || 0,
         saves: p.saves || 0,
@@ -299,6 +307,7 @@
     let lastPull = 0;
     let myPlayerIds = [];
     let schemaV2 = null;         // server has owners/pictures/prefs (null = not checked yet)
+    let femaleCol = null;        // server keeps "jogadora" on turma players (v9.5)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -397,7 +406,17 @@
         }
         return q(sb.from('turma_members').select('role, turma:turmas(id, name, invite_code, created_by)').eq('user_id', uid));
       },
-      players: ids => ids.length ? q(sb.from('turma_players').select('id, turma_id, name, is_goalkeeper, user_id').in('turma_id', ids).order('created_at')) : Promise.resolve([]),
+      async players(ids) {
+        if (!ids.length) return [];
+        // "Jogadora" arrives with a server update (v9.5); read the old shape until then.
+        if (femaleCol !== false) {
+          const { data, error } = await sb.from('turma_players').select('id, turma_id, name, is_goalkeeper, is_female, user_id').in('turma_id', ids).order('created_at');
+          if (!error) { femaleCol = true; return data || []; }
+          if (!isMissingColumn(error)) throw error;
+          femaleCol = false;
+        }
+        return q(sb.from('turma_players').select('id, turma_id, name, is_goalkeeper, user_id').in('turma_id', ids).order('created_at'));
+      },
       openBaba: uid => q(sb.from('babas').select('id, state, updated_at').eq('created_by', uid).eq('finished', false).order('updated_at', { ascending: false }).limit(1)),
       finishedBabas: () => q(sb.from('babas').select('id, title, played_on, matches, created_by, baba_stats(name, goals, assists, saves, matches, wins, turma_player_id)').eq('finished', true).order('played_on', { ascending: false }).limit(150)),
       async profile(uid) {
@@ -440,6 +459,7 @@
       insertPlayers: rows => q(sb.from('turma_players').insert(rows)),
       deletePlayers: ids => q(sb.from('turma_players').delete().in('id', ids)),
       setKeeper: (id, value) => q(sb.from('turma_players').update({ is_goalkeeper: value }).eq('id', id)),
+      setFemale: (id, value) => q(sb.from('turma_players').update({ is_female: value }).eq('id', id)),
       renamePlayer: (turmaId, oldName, newName) => q(sb.from('turma_players').update({ name: newName }).eq('turma_id', turmaId).eq('name', oldName)),
       async join(code) { const { data, error } = await sb.rpc('join_turma', { code }); if (error) throw error; return data || []; },
       async claim(id) { const { error } = await sb.rpc('claim_player', { player: id }); if (error) throw error; },
@@ -556,15 +576,22 @@
       if (remove.length) await api.deletePlayers(remove);
       const have = new Set(rows.map(r => r.name.toLowerCase()));
       const add = [...local.values()].filter(n => !have.has(n.toLowerCase()))
-        .map(n => ({ turma_id: t.id, name: n, is_goalkeeper: t.keepers.some(k => sameName(k, n)) }));
+        .map(n => Object.assign({ turma_id: t.id, name: n, is_goalkeeper: t.keepers.some(k => sameName(k, n)) },
+          femaleCol ? { is_female: (t.women || []).some(k => sameName(k, n)) } : {}));
       if (add.length) await api.insertPlayers(add);
       for (const r of rows) {
         if (!local.has(r.name.toLowerCase())) continue;
         const gk = t.keepers.some(k => sameName(k, r.name));
         if (gk !== !!r.is_goalkeeper) await api.setKeeper(r.id, gk);
       }
-      // Refresh ids and links for this turma.
+      // Refresh ids and links for this turma (and who is a "jogadora", once the server keeps it).
       const fresh = await api.players([t.id]);
+      if (fresh.length && 'is_female' in fresh[0]) femaleCol = true;
+      for (const r of fresh) {
+        if (!('is_female' in r) || !local.has(r.name.toLowerCase())) continue;
+        const f = (t.women || []).some(k => sameName(k, r.name));
+        if (f !== !!r.is_female) { await api.setFemale(r.id, f); r.is_female = f; }
+      }
       const live = state.turmas.find(x => x.id === id);
       if (live) {
         live.meta = Object.fromEntries(fresh.map(r => [r.name.toLowerCase(), { id: r.id, userId: r.user_id }]));
@@ -663,6 +690,7 @@
           const cloud = {
             id: tr.id, name: tr.name, cloud: true, role: tr.role, invite: tr.invite_code,
             players: rows.map(r => r.name), keepers: rows.filter(r => r.is_goalkeeper).map(r => r.name),
+            women: rows.length && !('is_female' in rows[0]) ? ((state.turmas.find(t => t.id === tr.id) || {}).women || []) : rows.filter(r => r.is_female).map(r => r.name),
             meta: Object.fromEntries(rows.map(r => [r.name.toLowerCase(), { id: r.id, userId: r.user_id }]))
           };
           const local = state.turmas.find(t => t.id === tr.id);
@@ -1010,6 +1038,8 @@
           loadLiveList();
           // Terms first, then (first time) the Babinha tour, then invites, old data and a pending live game.
           ensureTerms(() => startTour(false, () => {
+            popupsArmed = true;
+            maybePopups();
             handlePendingInvite();
             offerLocalImport();
             const lc = takePendingLive();
@@ -1028,7 +1058,7 @@
       await api.signOut();
       currentUser = null;
       prefsPulledFor = null;
-      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null; missionsCache = null;
+      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null; missionsCache = null; popupsArmed = false;
       { const ps = document.getElementById('profile-staff'); if (ps) ps.classList.add('hidden'); }
       state = defaultState();
       showAuth('login');
@@ -1833,7 +1863,12 @@
       ['Na quadra', 'Alguém se machucou. Dá pra trocar?', 'Sim. Em Times, toque no jogador em quadra e escolha quem entra. Quem sai pode ir pro começo ou fim da fila, ou sair do baba.'],
       ['Na quadra', 'Como deixo o placar em tela cheia?', 'No Placar, com os times em quadra, toque no botão de expandir ao lado do relógio. O celular vira um placar deitado pra galera ver.'],
       ['Na quadra', 'Como funciona o goleiro?', 'Marque "GOL" no nome do goleiro na turma. Com a opção "1 goleiro por time" ligada, cada time puxa um goleiro da fila.'],
-      ['Na quadra', 'O que é "GOL fixo" no formato?', 'Nos formatos <b>Futsal · 4</b>, <b>Society · 7</b> e <b>Campo · 11</b> os goleiros ficam no gol a noite toda: quem tem GOL marcado não entra na fila nem nos times, e os times são só de linha. Cada partida conta pra eles do mesmo jeito.'],
+      ['Na quadra', 'Como funcionam os formatos 4, 7 e 11 + goleiro?', 'Nos formatos <b>Futsal · 4</b>, <b>Society · 7</b> e <b>Campo · 11</b> os times são só de linha. Em Times → Regras você escolhe o goleiro: <b>Fixo</b> (quem tem GOL marcado fica no gol a noite toda) ou <b>Da fila</b> (os dois próximos da fila vão pro gol e não perdem o lugar, como na planilha).'],
+      ['Na quadra', 'Alguém foi embora. Como tiro da fila?', 'Na aba <b>Times</b>, toque no <b>x</b> ao lado do nome na fila de espera. Se a pessoa estiver em quadra, toque no nome dela e em <b>Foi embora</b>. Os números do dia continuam.'],
+      ['Na quadra', 'O que é a régua de tempo?', 'Em Times → Regras: quem chega depois do tempo escolhido (contado do primeiro jogo) entra em 1º na fila. Quem chega antes disso vai pro fim, como sempre.'],
+      ['Na quadra', 'Dá pra quem jogou menos jogar antes?', 'Sim: Times → Regras → Ordem da fila → <b>Quem jogou menos</b>. A fila se arruma sozinha pelo número de jogos do dia.'],
+      ['Na quadra', 'Como corrijo o gol de alguém?', 'Toque no nome da pessoa (na Lista, no time ou na fila) e ajuste gols, assistências e defesas em <b>Números de hoje</b>.'],
+      ['Na quadra', 'Tem jogadora no baba. Como marco?', 'Abra a ficha dela e escolha <b>Jogadora</b>. Os destaques viram artilheira, garçonete e paredona, e a turma guarda isso pros próximos babas.'],
       ['Ao vivo', 'Como assisto um jogo pelo código?', 'Na tela de entrada do app (ou em <b>Início</b>, se já tem conta), toque em <b>Assistir um jogo ao vivo</b> e digite o código que aparece no celular de quem organiza. Não precisa de conta pra assistir.'],
       ['Baba points', 'Como ganho baba points?', 'No bônus do dia, nas <b>Missões da semana</b> (na Lojinha) e acertando palpites. As missões renovam toda segunda.'],
       ['Turmas e convites', 'Como chamo a galera pra turma?', 'Abra a turma e toque em <b>Convidar</b>. Mande o link no grupo: quem entrar vê a turma e o histórico, e toca no próprio nome pra ligar à conta.'],
@@ -1900,7 +1935,7 @@
       { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo, dê play e, se precisar, +1, +2 ou +3 de acréscimo. Com times em quadra, o botão de expandir vira placar deitado.' },
       { img: 'siuu', tab: 'placar', target: '#placar-sides', title: 'Gol com assistência', text: 'Toque em Gol, escolha quem fez e quem deu o passe. Defesa do goleiro também entra na conta.' },
       { img: 'red', tab: 'placar', target: '#btn-finish', title: 'Finalizar partida', text: 'Acabou o jogo? Finalize: vencedor fica, próximo da fila entra. Errou? Calma, tem Desfazer.' },
-      { img: 'aura', tab: 'stats', target: '#tab-nav-stats', title: 'Artilharia e recordação', text: 'Artilheiro, garçom e paredão do dia e de todos os babas. E dá pra gerar o PDF do baba com as fotos da pelada.' },
+      { img: 'aura', tab: 'stats', target: '#tab-nav-stats', title: 'Artilharia e recordação', text: 'Artilheiro ou artilheira, garçom ou garçonete, paredão ou paredona: do dia e de todos os babas. E dá pra gerar o PDF do baba com as fotos da pelada.' },
       { img: 'champion', tab: 'inicio', title: 'É isso. Bom baba!', text: 'Ficou dúvida? Perfil → Suporte. Lá também dá pra rever este tutorial quando quiser.' }
     ];
     let tourIndex = -1;
@@ -1908,6 +1943,8 @@
 
     function startTour(force, onEnd) {
       if (!force && prefs.tutorialDone) { if (onEnd) onEnd(); return; }
+      // A first-time user gets the tour; the release notes are for people coming back.
+      if (!force) lsSet(NOTES_KEY, APP_VERSION);
       tourOnEnd = onEnd || null;
       ['modal-database', 'modal-turma-edit', 'modal-account', 'modal-backup', 'modal-export'].forEach(id => {
         const el = document.getElementById(id);
@@ -2527,7 +2564,86 @@
       const box = document.getElementById('profile-staff');
       if (box) box.classList.toggle('hidden', !(status8 && status8.staff));
       renderHomeV7();
+      maybePopups();
     }
+    /* ===================================================================
+       POP-UPS: aviso do suporte e novidades da versão
+       Shown one at a time, after the terms and the tour are out of the way.
+       =================================================================== */
+    const APP_VERSION = '9.5';
+    const NOTES_KEY = 'baba_notes_seen_v1';
+    const PATCH_NOTES = [
+      { v: '9.5', date: '11/10/2026', title: 'A fila do seu jeito', items: [
+        'Dá pra tirar alguém da fila de espera (o "foi embora") direto na aba Times.',
+        'Nova opção de ordem da fila: quem jogou menos joga antes.',
+        'Régua de tempo: quem chega muito depois do primeiro jogo (30 min, 1 h ou 1h30, você escolhe) entra em 1º na fila.',
+        'Goleiro da fila, como na planilha: nos formatos 4, 7 e 11, os dois próximos da fila vão pro gol sem perder o lugar.',
+        'Toque no nome de quem está no time ou na fila pra editar a ficha: nome, posição, gols, passes e defesas do dia.',
+        'Jogadoras no BABA: marque "Jogadora" na ficha e os títulos viram artilheira, garçonete e paredona.',
+        'Avisos da equipe BABA agora aparecem assim, em pop-up.'
+      ] },
+      { v: '9', date: '10/10/2026', title: 'Missões e exclusivos', items: [
+        'Assistir um jogo ao vivo digitando o código.',
+        'Formatos Futsal 4, Society 7 e Campo 11 com goleiro à parte.',
+        'Missões da semana na lojinha, valendo baba points.',
+        'Itens exclusivos: Aura de Fogo Azul para os 100 primeiros do BABA.'
+      ] },
+      { v: '8', date: '09/10/2026', title: 'Equipe de suporte', items: [
+        'Avisos da equipe BABA na tela inicial.',
+        'Suporte pode ajudar com senha, código de recuperação e problemas na conta.'
+      ] }
+    ];
+    let popupsArmed = false;
+    let popupOpen = false;
+    let popupOnClose = null;
+    function showPopup(o) {
+      popupOpen = true;
+      popupOnClose = o.onClose || null;
+      document.getElementById('popup-img').src = `babinha/${o.img || 'wave'}.webp`;
+      document.getElementById('popup-eyebrow').innerText = o.eyebrow || '';
+      document.getElementById('popup-title').innerText = o.title || '';
+      document.getElementById('popup-body').innerHTML = o.html || '';
+      document.getElementById('popup-ok').innerText = o.ok || 'Beleza';
+      document.getElementById('modal-popup').classList.remove('hidden');
+    }
+    function closePopup() {
+      document.getElementById('modal-popup').classList.add('hidden');
+      popupOpen = false;
+      const cb = popupOnClose;
+      popupOnClose = null;
+      if (cb) cb();
+      setTimeout(maybePopups, 250);
+    }
+    const notesHtml = list => list.map(n => `
+      <div class="${list.length > 1 ? 'pb-3 mb-3 border-b border-ink/[0.07] last:border-0 last:mb-0 last:pb-0' : ''}">
+        ${list.length > 1 ? `<p class="text-[13px] font-extrabold">v${n.v} · ${escapeHtml(n.title)} <span class="font-semibold text-ink-3">${n.date}</span></p>` : ''}
+        <ul class="mt-1.5 space-y-1.5">${n.items.map(i => `<li class="flex gap-2 text-[14px] leading-snug"><i class="fa-solid fa-futbol text-pitch text-[11px] mt-1 flex-shrink-0"></i><span>${escapeHtml(i)}</span></li>`).join('')}</ul>
+      </div>`).join('');
+    function maybePopups() {
+      if (!popupsArmed || popupOpen || !currentUser) return;
+      if (!document.getElementById('tour').classList.contains('hidden')) return;
+      const st = status8 || {};
+      if (st.notice && lsGet('baba_notice_seen_v1') !== st.notice) {
+        return showPopup({
+          img: st.noticeLevel === 'warning' ? 'worried' : 'wave',
+          eyebrow: 'Aviso da equipe BABA', title: st.noticeLevel === 'warning' ? 'Atenção, galera' : 'Recado do Babinha',
+          html: `<p class="text-[15px] leading-relaxed">${escapeHtml(st.notice)}</p>`, ok: 'Entendi',
+          onClose: () => { lsSet('baba_notice_seen_v1', st.notice); renderHomeV7(); }
+        });
+      }
+      const seen = lsGet(NOTES_KEY);
+      if (seen !== APP_VERSION) {
+        lsSet(NOTES_KEY, APP_VERSION);
+        // Everything since the last version this phone saw (just the newest on a first look).
+        const since = PATCH_NOTES.filter(n => seen && Number(n.v) > Number(seen));
+        const list = since.length ? since : PATCH_NOTES.slice(0, 1);
+        return showPopup({ img: 'champion', eyebrow: `Novidades · v${APP_VERSION}`, title: PATCH_NOTES[0].title, html: notesHtml(list), ok: 'Bora pro baba' });
+      }
+    }
+    function openPatchNotes() {
+      showPopup({ img: 'champion', eyebrow: 'Notas de atualização', title: 'O que mudou no BABA', html: notesHtml(PATCH_NOTES), ok: 'Fechar' });
+    }
+
     function dismissNotice() {
       if (status8 && status8.notice) lsSet('baba_notice_seen_v1', status8.notice);
       renderHomeV7();
@@ -3664,9 +3780,16 @@
        HELPERS
        =================================================================== */
     const teamSize = () => FORMAT_SIZES[state.match.gameFormat] || 5;
+    // Titles follow the player: artilheiro/artilheira, garçom/garçonete, paredão/paredona.
+    const TITLES = { goals: ['Artilheiro', 'Artilheira'], assists: ['Garçom', 'Garçonete'], saves: ['Paredão', 'Paredona'] };
+    const titleFor = (k, p) => TITLES[k][p && p.female ? 1 : 0];
+    // Line-only formats (4, 7, 11): goalkeepers are not part of the teams.
     const fixedKeepers = () => !!FIXED_KEEPER_FORMATS[state.match.gameFormat];
-    const isFixedKeeper = p => !!(p && p.isGoalkeeper && fixedKeepers());
-    const fixedKeeperList = () => fixedKeepers() ? state.players.filter(p => p.present && p.isGoalkeeper).sort((a, b) => (a.arrival || 0) - (b.arrival || 0)) : [];
+    const keeperFromQueue = () => fixedKeepers() && state.settings.keeperMode === 'fila';
+    const isFixedKeeper = p => !!(p && p.isGoalkeeper && fixedKeepers() && !keeperFromQueue());
+    // "Goleiro da fila": the first two waiting go in goal (A, B) and keep their place in line.
+    const queueKeepers = () => keeperFromQueue() ? state.queue.slice(0, 2) : [];
+    const fixedKeeperList = () => fixedKeepers() && !keeperFromQueue() ? state.players.filter(p => p.present && p.isGoalkeeper).sort((a, b) => (a.arrival || 0) - (b.arrival || 0)) : [];
     const byId = id => state.players.find(p => p.id === id) || null;
     const nameOf = id => { const p = byId(id); return p ? p.name : '?'; };
     const presentPlayers = () => state.players.filter(p => p.present);
@@ -3714,6 +3837,12 @@
         .filter(p => p.present && !seen.has(p.id) && !isFixedKeeper(p))
         .sort((a, b) => (a.arrival || 0) - (b.arrival || 0))
         .forEach(p => { seen.add(p.id); state.queue.push(p.id); });
+      // Option: whoever has played less goes first (ties keep the current order).
+      if (state.settings.queueOrder === 'menos-jogos') {
+        const pos = new Map(state.queue.map((id, i) => [id, i]));
+        const games = id => (known.get(id) || {}).matches || 0;
+        state.queue.sort((a, b) => games(a) - games(b) || pos.get(a) - pos.get(b));
+      }
     }
 
     function buzz(pattern) {
@@ -3898,13 +4027,13 @@
         </div>`;
       const rows = [];
       const g = top('goals'), a = top('assists'), s = top('saves');
-      if (g) rows.push(row('bg-butter text-pitch', 'fa-futbol', 'Artilheiro', escapeHtml(g.name), g.goals, g.goals === 1 ? 'gol' : 'gols'));
-      if (a) rows.push(row('bg-sage text-pitch', 'fa-handshake', 'Garçom', escapeHtml(a.name), a.assists, 'assist.'));
-      if (s) rows.push(row('bg-sunk text-pitch', 'fa-hand', 'Paredão', escapeHtml(s.name), s.saves, 'def.'));
+      if (g) rows.push(row('bg-butter text-pitch', 'fa-futbol', titleFor('goals', g), escapeHtml(g.name), g.goals, g.goals === 1 ? 'gol' : 'gols'));
+      if (a) rows.push(row('bg-sage text-pitch', 'fa-handshake', titleFor('assists', a), escapeHtml(a.name), a.assists, 'assist.'));
+      if (s) rows.push(row('bg-sunk text-pitch', 'fa-hand', titleFor('saves', s), escapeHtml(s.name), s.saves, 'def.'));
       const last = state.matchHistory[0];
       rows.push(row('bg-pitch text-butter', 'fa-flag-checkered', 'Partidas jogadas',
         last ? `Última: Time ${last.labelA} ${last.scoreA} × ${last.scoreB} Time ${last.labelB}` : 'Nenhuma finalizada ainda', state.matchHistory.length, ''));
-      if (!g && !a && !s) rows.unshift(`<div class="flex items-center gap-3 px-1"><img src="babinha/tired.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[13px] text-ink-2 leading-snug">Tá parado por aqui... Artilheiro, garçom e paredão aparecem depois do primeiro gol.</p></div>`);
+      if (!g && !a && !s) rows.unshift(`<div class="flex items-center gap-3 px-1"><img src="babinha/tired.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[13px] text-ink-2 leading-snug">Tá parado por aqui... Os destaques do dia (gols, passes e defesas) aparecem depois do primeiro gol.</p></div>`);
       document.getElementById('home-today').innerHTML = rows.join('');
       renderMine();
     }
@@ -4004,6 +4133,7 @@
       const t = turmaById(turmaId);
       return {
         id: null, name, isGoalkeeper: !!(t && t.keepers.some(k => sameName(k, name))),
+        female: !!(t && (t.women || []).some(k => sameName(k, name))), jumped: false,
         goals: 0, assists: 0, saves: 0, matches: 0, wins: 0,
         present: false, arrival: null, arrivedAt: null, turmaId: turmaId || null
       };
@@ -4260,7 +4390,25 @@
       p.arrival = ++state.arrivalSeq;
       p.arrivedAt = Date.now();
       if (!state.startedAt) state.startedAt = p.arrivedAt;
-      if (!isFixedKeeper(p)) state.queue.push(id);
+      if (isFixedKeeper(p)) return;
+      if (isLateJump(p.arrivedAt)) { state.queue.unshift(id); p.jumped = true; }
+      else state.queue.push(id);
+    }
+
+    /* Time ruler: someone who arrives long after the first kick-off goes to the front of the line. */
+    function isLateJump(at) {
+      const mins = Number(state.settings.lateAfter) || 0;
+      return !!(mins && state.firstKickoffAt && at && at - state.firstKickoffAt >= mins * 60000);
+    }
+    const lateLabel = m => m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? String(m % 60).padStart(2, '0') : ''}` : `${m} min`;
+
+    /* Taking someone out of the waiting line = they went home (marked as not here). */
+    async function removeFromQueue(id) {
+      const p = byId(id);
+      if (!p) return;
+      if (!(await askConfirm(`Tirar ${p.name} da fila? Fica como "foi embora" na Lista. Os números de hoje continuam.`, 'Tirar da fila'))) return;
+      checkOut(id);
+      commit(`${p.name} saiu da fila.`);
     }
 
     function checkOut(id) {
@@ -4269,6 +4417,7 @@
       p.present = false;
       p.arrival = null;
       p.arrivedAt = null;
+      p.jumped = false;
       repair();
     }
 
@@ -4277,7 +4426,7 @@
       if (!p) return;
       if (!p.present) {
         checkIn(id);
-        commit(`${p.name} chegou · ${state.queue.indexOf(id) + 1}º na fila`);
+        commit(isFixedKeeper(p) ? `${p.name} chegou · goleiro fixo` : `${p.name} chegou · ${state.queue.indexOf(id) + 1}º na fila${p.jumped ? ' (régua de tempo: entrou na frente)' : ''}`);
         return;
       }
       const side = sideOf(id);
@@ -4351,6 +4500,18 @@
     }
 
     /* Today's flag always changes; the saved turmas only where you can edit them. */
+    function setFemaleFlag(p, female) {
+      p.female = !!female;
+      const t = turmaById(p.turmaId);
+      if (t && canEditTurma(t)) {
+        t.women = t.women || [];
+        const was = t.women.some(k => sameName(k, p.name));
+        t.women = t.women.filter(k => !sameName(k, p.name));
+        if (female) t.women.push(p.name);
+        if (was !== !!female) markTurmaDirty(t.id);
+      }
+    }
+
     function setKeeperFlag(p, isGk) {
       p.isGoalkeeper = isGk;
       state.turmas.forEach(t => {
@@ -4378,6 +4539,7 @@
     function openAddPlayerModal() {
       document.getElementById('input-new-player-name').value = '';
       document.querySelector('input[name="new-player-pos"][value="linha"]').checked = true;
+      document.querySelector('input[name="new-player-sex"][value="m"]').checked = true;
       document.getElementById('input-new-player-turma').innerHTML = turmaOptionsHtml('Avulso (só hoje)');
       document.getElementById('input-new-player-arrived').checked = true;
       document.getElementById('modal-add-player').classList.remove('hidden');
@@ -4395,6 +4557,7 @@
 
       const turmaId = document.getElementById('input-new-player-turma').value || null;
       const isGk = document.querySelector('input[name="new-player-pos"]:checked').value === 'goleiro';
+      const female = document.querySelector('input[name="new-player-sex"]:checked').value === 'f';
       const arrived = document.getElementById('input-new-player-arrived').checked;
 
       const t = turmaById(turmaId);
@@ -4407,6 +4570,7 @@
       p.id = nextPlayerId();
       state.players.push(p);
       setKeeperFlag(p, isGk);
+      setFemaleFlag(p, female);
       if (arrived) checkIn(p.id);
 
       closeAddPlayerModal();
@@ -4422,6 +4586,10 @@
       editingPlayerId = id;
       document.getElementById('player-edit-name').value = p.name;
       document.querySelector(`input[name="player-edit-pos"][value="${p.isGoalkeeper ? 'goleiro' : 'linha'}"]`).checked = true;
+      document.querySelector(`input[name="player-edit-sex"][value="${p.female ? 'f' : 'm'}"]`).checked = true;
+      sheetStats = { goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0 };
+      renderSheetStats();
+      document.getElementById('player-edit-leave').classList.toggle('hidden', !p.present);
 
       const t = turmaById(p.turmaId);
       const wrap = document.getElementById('player-edit-turma-wrap');
@@ -4439,6 +4607,34 @@
       // Only avulsos can be deleted here; turma members are removed in the turma editor.
       document.getElementById('player-edit-delete').classList.toggle('hidden', !!t);
       document.getElementById('modal-player').classList.remove('hidden');
+    }
+
+    let sheetStats = null;
+    function renderSheetStats() {
+      const box = document.getElementById('player-edit-stats');
+      if (!box || !sheetStats) return;
+      const row = (k, label) => `
+        <div class="flex items-center gap-2 bg-sunk/70 rounded-2xl px-3 py-2">
+          <span class="flex-1 text-[13px] font-bold">${label}</span>
+          <button type="button" onclick="bumpSheetStat('${k}', -1)" class="btn-icon !bg-card" ${sheetStats[k] ? '' : 'disabled'} aria-label="Menos ${label}"><i class="fa-solid fa-minus"></i></button>
+          <span class="w-7 text-center text-[16px] font-extrabold tabular">${sheetStats[k]}</span>
+          <button type="button" onclick="bumpSheetStat('${k}', 1)" class="btn-icon !bg-card" aria-label="Mais ${label}"><i class="fa-solid fa-plus"></i></button>
+        </div>`;
+      box.innerHTML = row('goals', 'Gols') + row('assists', 'Assistências') + row('saves', 'Defesas');
+    }
+    function bumpSheetStat(k, d) {
+      if (!sheetStats) return;
+      sheetStats[k] = Math.max(0, Math.min(99, (sheetStats[k] || 0) + d));
+      renderSheetStats();
+    }
+    async function playerLeftFromSheet() {
+      const p = byId(editingPlayerId);
+      if (!p) return closePlayerSheet();
+      const side = sideOf(p.id);
+      if (!(await askConfirm(`${p.name} foi embora? ${side ? 'Sai do time em quadra e ' : ''}fica como "foi embora" na Lista. Os números de hoje continuam.`, 'Foi embora'))) return;
+      checkOut(p.id);
+      closePlayerSheet();
+      commit(`${p.name} foi embora.${side && state.court[side] && state.court[side].ids.length < teamSize() && state.queue.length ? ' Complete o time na aba Times.' : ''}`);
     }
 
     function closePlayerSheet() {
@@ -4460,6 +4656,7 @@
           if (!old) return;
           t.players = t.players.map(n => sameName(n, p.name) ? name : n);
           t.keepers = t.keepers.map(n => sameName(n, p.name) ? name : n);
+          t.women = (t.women || []).map(n => sameName(n, p.name) ? name : n);
           if (t.meta && t.meta[old.toLowerCase()]) {
             t.meta[name.toLowerCase()] = t.meta[old.toLowerCase()];
             delete t.meta[old.toLowerCase()];
@@ -4471,11 +4668,14 @@
         p.name = name;
       }
       setKeeperFlag(p, document.querySelector('input[name="player-edit-pos"]:checked').value === 'goleiro');
+      setFemaleFlag(p, document.querySelector('input[name="player-edit-sex"]:checked').value === 'f');
+      if (sheetStats) Object.assign(p, sheetStats);
 
       const newTurma = turmaById(document.getElementById('player-edit-turma').value);
       if (!p.turmaId && newTurma && canEditTurma(newTurma)) {
         if (!newTurma.players.some(n => sameName(n, p.name))) newTurma.players.push(p.name);
         if (p.isGoalkeeper && !newTurma.keepers.some(k => sameName(k, p.name))) newTurma.keepers.push(p.name);
+        if (p.female && !(newTurma.women || (newTurma.women = [])).some(k => sameName(k, p.name))) newTurma.women.push(p.name);
         p.turmaId = newTurma.id;
         markTurmaDirty(newTurma.id);
       }
@@ -4504,7 +4704,7 @@
        has none, the first goalkeeper waiting further back is pulled in
        (the last line player taken goes back to the front of the line). */
     function takeFrom(queue, n, teamHasKeeper = false) {
-      const balance = state.settings.keeperBalance;
+      const balance = state.settings.keeperBalance && !fixedKeepers();
       const team = [];
       const rest = [];
       let hasKeeper = teamHasKeeper;
@@ -4619,6 +4819,11 @@
       document.getElementById('set-draw').value = state.settings.drawRule;
       document.getElementById('set-streak').value = String(state.settings.maxStreak || 0);
       document.getElementById('set-keeper').checked = !!state.settings.keeperBalance;
+      document.getElementById('set-order').value = state.settings.queueOrder || 'chegada';
+      document.getElementById('set-late').value = String(state.settings.lateAfter || 0);
+      document.getElementById('set-gk-mode').value = state.settings.keeperMode || 'fixo';
+      document.getElementById('set-keeper-row').classList.toggle('hidden', fixedKeepers());
+      document.getElementById('set-gk-mode-row').classList.toggle('hidden', !fixedKeepers());
 
       const size = teamSize();
       const box = document.getElementById('court-manager');
@@ -4649,10 +4854,10 @@
                 const p = byId(id);
                 return `
                   <div class="flex items-center gap-2 py-1 border-b border-ink/[0.07]">
-                    <div class="min-w-0 flex-1">
-                      <span class="block text-[14px] font-bold text-ink truncate">${p && p.isGoalkeeper ? '🧤 ' : ''}${escapeHtml(nameOf(id))}</span>
-                      <span class="block text-[11px] text-ink-2">${p ? p.matches || 0 : 0} jogo${p && p.matches === 1 ? '' : 's'} hoje</span>
-                    </div>
+                    <button onclick="openPlayerSheet(${id})" class="min-w-0 flex-1 text-left" aria-label="Ficha de ${escapeHtml(nameOf(id))}">
+                      <span class="block text-[14px] font-bold text-ink truncate">${p && p.isGoalkeeper && !fixedKeepers() ? '🧤 ' : ''}${escapeHtml(nameOf(id))} <i class="fa-solid fa-pen text-[10px] text-ink-3 ml-0.5"></i></span>
+                      <span class="block text-[11px] text-ink-2">${p ? p.matches || 0 : 0} jogo${p && p.matches === 1 ? '' : 's'} hoje${p ? ` · ${p.goals || 0} gol${p.goals === 1 ? '' : 's'}` : ''}</span>
+                    </button>
                     <button onclick="openSubModal('${side}', ${id})" class="h-9 px-3 rounded-full bg-sunk text-pitch text-[12px] font-bold flex items-center gap-1.5 flex-shrink-0 active:scale-95"><i class="fa-solid fa-right-left"></i> Trocar</button>
                   </div>`;
               }).join('')}
@@ -4688,20 +4893,24 @@
         ? '<span class="text-[11px] font-extrabold text-pitch bg-butter rounded-full px-2 py-0.5">Próximo</span>'
         : `<span class="text-[11px] font-bold text-ink-2 bg-sunk rounded-full px-2 py-0.5">${g + 1}º time</span>`;
 
-      list.innerHTML = state.queue.map((id, i) => {
+      const auto = state.settings.queueOrder === 'menos-jogos';
+      const inGoal = queueKeepers();
+      const gkSide = id => inGoal.indexOf(id) === 0 ? 'A' : 'B';
+      list.innerHTML = (auto ? '<p class="text-[12px] text-ink-2 mb-1"><i class="fa-solid fa-arrow-down-short-wide text-pitch mr-1"></i>Ordem automática: quem jogou menos fica na frente.</p>' : '') + state.queue.map((id, i) => {
         const p = byId(id);
         const g = groups.has(id) ? groups.get(id) : 0;
         const prevG = i > 0 && groups.has(state.queue[i - 1]) ? groups.get(state.queue[i - 1]) : g;
         return `
-          <div class="flex items-center gap-2 ${i > 0 && prevG !== g ? 'pt-2 mt-1 border-t border-ink/10' : ''}">
+          <div class="flex items-center gap-1.5 ${i > 0 && prevG !== g ? 'pt-2 mt-1 border-t border-ink/10' : ''}">
             <span class="w-6 text-center text-[11px] font-extrabold text-ink-3 flex-shrink-0">${i + 1}</span>
-            <div class="min-w-0 flex-1">
-              <span class="block text-[14px] font-bold text-ink truncate">${p && p.isGoalkeeper ? '🧤 ' : ''}${escapeHtml(nameOf(id))}</span>
-              <span class="block text-[11px] text-ink-2 truncate">${p ? p.matches || 0 : 0} jogo${p && p.matches === 1 ? '' : 's'}${p && p.arrivedAt ? ' · chegou ' + fmtClock(p.arrivedAt) : ''}</span>
-            </div>
+            <button onclick="openPlayerSheet(${id})" class="min-w-0 flex-1 text-left">
+              <span class="block text-[14px] font-bold text-ink truncate">${p && p.isGoalkeeper && !fixedKeepers() ? '🧤 ' : ''}${escapeHtml(nameOf(id))}</span>
+              <span class="block text-[11px] text-ink-2 truncate">${inGoal.includes(id) ? `<b class="text-pitch">🧤 no gol do Time ${state.court[gkSide(id)] ? state.court[gkSide(id)].label : gkSide(id)}</b> · ` : ''}${p ? p.matches || 0 : 0} jogo${p && p.matches === 1 ? '' : 's'}${p && p.arrivedAt ? ' · chegou ' + fmtClock(p.arrivedAt) : ''}${p && p.jumped ? ' · entrou na frente' : ''}</span>
+            </button>
             ${badge(g)}
-            <button onclick="moveQueue(${i}, -1)" class="btn-icon" ${i === 0 ? 'disabled' : ''} aria-label="Subir"><i class="fa-solid fa-arrow-up"></i></button>
-            <button onclick="moveQueue(${i}, 1)" class="btn-icon" ${i === state.queue.length - 1 ? 'disabled' : ''} aria-label="Descer"><i class="fa-solid fa-arrow-down"></i></button>
+            ${auto ? '' : `<button onclick="moveQueue(${i}, -1)" class="btn-icon" ${i === 0 ? 'disabled' : ''} aria-label="Subir"><i class="fa-solid fa-arrow-up"></i></button>
+            <button onclick="moveQueue(${i}, 1)" class="btn-icon" ${i === state.queue.length - 1 ? 'disabled' : ''} aria-label="Descer"><i class="fa-solid fa-arrow-down"></i></button>`}
+            <button onclick="removeFromQueue(${id})" class="btn-icon !text-danger" aria-label="Tirar ${escapeHtml(nameOf(id))} da fila"><i class="fa-solid fa-xmark"></i></button>
           </div>`;
       }).join('');
     }
@@ -4839,8 +5048,16 @@
       const box = document.getElementById('fixed-keepers');
       if (!box) return;
       if (!fixedKeepers()) { box.classList.add('hidden'); return; }
-      const ks = fixedKeeperList();
       box.classList.remove('hidden');
+      if (keeperFromQueue()) {
+        const [a, b] = queueKeepers().map(byId);
+        const lab = side => state.court[side] ? `Time ${state.court[side].label}` : `lado ${side}`;
+        box.innerHTML = a
+          ? `<i class="fa-solid fa-hand text-pitch"></i><span class="min-w-0"><b>No gol, os próximos da fila:</b> ${escapeHtml(a.name)} (${lab('A')})${b ? ` · ${escapeHtml(b.name)} (${lab('B')})` : ' · falta um'}<span class="block text-ink-2 font-medium">Eles não perdem o lugar na fila. Troca a cada partida.</span></span>`
+          : `<i class="fa-solid fa-triangle-exclamation text-warn"></i><span class="min-w-0"><b>Ninguém na fila pra ir pro gol.</b><span class="block text-ink-2 font-medium">Com a fila vazia, cada time se vira com o próprio goleiro.</span></span>`;
+        return;
+      }
+      const ks = fixedKeeperList();
       box.innerHTML = ks.length
         ? `<i class="fa-solid fa-hand text-pitch"></i><span class="min-w-0"><b>Goleiro${ks.length > 1 ? 's' : ''} fixo${ks.length > 1 ? 's' : ''}:</b> ${ks.map(p => escapeHtml(p.name)).join(' · ')}<span class="block text-ink-2 font-medium">Não entram na fila: ficam no gol a noite toda.</span></span>`
         : `<i class="fa-solid fa-triangle-exclamation text-warn"></i><span class="min-w-0"><b>Nenhum goleiro fixo.</b><span class="block text-ink-2 font-medium">Marque GOL em quem vai ficar no gol, na Lista.</span></span>`;
@@ -5016,6 +5233,7 @@
       if (state.match.secondsLeft <= 0) state.match.secondsLeft = state.match.initialSeconds || 420;
       state.match.isRunning = true;
       state.match.endAt = Date.now() + state.match.secondsLeft * 1000;
+      if (!state.firstKickoffAt) state.firstKickoffAt = Date.now();
       saveState();
       // The first kick-off of the day opens the live game and shows its QR code.
       if (!state.live && !state.liveAsked && v7 === true && cloudOn() && state.court.A && state.court.B) {
@@ -5254,9 +5472,14 @@
       document.getElementById('modal-save-title').innerText = `Defesa do Time ${label}`;
       const byKeeper = arr => [...arr].sort((a, b) => (b.isGoalkeeper ? 1 : 0) - (a.isGoalkeeper ? 1 : 0));
 
+      // Line-only formats: whoever is in goal for this side comes first.
+      const goalie = keeperFromQueue() ? [byId(queueKeepers()[side === 'A' ? 0 : 1])].filter(Boolean)
+        : fixedKeepers() ? fixedKeeperList().filter((k, i) => i === (side === 'A' ? 0 : 1) || fixedKeeperList().length === 1) : [];
+      const gIds = new Set(goalie.map(p => p.id));
       renderPickList(document.getElementById('modal-save-goalkeepers-list'), [
-        { label: `Time ${label}`, players: byKeeper(roster) },
-        { label: 'Outros presentes', players: byKeeper(others) }
+        ...(goalie.length ? [{ label: 'No gol', players: goalie }] : []),
+        { label: `Time ${label}`, players: byKeeper(roster.filter(p => !gIds.has(p.id))) },
+        { label: 'Outros presentes', players: byKeeper(others.filter(p => !gIds.has(p.id))) }
       ], p => {
         const btn = document.createElement('button');
         btn.className = 'pick-btn';
@@ -5351,7 +5574,7 @@
         updateStandingsRecord(A, scoreA, scoreB);
         updateStandingsRecord(B, scoreB, scoreA);
         [...A.ids, ...B.ids].forEach(id => { const p = byId(id); if (p) p.matches = (p.matches || 0) + 1; });
-        fixedKeeperList().forEach(p => { p.matches = (p.matches || 0) + 1; });
+        [...fixedKeeperList(), ...queueKeepers().map(byId).filter(Boolean)].forEach(p => { p.matches = (p.matches || 0) + 1; });
 
         const leaving = [];
         let stay = null;
@@ -5681,6 +5904,7 @@
         turmaIds: [...state.selectedTeams],
         players: state.players.filter(hasStats).map(p => {
           const row = { name: p.name, cloudId: playerCloudId(p) };
+          if (p.female) row.female = true;
           STAT_KEYS.forEach(k => { row[k] = p[k] || 0; });
           return row;
         })
@@ -5704,8 +5928,8 @@
     function renderStatsView() {
       const configs = {
         goals: { title: 'Artilharia', col: 'Gols', value: p => p.goals || 0 },
-        assists: { title: 'Garçons (assistências)', col: 'Ast.', value: p => p.assists || 0 },
-        saves: { title: 'Paredão (defesas)', col: 'Def.', value: p => p.saves || 0 },
+        assists: { title: 'Assistências', col: 'Ast.', value: p => p.assists || 0 },
+        saves: { title: 'Defesas', col: 'Def.', value: p => p.saves || 0 },
         total: { title: 'Participações (G+A)', col: 'G+A', value: p => (p.goals || 0) + (p.assists || 0) },
         wins: { title: 'Mais vitórias', col: 'Vit.', value: p => p.wins || 0 }
       };
@@ -5817,7 +6041,7 @@
       state.match.goalLimitRule = m.goalLimitRule;
       state.match.initialSeconds = m.initialSeconds;
       state.match.secondsLeft = m.initialSeconds;
-      state.players.forEach(p => Object.assign(p, { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, present: false, arrival: null, arrivedAt: null }));
+      state.players.forEach(p => Object.assign(p, { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, present: false, arrival: null, arrivedAt: null, jumped: false }));
       syncPool();
       commit(hasDay ? 'Dia salvo no histórico da turma. Novo baba: marque quem chegou!' : 'Novo baba! Marque quem chegou na Lista.');
       switchTab('ficha');
@@ -5864,7 +6088,7 @@
           <div class="flex items-center gap-2 p-2.5 rounded-2xl bg-card border border-ink/10">
             <div class="min-w-0 flex-1">
               <span class="block text-[14px] font-bold text-ink truncate">${fmtDate(d.date)} · ${escapeHtml(d.title || 'Baba')}</span>
-              <span class="block text-[11px] text-ink-2 truncate">${d.matches || 0} partidas · ${d.players.length} atletas${top ? ` · artilheiro ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
+              <span class="block text-[11px] text-ink-2 truncate">${d.matches || 0} partidas · ${d.players.length} atletas${top ? ` · ${titleFor('goals', top).toLowerCase()} ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
             </div>
             <button onclick="closeBackupModal(); openExportSheet('${d.id}')" class="btn-icon" aria-label="PDF desse baba"><i class="fa-solid fa-file-pdf"></i></button>
             ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Apagar"><i class="fa-solid fa-xmark"></i></button>`}
@@ -6130,7 +6354,7 @@
       Object.assign(state, keep);
       ['gameFormat', 'goalLimitRule', 'initialSeconds'].forEach(k => { state.match[k] = m[k]; });
       state.match.secondsLeft = m.initialSeconds;
-      state.players.forEach(p => Object.assign(p, { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, present: false, arrival: null, arrivedAt: null }));
+      state.players.forEach(p => Object.assign(p, { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, present: false, arrival: null, arrivedAt: null, jumped: false }));
       syncPool();
       commit('Baba de hoje zerado.');
     }

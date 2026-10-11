@@ -746,11 +746,11 @@
           <label class="block min-w-0">
             <span class="label">Formato</span>
             <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select">
-              <option value="futsal4">Futsal · 4 + GOL fixo</option>
+              <option value="futsal4">Futsal · 4 + goleiro</option>
               <option value="futsal">Futsal · 5</option>
-              <option value="society7">Society · 7 + GOL fixo</option>
+              <option value="society7">Society · 7 + goleiro</option>
               <option value="society">Society · 8</option>
-              <option value="campo11">Campo · 11 + GOL fixo</option>
+              <option value="campo11">Campo · 11 + goleiro</option>
               <option value="campo">Campo · 12</option>
             </select>
           </label>
@@ -925,7 +925,7 @@
             <span class="tile bg-butter text-pitch w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
             <h3 class="title">Regras do Rei da Quadra</h3>
           </div>
-          <p class="text-[13px] text-ink-2 leading-snug">Quem chega primeiro joga primeiro. Quem perde volta pro fim da fila, então quem chegou cedo acumula mais jogos.</p>
+          <p class="text-[13px] text-ink-2 leading-snug">Quem chega primeiro joga primeiro. Quem perde volta pro fim da fila, um por um, e completa os próximos times: assim os times vão se misturando.</p>
           <div class="grid grid-cols-2 gap-2.5">
             <label class="block min-w-0">
               <span class="label">No empate</span>
@@ -943,7 +943,33 @@
               </select>
             </label>
           </div>
-          <label class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-sunk/70 cursor-pointer">
+          <div class="grid grid-cols-2 gap-2.5">
+            <label class="block min-w-0">
+              <span class="label">Ordem da fila</span>
+              <select id="set-order" onchange="updateSetting('queueOrder', this.value)" class="select">
+                <option value="chegada">Ordem de chegada</option>
+                <option value="menos-jogos">Quem jogou menos</option>
+              </select>
+            </label>
+            <label class="block min-w-0">
+              <span class="label">Régua de tempo</span>
+              <select id="set-late" onchange="updateSetting('lateAfter', Number(this.value))" class="select">
+                <option value="0">Atrasado vai pro fim</option>
+                <option value="30">Após 30 min: 1º</option>
+                <option value="60">Após 1 h: 1º</option>
+                <option value="90">Após 1h30: 1º</option>
+              </select>
+            </label>
+          </div>
+          <p class="text-[12px] text-ink-2 leading-snug -mt-1">Régua de tempo: quem chega depois desse tempo, contado do primeiro jogo, entra em 1º na fila. Antes disso, entra no fim.</p>
+          <label id="set-gk-mode-row" class="hidden block min-w-0">
+            <span class="label">Goleiro (formatos 4, 7 e 11)</span>
+            <select id="set-gk-mode" onchange="updateSetting('keeperMode', this.value)" class="select">
+              <option value="fixo">Fixo: quem é goleiro não sai do gol</option>
+              <option value="fila">Da fila: os 2 próximos vão pro gol</option>
+            </select>
+          </label>
+          <label id="set-keeper-row" class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-sunk/70 cursor-pointer">
             <span class="min-w-0">
               <span class="block text-[14px] font-bold">1 goleiro por time</span>
               <span class="block text-[12px] text-ink-2 leading-snug">Se o time não tem goleiro, puxa o próximo goleiro da fila</span>
@@ -982,8 +1008,8 @@
 
           <div class="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
             <button onclick="switchStatsCategory('goals')" id="btn-stats-goals" class="chip is-selected">Gols</button>
-            <button onclick="switchStatsCategory('assists')" id="btn-stats-assists" class="chip">Garçom</button>
-            <button onclick="switchStatsCategory('saves')" id="btn-stats-saves" class="chip">Paredão</button>
+            <button onclick="switchStatsCategory('assists')" id="btn-stats-assists" class="chip">Assistências</button>
+            <button onclick="switchStatsCategory('saves')" id="btn-stats-saves" class="chip">Defesas</button>
             <button onclick="switchStatsCategory('total')" id="btn-stats-total" class="chip">G+A</button>
             <button onclick="switchStatsCategory('wins')" id="btn-stats-wins" class="chip">Vitórias</button>
           </div>
@@ -1296,6 +1322,7 @@
       </section>
 
       <button onclick="closeSupport(); closeProfile(); startTour(true);" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-route"></i> Rever o tutorial passo a passo</button>
+      <button onclick="openPatchNotes()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-scroll"></i> Notas de atualização</button>
 
       <label class="relative block">
         <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-ink-3 text-[14px]"></i>
@@ -1550,6 +1577,20 @@
   </div>
 
   <!-- QR do jogo ao vivo -->
+  <!-- Pop-up: aviso do suporte / novidades -->
+  <div id="modal-popup" class="overlay hidden z-[88] !justify-center px-4" onclick="if(event.target===this) closePopup()">
+    <div class="card w-full max-w-sm mx-auto overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="popup-title" style="animation: slideUp .28s cubic-bezier(.16,1,.3,1) both">
+      <div class="pitch-card rounded-none p-4 pr-[112px] min-h-[110px] flex flex-col justify-center relative">
+        <div class="rings"></div>
+        <img id="popup-img" src="babinha/wave.webp" alt="" class="absolute right-2 bottom-0 w-[104px] babinha-bob" />
+        <p id="popup-eyebrow" class="relative text-[11px] font-bold uppercase tracking-[0.14em] text-butter/75"></p>
+        <h3 id="popup-title" class="relative font-serif text-[30px] leading-[1.05] text-butter mt-1"></h3>
+      </div>
+      <div id="popup-body" class="p-5 max-h-[52dvh] overflow-y-auto"></div>
+      <div class="px-5 pb-5"><button id="popup-ok" onclick="closePopup()" class="btn-primary w-full h-12 text-[15px]">Beleza</button></div>
+    </div>
+  </div>
+
   <!-- Assistir um jogo pelo código -->
   <div id="modal-watch" class="overlay hidden z-[85]" onclick="if(event.target===this) closeWatch()">
     <div class="sheet-panel space-y-4">
@@ -1789,6 +1830,16 @@
           <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">🧤 Goleiro</span>
         </label>
       </div>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-sex" value="m" checked class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogador</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-sex" value="f" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogadora</span>
+        </label>
+      </div>
       <label class="block">
         <span class="label">Turma</span>
         <select id="input-new-player-turma" class="select"></select>
@@ -1805,7 +1856,7 @@
 
   <!-- Player sheet -->
   <div id="modal-player" class="overlay hidden" onclick="if(event.target===this) closePlayerSheet()">
-    <div class="sheet-panel space-y-3.5">
+    <div class="sheet-panel space-y-3.5 max-h-[92dvh] overflow-y-auto">
       <div class="grabber"></div>
       <div class="flex items-center justify-between -mt-1">
         <h3 class="title">Atleta</h3>
@@ -1825,11 +1876,26 @@
           <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">🧤 Goleiro</span>
         </label>
       </div>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-sex" value="m" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogador</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-sex" value="f" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogadora</span>
+        </label>
+      </div>
+      <div>
+        <p class="label">Números de hoje</p>
+        <div id="player-edit-stats" class="space-y-1.5"></div>
+      </div>
       <label class="block" id="player-edit-turma-wrap">
         <span class="label">Salvar numa turma</span>
         <select id="player-edit-turma" class="select"></select>
       </label>
       <p id="player-edit-info" class="text-[13px] text-ink-2 leading-snug"></p>
+      <button id="player-edit-leave" onclick="playerLeftFromSheet()" class="w-full h-11 rounded-full text-[13px] font-bold text-ink-2 bg-sunk flex items-center justify-center gap-2"><i class="fa-solid fa-person-walking-arrow-right"></i> Foi embora (tirar da fila e do time)</button>
       <div class="pt-1 flex gap-2">
         <button id="player-edit-delete" onclick="deletePlayerFromSheet()" class="btn-danger flex-1 h-12 text-[14px]">Excluir</button>
         <button onclick="savePlayerSheet()" class="btn-primary flex-1 h-12 text-[14px]">Salvar</button>
