@@ -1,9 +1,9 @@
 /* BABA service worker: the app works offline at the court.
    Page and app files come from the same versioned cache, so a new page
    never runs with old code. Server calls (Supabase) are never cached. */
-const VERSION = '83330e827f11';
+const VERSION = '394927ba14f5';
 const CACHE = 'baba-' + VERSION;
-const PRECACHE = ["./", "app.css?v=eb91259f05", "app.js?v=9b7a154c7b", "babinha/aidentro.webp", "babinha/arrogante.webp", "babinha/aura.webp", "babinha/bike.webp", "babinha/calculante.webp", "babinha/carretilha.webp", "babinha/champion.webp", "babinha/chute.webp", "babinha/coach.webp", "babinha/dancinha.webp", "babinha/happy.webp", "babinha/messi.webp", "babinha/money.webp", "babinha/ney.webp", "babinha/red.webp", "babinha/rezando.webp", "babinha/run.webp", "babinha/scared.webp", "babinha/shhh.webp", "babinha/side.webp", "babinha/siuu.webp", "babinha/tired.webp", "babinha/wave.webp", "babinha/wink.webp", "babinha/worried.webp", "fonts/fa-solid-900.woff2", "fonts/instrument-serif-latin-400-italic.woff2", "fonts/instrument-serif-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-500-normal.woff2", "fonts/plus-jakarta-sans-latin-600-normal.woff2", "fonts/plus-jakarta-sans-latin-700-normal.woff2", "fonts/plus-jakarta-sans-latin-800-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "manifest.webmanifest", "vendor/jspdf.umd.min.js", "vendor/qrcode.min.js", "vendor/supabase.js"];
+const PRECACHE = ["./", "app.css?v=19ea86cda3", "app.js?v=fc931962ae", "babinha/aidentro.webp", "babinha/arrogante.webp", "babinha/aura.webp", "babinha/bike.webp", "babinha/calculante.webp", "babinha/carretilha.webp", "babinha/champion.webp", "babinha/chute.webp", "babinha/coach.webp", "babinha/dancinha.webp", "babinha/happy.webp", "babinha/messi.webp", "babinha/money.webp", "babinha/ney.webp", "babinha/red.webp", "babinha/rezando.webp", "babinha/run.webp", "babinha/scared.webp", "babinha/shhh.webp", "babinha/side.webp", "babinha/siuu.webp", "babinha/tired.webp", "babinha/wave.webp", "babinha/wink.webp", "babinha/worried.webp", "fonts/fa-solid-900.woff2", "fonts/instrument-serif-latin-400-italic.woff2", "fonts/instrument-serif-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-400-normal.woff2", "fonts/plus-jakarta-sans-latin-500-normal.woff2", "fonts/plus-jakarta-sans-latin-600-normal.woff2", "fonts/plus-jakarta-sans-latin-700-normal.woff2", "fonts/plus-jakarta-sans-latin-800-normal.woff2", "icons/apple-touch-icon.png", "icons/favicon-32.png", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "manifest.webmanifest", "vendor/jspdf.umd.min.js", "vendor/qrcode.min.js", "vendor/supabase.js"];
 
 self.addEventListener('install', event => {
   // Take over as soon as the new version is fully cached; the page decides when to reload.
@@ -39,4 +39,30 @@ self.addEventListener('fetch', event => {
     if (res.ok) c.put(req, res.clone());
     return res;
   }))));
+});
+
+// Live game notifications (start, goals, saves, end) sent by the live-push function.
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { title: 'BABA', body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'BABA', {
+    body: d.body || '',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    icon: 'icons/icon-192.png',
+    badge: 'icons/favicon-32.png',
+    data: { url: d.url || './' },
+    vibrate: d.kind === 'goal' ? [80, 40, 80] : [60]
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const app = wins.find(w => w.url.startsWith(self.registration.scope));
+    if (app) { await app.focus(); app.postMessage({ type: 'open', url }); return; }
+    await self.clients.openWindow(url);
+  })());
 });

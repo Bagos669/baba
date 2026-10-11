@@ -24,6 +24,7 @@ window.__BABA_FAKE_API__ = (() => {
     placePalpite: m('placePalpite'), myPalpites: m('myPalpites'), settlePalpites: m('settlePalpites'), liveRanking: m('liveRanking'),
     chatList: m('chatList'), chatSend: m('chatSend'), chatDelete: m('chatDelete'), chatReport: m('chatReport'), liveChat: m('liveChat'), peopleCards: m('peopleCards'),
     myStatus: m('myStatus'), pingActivity: m('pingActivity'), myMissions: m('myMissions'), claimMission: m('claimMission'),
-    challengeCandidates: m('challengeCandidates'), createChallenge: m('createChallenge'), respondChallenge: m('respondChallenge'), cancelChallenge: m('cancelChallenge'), myChallenges: m('myChallenges')
+    challengeCandidates: m('challengeCandidates'), createChallenge: m('createChallenge'), respondChallenge: m('respondChallenge'), cancelChallenge: m('cancelChallenge'), myChallenges: m('myChallenges'),
+    throwPipoca: m('throwPipoca'), setNickname: m('setNickname'), savePush: m('savePush'), dropPush: m('dropPush'), pushStatus: m('pushStatus'), livePush: m('livePush')
   };
 })();

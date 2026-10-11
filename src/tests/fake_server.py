@@ -597,3 +597,110 @@ def f_settlePalpites(self, uid, lid, match_no, result):
         self.last_result = result; self._settle_ch(lid, match_no, result)
     return r
 Fake.f_settlePalpites = f_settlePalpites
+
+
+# ---- v10.1: lojinha nova, pipoca, push
+SHOP.extend([
+    ('title_fominha', 'title', 'fominha', 'Título · Fominha', 300),
+    ('title_resenha', 'title', 'resenha', 'Título · Rei da Resenha', 300),
+    ('title_perna', 'title', 'perna', 'Título · Perna de Pau', 200),
+    ('title_matador', 'title', 'matador', 'Título · Matador', 400),
+    ('title_camisa10', 'title', 'camisa10', 'Título · Camisa 10', 400),
+    ('title_paredao', 'title', 'paredao', 'Título · Paredão', 400),
+    ('title_garcom', 'title', 'garcom', 'Título · Garçom', 400),
+    ('title_xerife', 'title', 'xerife', 'Título · Xerife da Zaga', 400),
+    ('title_rei', 'title', 'rei', 'Título · Rei da Quadra', 800),
+    ('title_lenda', 'title', 'lenda', 'Título · Lenda do Baba', 1500),
+    ('nick_codinome', 'nick', None, 'Codinome', 500),
+    ('mascot_wink', 'mascot', 'wink', 'Babinha Piscadinha', 500),
+    ('mascot_coach', 'mascot', 'coach', 'Babinha Professor', 600),
+    ('mascot_dancinha', 'mascot', 'dancinha', 'Babinha Dancinha', 600),
+    ('mascot_arrogante', 'mascot', 'arrogante', 'Babinha Marrento', 700),
+    ('mascot_carretilha', 'mascot', 'carretilha', 'Babinha Carretilha', 900),
+    ('mascot_siuu', 'mascot', 'siuu', 'Babinha Comemoração', 900),
+    ('mascot_champion', 'mascot', 'champion', 'Babinha Campeão', 1200),
+    ('mascot_aura', 'mascot', 'aura', 'Babinha Aura', 1500),
+    ('goalcard_fogo', 'goalcard', 'fogo', 'Anúncio de gol · Fogo', 800),
+    ('goalcard_raio', 'goalcard', 'raio', 'Anúncio de gol · Raio', 800),
+    ('goalcard_retro', 'goalcard', 'retro', 'Anúncio de gol · Fliperama', 1000),
+    ('goalcard_neon', 'goalcard', 'neon', 'Anúncio de gol · Neon', 1000),
+    ('goalcard_ouro', 'goalcard', 'ouro', 'Anúncio de gol · Ouro', 1500),
+    ('goalcard_galaxia', 'goalcard', 'galaxia', 'Anúncio de gol · Galáxia', 2000),
+    ('cardbg_gramado', 'cardbg', 'gramado', 'Card · Gramado', 500),
+    ('cardbg_noite', 'cardbg', 'noite', 'Card · Jogo à Noite', 700),
+    ('cardbg_por-do-sol', 'cardbg', 'por-do-sol', 'Card · Pôr do Sol', 800),
+    ('cardbg_retro', 'cardbg', 'retro', 'Card · Álbum Antigo', 900),
+    ('cardbg_ouro', 'cardbg', 'ouro', 'Card · Ouro', 1800),
+    ('cardbg_holo', 'cardbg', 'holo', 'Card · Holográfico', 2500),
+    ('goalsound_corneta', 'goalsound', 'corneta', 'Som de gol · Corneta', 500),
+    ('goalsound_sirene', 'goalsound', 'sirene', 'Som de gol · Sirene', 500),
+    ('goalsound_tambor', 'goalsound', 'tambor', 'Som de gol · Batucada', 600),
+    ('goalsound_torcida', 'goalsound', 'torcida', 'Som de gol · Torcida', 600),
+    ('goalsound_arcade', 'goalsound', 'arcade', 'Som de gol · Fliperama', 700)])
+_SLOT_KIND = {'frame': 'frame', 'name': 'name', 'frameShine': 'fx', 'nameShine': 'fx', 'title': 'title', 'mascot': 'mascot', 'goalCard': 'goalcard', 'cardBg': 'cardbg', 'goalSound': 'goalsound'}
+@_reg
+def f_equipItem(self, uid, slot, item):
+    p = self.profiles[uid]; c = dict(p.get('cosmetics') or {})
+    want = _SLOT_KIND.get(slot)
+    if not want: return self.err('P0001', 'bad_slot')
+    if item:
+        it = next(({'kind': x[1], 'tier': x[2]} for x in SHOP if x[0] == item), None) or ({'kind': EXCL[item][0], 'tier': EXCL[item][1]} if item in EXCL else None)
+        if not it or it['kind'] != want: return self.err('P0001', 'bad_item')
+        if slot == 'frameShine' and not item.startswith('fx_frame_'): return self.err('P0001', 'bad_item')
+        if slot == 'nameShine' and not item.startswith('fx_name_'): return self.err('P0001', 'bad_item')
+        if item not in self.items.get(uid, []): return self.err('P0001', 'not_owned')
+        c[slot] = (it['tier'] or True) if want == 'fx' else it['tier']
+    else: c.pop(slot, None)
+    p['cosmetics'] = c; return self.ok(c)
+BAD = ['porra', 'caralh', 'puta', 'merda', 'viad']
+@_reg
+def f_setNickname(self, uid, nick):
+    if 'nick_codinome' not in self.items.get(uid, []): return self.err('P0001', 'not_owned')
+    v = ' '.join(str(nick or '').split()); p = self.profiles[uid]; c = dict(p.get('cosmetics') or {})
+    if not v: c.pop('nick', None)
+    else:
+        if not (2 <= len(v) <= 20): return self.err('P0001', 'bad_length')
+        if any(w in v.lower() for w in BAD): return self.err('P0001', 'bad_word')
+        c['nick'] = v
+    p['cosmetics'] = c; return self.ok(c)
+@_reg
+def f_throwPipoca(self, uid, target):
+    if target == uid: return self.err('P0001', 'self')
+    if not any((t, target) in self.members for (t, u) in self.members if u == uid): return self.err('P0001', 'not_friends')
+    pc = (self.profiles.get(target, {}).get('cosmetics') or {}).get('pipoca')
+    if pc and pc['until'] > _dt.datetime.utcnow().isoformat(): return self.err('P0001', 'already')
+    self.f_myWallet(uid); bal = self._add(uid, -150, 'pipoca', target)
+    c = dict(self.profiles[target].get('cosmetics') or {})
+    c['pipoca'] = {'until': (_dt.datetime.utcnow() + _dt.timedelta(hours=24)).isoformat() + 'Z', 'from': self.profiles[uid]['name']}
+    self.profiles[target]['cosmetics'] = c
+    return self.ok(bal)
+def _pushinit(self):
+    if not hasattr(self, 'subs'): self.subs = {}; self.follows = set(); self.pushes = []
+Fake._pushinit = _pushinit
+def f_savePush(self, uid, ep, p256dh, auth, live_code, turma):
+    self._pushinit(); s = self.subs.setdefault(ep, {'user': uid, 'turma': False})
+    if uid: s['user'] = uid
+    if turma is not None: s['turma'] = bool(turma) and bool(uid)
+    if live_code:
+        g = next((g for g in self.lives.values() if g['code'] == live_code.upper() and g['active']), None) if hasattr(self, 'lives') else None
+        if not g: return self.err('P0001', 'no_game')
+        self.follows.add((ep, g['id']))
+    return self.ok('ok')
+def f_dropPush(self, uid, ep, live_code, turma):
+    self._pushinit()
+    if live_code: self.follows = {f for f in self.follows if not (f[0] == ep and self.lives.get(f[1], {}).get('code') == live_code.upper())}
+    elif turma is not None and ep in self.subs: self.subs[ep]['turma'] = bool(turma)
+    else: self.subs.pop(ep, None)
+    return self.ok(None)
+def f_pushStatus(self, uid, ep, live_code):
+    self._pushinit(); s = self.subs.get(ep)
+    fol = any(f[0] == ep and self.lives.get(f[1], {}).get('code') == str(live_code or '').upper() for f in self.follows)
+    return self.ok({'known': bool(s), 'turma_on': bool(s and s['turma']), 'following': fol})
+def f_livePush(self, uid, live_id, code, kind, key, title, body):
+    self._pushinit()
+    g = self.lives.get(live_id)
+    if not g or g['owner'] != uid: return self.ok({'sent': 0, 'reason': 'only_owner'})
+    if any(p['key'] == key and p['live'] == live_id for p in self.pushes): return self.ok({'sent': 0, 'reason': 'dup'})
+    self.pushes.append({'live': live_id, 'kind': kind, 'key': key, 'title': title, 'body': body})
+    return self.ok({'sent': 1})
+Fake.f_savePush = f_savePush; Fake.f_dropPush = f_dropPush; Fake.f_pushStatus = f_pushStatus; Fake.f_livePush = f_livePush

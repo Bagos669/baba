@@ -1,5 +1,5 @@
 -- Minimal stand-in for the Supabase project (auth, roles, v5/v6 tables) to test migrations locally.
-do $$ begin create role anon nologin; exception when duplicate_object then null; end $$; do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+do $$ begin create role anon nologin; exception when duplicate_object then null; end $$; do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$; do $$ begin create role service_role nologin; exception when duplicate_object then null; end $$;
 create schema auth; create schema private;
 grant usage on schema public, private, auth to anon, authenticated;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text);

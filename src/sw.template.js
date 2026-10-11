@@ -40,3 +40,29 @@ self.addEventListener('fetch', event => {
     return res;
   }))));
 });
+
+// Live game notifications (start, goals, saves, end) sent by the live-push function.
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { title: 'BABA', body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'BABA', {
+    body: d.body || '',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    icon: 'icons/icon-192.png',
+    badge: 'icons/favicon-32.png',
+    data: { url: d.url || './' },
+    vibrate: d.kind === 'goal' ? [80, 40, 80] : [60]
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || './', self.registration.scope).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const app = wins.find(w => w.url.startsWith(self.registration.scope));
+    if (app) { await app.focus(); app.postMessage({ type: 'open', url }); return; }
+    await self.clients.openWindow(url);
+  })());
+});
