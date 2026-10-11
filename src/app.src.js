@@ -440,7 +440,7 @@
       // Babas still being played in my turmas (by other organizers): "Meus números" counts them live.
       turmaOpenBabas: () => q(sb.from('babas').select('id, title, created_by, state, updated_at').eq('finished', false).gt('updated_at', new Date(Date.now() - 2 * 864e5).toISOString()).order('updated_at', { ascending: false }).limit(20)),
       async finishedBabas() {
-        const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
+        const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, turma_ids, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
         const base = 'name, goals, assists, saves, matches, wins, turma_player_id';
         if (penCol !== false) {
           const { data, error } = await run(base + ', pen_goals, pen_misses, pen_saves');
@@ -764,6 +764,7 @@
           title: d.title || 'Baba',
           matches: d.matches || 0,
           owner: d.created_by === uid,
+          turmaIds: Array.isArray(d.turma_ids) ? d.turma_ids : [],
           players: (d.baba_stats || []).map(s => ({ name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
             penGoals: s.pen_goals || 0, penMisses: s.pen_misses || 0, penSaves: s.pen_saves || 0 }))
         })));
@@ -1968,7 +1969,7 @@
       ['Conta e segurança', 'Posso usar a digital?', 'Sim, em Perfil → Segurança → <b>Pedir digital ao abrir</b>. É uma trava daquele celular: o BABA pede a digital sempre que abrir.'],
       ['Conta e segurança', 'Usei o BABA num celular emprestado.', 'Em Perfil → Segurança → <b>Sair dos outros aparelhos</b>. Só o celular que você está usando continua conectado.'],
       ['Recordações', 'Como faço o PDF com fotos?', 'Em Perfil → <b>PDF do baba com fotos</b> (ou Stats → Times e jogos → PDF). Escolha as fotos, o título e um recado. A primeira foto vira a capa.'],
-      ['Recordações', 'Onde ficam os babas antigos?', 'Em Perfil → <b>Babas anteriores, backup e importar</b>. Cada baba antigo também gera PDF.'],
+      ['Recordações', 'Onde ficam os babas antigos?', 'Em Perfil → <b>Babas anteriores</b>, ou dentro da turma em <b>Babas anteriores da turma</b>. Qualquer pessoa da turma (dono, adm ou membro) vê cada baba com os números de todo mundo, e cada um gera PDF.'],
       ['App', 'Como deixo no modo escuro?', 'Perfil → Aparência → <b>Escuro</b>. Em "Auto" o BABA segue o tema do celular.'],
       ['App', 'As letras estão pequenas.', 'Perfil → Aparência → <b>Texto maior</b>.'],
       ['App', 'Como aparece o clima no Início?', 'Toque em <b>Ver o clima</b> e permita a localização. Ela fica só no seu celular, arredondada; o clima vem do Open-Meteo e atualiza a cada 20 minutos.'],
@@ -2844,9 +2845,14 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '10.1';
+    const APP_VERSION = '10.2';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '10.2', date: '11/10/2026', title: 'Histórico pra turma toda', items: [
+        'Babas anteriores agora têm lugar próprio: Perfil → Babas anteriores, dentro da turma e no Stats → Todos os babas.',
+        'Dono, adm ou membro: todo mundo da turma abre cada baba encerrado e vê os destaques e os números de cada atleta.',
+        'As notas de atualização guardam o histórico inteiro: role pra baixo pra ver tudo o que já mudou.'
+      ] },
       { v: '10.1', date: '11/10/2026', title: 'Card de atleta e lojinha nova', items: [
         'Seu card de atleta, estilo figurinha: aparece no Perfil e quando alguém toca em você na turma ou no chat.',
         'Lojinha nova: títulos, codinome, mascote Babinha, fundo do card, cartão de anúncio de gol e som de gol.',
@@ -2880,14 +2886,33 @@
         'Avisos da equipe BABA agora aparecem assim, em pop-up.'
       ] },
       { v: '9', date: '10/10/2026', title: 'Missões e exclusivos', items: [
-        'Assistir um jogo ao vivo digitando o código.',
+        'Assistir um jogo ao vivo digitando o código, na entrada do app ou no Início.',
         'Formatos Futsal 4, Society 7 e Campo 11 com goleiro à parte.',
         'Missões da semana na lojinha, valendo baba points.',
         'Itens exclusivos: Aura de Fogo Azul para os 100 primeiros do BABA.'
       ] },
       { v: '8', date: '09/10/2026', title: 'Equipe de suporte', items: [
         'Avisos da equipe BABA na tela inicial.',
-        'Suporte pode ajudar com senha, código de recuperação e problemas na conta.'
+        'Suporte pode ajudar com senha, código de recuperação e problemas na conta.',
+        'Contas suspensas veem o motivo e até quando.'
+      ] },
+      { v: '7', date: '09/10/2026', title: 'Ao vivo, palpites e lojinha', items: [
+        'Transmita o baba ao vivo com QR code: quem tem o link acompanha o placar, mesmo sem conta.',
+        'Palpites de brincadeira com baba points, só para maiores de 18.',
+        'Lojinha do Babinha com molduras, nomes coloridos e brilhos, e o bônus do dia.',
+        'Chat da turma e do jogo ao vivo, com denúncia de mensagens.',
+        'Termos de uso e privacidade, com aceite na primeira entrada.'
+      ] },
+      { v: '6', date: '09/10/2026', title: 'O Babinha chegou', items: [
+        'Babinha, o mascote, no tutorial e no Suporte com as dúvidas mais comuns.',
+        'Perfil completo: foto, modo escuro, texto maior, digital e código de recuperação.',
+        'Dono e adms da turma, com convite por link.',
+        'PDF do baba com fotos da pelada.'
+      ] },
+      { v: '5', date: '09/10/2026', title: 'BABA na nuvem', items: [
+        'O BABA virou app de celular (dá pra instalar na tela de início) e funciona sem internet na quadra.',
+        'Conta com login: turmas, elenco e histórico ficam salvos na nuvem e são compartilhados com a turma.',
+        'Lista de chegada, fila do Rei da Quadra, placar com relógio e estatísticas do dia e de todos os babas.'
       ] }
     ];
     let popupsArmed = false;
@@ -2900,6 +2925,7 @@
       document.getElementById('popup-eyebrow').innerText = o.eyebrow || '';
       document.getElementById('popup-title').innerText = o.title || '';
       document.getElementById('popup-body').innerHTML = o.html || '';
+      document.getElementById('popup-body').scrollTop = 0;
       document.getElementById('popup-ok').innerText = o.ok || 'Beleza';
       document.getElementById('modal-popup').classList.remove('hidden');
     }
@@ -2911,9 +2937,9 @@
       if (cb) cb();
       setTimeout(maybePopups, 250);
     }
-    const notesHtml = list => list.map(n => `
-      <div class="${list.length > 1 ? 'pb-3 mb-3 border-b border-ink/[0.07] last:border-0 last:mb-0 last:pb-0' : ''}">
-        ${list.length > 1 ? `<p class="text-[13px] font-extrabold">v${n.v} · ${escapeHtml(n.title)} <span class="font-semibold text-ink-3">${n.date}</span></p>` : ''}
+    const notesHtml = (list, head = list.length > 1) => list.map(n => `
+      <div class="pb-3 mb-3 border-b border-ink/[0.07] last:border-0 last:mb-0 last:pb-0">
+        ${head ? `<p class="text-[13px] font-extrabold">v${n.v} · ${escapeHtml(n.title)} <span class="font-semibold text-ink-3">${n.date}</span></p>` : ''}
         <ul class="mt-1.5 space-y-1.5">${n.items.map(i => `<li class="flex gap-2 text-[14px] leading-snug"><i class="fa-solid fa-futbol text-pitch text-[11px] mt-1 flex-shrink-0"></i><span>${escapeHtml(i)}</span></li>`).join('')}</ul>
       </div>`).join('');
     function maybePopups() {
@@ -2936,7 +2962,12 @@
         const newer = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
         const since = PATCH_NOTES.filter(n => seen && newer(n.v, seen));
         const list = since.length ? since : PATCH_NOTES.slice(0, 1);
-        return showPopup({ img: 'dancinha', eyebrow: `Novidades · v${APP_VERSION}`, title: PATCH_NOTES[0].title, html: notesHtml(list), ok: 'Bora pro baba' });
+        // The new ones on top; everything older stays below, just scroll.
+        const older = PATCH_NOTES.filter(n => !list.includes(n));
+        const html = notesHtml(list) + (older.length ? `
+          <div class="flex items-center gap-2 my-3"><span class="h-px flex-1 bg-ink/10"></span><span class="text-[11px] font-bold uppercase tracking-wider text-ink-3">Atualizações anteriores</span><span class="h-px flex-1 bg-ink/10"></span></div>
+          ${notesHtml(older, true)}` : '');
+        return showPopup({ img: 'dancinha', eyebrow: `Novidades · v${APP_VERSION}`, title: PATCH_NOTES[0].title, html, ok: 'Bora pro baba' });
       }
     }
     function openPatchNotes() {
@@ -5261,6 +5292,9 @@
       document.getElementById('turma-edit-role').innerText = !t.cloud ? 'Só neste aparelho' : t.role === 'owner' ? 'Você é o dono' : t.role === 'admin' ? 'Você é adm' : 'Você é membro';
       document.getElementById('turma-edit-addbox').classList.toggle('hidden', !admin);
       document.getElementById('turma-edit-delete').innerText = ownsTurma(t) ? 'Excluir turma' : 'Sair da turma';
+      const hist = t.cloud ? state.pastDays.filter(d => (d.turmaIds || []).includes(t.id)).length : 0;
+      document.getElementById('turma-edit-history').classList.toggle('hidden', !t.cloud);
+      document.getElementById('turma-edit-history-sub').innerText = hist ? `${hist} baba${hist === 1 ? '' : 's'} encerrado${hist === 1 ? '' : 's'} · todo mundo da turma vê` : 'Nenhum encerrado ainda';
       paintAvatar(document.getElementById('turma-edit-icon-img'), t.icon, t.name);
       document.getElementById('turma-edit-icon-cam').classList.toggle('hidden', !admin);
       document.getElementById('turma-tabs').classList.toggle('hidden', !t.cloud || schemaV2 === false);
@@ -7225,8 +7259,8 @@
       const note = document.getElementById('stats-scope-note');
       note.classList.toggle('hidden', !all);
       if (all) {
-        note.innerText = state.pastDays.length
-          ? `Somando ${state.pastDays.length} baba${state.pastDays.length === 1 ? '' : 's'} anterior${state.pastDays.length === 1 ? '' : 'es'} + hoje.`
+        note.innerHTML = state.pastDays.length
+          ? `Somando ${state.pastDays.length} baba${state.pastDays.length === 1 ? '' : 's'} anterior${state.pastDays.length === 1 ? '' : 'es'} + hoje. <button onclick="openHistory()" class="font-bold text-pitch underline underline-offset-2">Ver cada baba</button>`
           : 'Ainda não há babas anteriores. Ao tocar em "Começar novo baba", o dia vai pro histórico. Backups importados também entram aqui.';
       }
       const base = all ? aggregatedPlayers() : state.players.filter(p => p.present || hasStats(p));
@@ -7369,7 +7403,7 @@
         const top = topOf(d.players, 'goals');
         return `
           <div class="flex items-center gap-2 p-2.5 rounded-2xl bg-card border border-ink/10">
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0 flex-1 cursor-pointer" onclick="closeBackupModal(); openHistory(null, '${d.id}')">
               <span class="block text-[14px] font-bold text-ink truncate">${fmtDate(d.date)} · ${escapeHtml(d.title || 'Baba')}</span>
               <span class="block text-[11px] text-ink-2 truncate">${d.matches || 0} partidas · ${d.players.length} atletas${top ? ` · ${titleFor('goals', top).toLowerCase()} ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
             </div>
@@ -7377,6 +7411,71 @@
             ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Apagar"><i class="fa-solid fa-xmark"></i></button>`}
           </div>`;
       }).join('');
+    }
+
+    /* ---- Babas anteriores: anyone in the turma (dono, adm or membro) sees the list and each baba ---- */
+    let historyView = { turma: null, day: null };
+    function openHistory(turmaId, dayId) {
+      historyView = { turma: turmaId || null, day: dayId || null };
+      renderHistory();
+      document.getElementById('modal-history').classList.remove('hidden');
+      if (cloudOn()) pullCloud(true).then(() => { if (!document.getElementById('modal-history').classList.contains('hidden')) renderHistory(); });
+    }
+    function closeHistory() { document.getElementById('modal-history').classList.add('hidden'); }
+    function historyPdf(id) {
+      closeHistory();
+      if (!document.getElementById('modal-turma-edit').classList.contains('hidden')) closeTurmaEditor();
+      if (typeof closeDatabaseModal === 'function') closeDatabaseModal();
+      openExportSheet(id);
+    }
+    function historyFilter(t) { historyView.turma = t || null; historyView.day = null; renderHistory(); }
+    function historyOpenDay(id) { historyView.day = id; renderHistory(); document.getElementById('history-body').scrollTop = 0; }
+    const pastOfTurma = tid => state.pastDays.filter(d => !tid || (d.turmaIds || []).includes(tid));
+    function renderHistory() {
+      const body = document.getElementById('history-body');
+      const title = document.getElementById('history-title');
+      const d = historyView.day ? state.pastDays.find(x => x.id === historyView.day) : null;
+      if (d) {
+        title.innerText = d.title || 'Baba';
+        const rows = [...d.players].sort((a, b) => (b.goals || 0) - (a.goals || 0) || (b.assists || 0) - (a.assists || 0) || (b.wins || 0) - (a.wins || 0) || String(a.name).localeCompare(String(b.name)));
+        const best = [['goals', 'fa-futbol', 'gols'], ['assists', 'fa-handshake', 'assist.'], ['saves', 'fa-hand', 'def.']].map(([k, ic, l]) => {
+          const p = topOf(d.players, k);
+          return p ? `<div class="card-flat p-2.5 min-w-0"><p class="text-[11px] font-bold text-ink-2"><i class="fa-solid ${ic} text-pitch mr-1"></i>${titleFor(k, p)}</p><p class="text-[13.5px] font-extrabold truncate mt-0.5">${escapeHtml(p.name)}</p><p class="text-[12px] text-ink-2">${p[k]} ${l}</p></div>` : '';
+        }).join('');
+        body.innerHTML = `
+          <button onclick="historyOpenDay(null)" class="text-[13px] font-bold text-pitch"><i class="fa-solid fa-chevron-left text-[11px]"></i> Todos os babas</button>
+          <p class="text-[13px] text-ink-2">${fmtDate(d.date)} · ${d.matches || 0} partida${d.matches === 1 ? '' : 's'} · ${d.players.length} atleta${d.players.length === 1 ? '' : 's'}${d.owner === false ? '' : ' · você organizou'}</p>
+          ${best ? `<div class="grid grid-cols-3 gap-2">${best}</div>` : ''}
+          <div class="card-flat overflow-hidden">
+            <table class="w-full text-[13px]">
+              <thead><tr class="text-[11px] text-ink-2 font-bold"><th class="text-left py-2 pl-3">Atleta</th><th class="w-8">G</th><th class="w-8">A</th><th class="w-8">D</th><th class="w-8">J</th><th class="w-8 pr-2">V</th></tr></thead>
+              <tbody>${rows.map(p => `<tr class="border-t border-ink/[0.07]"><td class="py-2 pl-3 pr-1 max-w-0 truncate font-semibold">${escapeHtml(p.name)}</td><td class="text-center font-extrabold text-pitch">${p.goals || 0}</td><td class="text-center">${p.assists || 0}</td><td class="text-center">${p.saves || 0}</td><td class="text-center">${p.matches || 0}</td><td class="text-center pr-2">${p.wins || 0}</td></tr>`).join('')}</tbody>
+            </table>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="historyPdf('${d.id}')" class="btn-outline flex-1 h-11 text-[14px]"><i class="fa-solid fa-file-pdf"></i> PDF desse baba</button>
+            ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !w-11 !h-11 !text-danger !bg-danger/10" aria-label="Apagar do histórico"><i class="fa-solid fa-trash-can"></i></button>`}
+          </div>`;
+        return;
+      }
+      title.innerText = 'Babas anteriores';
+      const turmas = state.turmas.filter(t => state.pastDays.some(x => (x.turmaIds || []).includes(t.id)));
+      const list = pastOfTurma(historyView.turma);
+      const chips = turmas.length > 1 || historyView.turma ? `<div class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+          <button onclick="historyFilter(null)" class="chip flex-shrink-0 ${historyView.turma ? '' : 'is-selected'}">Todas</button>
+          ${turmas.map(t => `<button onclick="historyFilter('${t.id}')" class="chip flex-shrink-0 ${historyView.turma === t.id ? 'is-selected' : ''}">${escapeHtml(t.name)}</button>`).join('')}</div>` : '';
+      body.innerHTML = chips + (list.length ? list.map(x => {
+        const top = topOf(x.players, 'goals');
+        return `
+          <button onclick="historyOpenDay('${x.id}')" class="w-full flex items-center gap-3 p-3 rounded-2xl bg-card border border-ink/10 text-left active:scale-[0.99] transition">
+            <span class="tile bg-sunk text-pitch"><i class="fa-solid fa-calendar-check"></i></span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[14px] font-bold truncate">${escapeHtml(x.title || 'Baba')}</span>
+              <span class="block text-[12px] text-ink-2 truncate">${fmtDate(x.date)} · ${x.matches || 0} partida${x.matches === 1 ? '' : 's'} · ${x.players.length} atleta${x.players.length === 1 ? '' : 's'}${top ? ` · ${titleFor('goals', top).toLowerCase()} ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
+            </span>
+            <i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>
+          </button>`;
+      }).join('') : `<div class="card-flat p-4 flex items-center gap-3"><img src="babinha/tired.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[13.5px] text-ink-2 leading-snug">Nenhum baba encerrado ainda${historyView.turma ? ' nessa turma' : ''}. Quando quem organiza toca em "Começar novo baba", o dia fica guardado aqui pra turma toda ver.</p></div>`);
     }
 
     async function deletePastDay(id) {
@@ -7388,6 +7487,7 @@
       if (isUuid(id)) enqueue({ type: 'baba_delete', id });
       commit('Baba apagado do histórico.');
       renderPastDays();
+      if (!document.getElementById('modal-history').classList.contains('hidden')) { historyView.day = null; renderHistory(); }
     }
 
     function exportBackup() {

@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=19ea86cda3" />
+  <link rel="stylesheet" href="app.css?v=8098804db7" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -1344,7 +1344,8 @@
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
           <button onclick="closeProfile(); openDatabaseModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sage text-pitch text-[14px]"><i class="fa-solid fa-users-rectangle"></i></span><span class="flex-1">Turmas e atletas</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
           <button onclick="closeProfile(); openExportSheet();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-images"></i></span><span class="flex-1 min-w-0"><span class="block">PDF do baba com fotos</span><span class="block text-[12px] font-medium text-ink-2">Recordação com as estatísticas</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); openBackupModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-import"></i></span><span class="flex-1">Babas anteriores, backup e importar</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeProfile(); openHistory();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0"><span class="block">Babas anteriores</span><span class="block text-[12px] font-medium text-ink-2">Os babas encerrados das suas turmas, com os números de cada um</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeProfile(); openBackupModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-import"></i></span><span class="flex-1">Backup e importar</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
           <button onclick="closeProfile(); offerLocalImport(true);" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-cloud-arrow-up"></i></span><span class="flex-1">Trazer dados antigos deste aparelho</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
           <button onclick="closeProfile(); startNewDay();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-calendar-plus"></i></span><span class="flex-1">Começar novo baba</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
           <button onclick="closeProfile(); confirmResetAllData();" class="menu-row !text-danger"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-trash-arrow-up"></i></span><span class="flex-1">Zerar o baba de hoje</span></button>
@@ -1863,6 +1864,7 @@
           <input type="text" id="turma-edit-name" enterkeyhint="done" class="field" oninput="renameTurma(this.value)" />
         </label>
         <div id="turma-edit-invite" class="hidden rounded-2xl bg-butter/60 border border-butter-3/60 p-3.5"></div>
+        <button id="turma-edit-history" onclick="openHistory(editingTurmaId)" class="hidden w-full menu-row rounded-2xl bg-card border border-ink/10"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0 text-left"><span class="block">Babas anteriores da turma</span><span id="turma-edit-history-sub" class="block text-[12px] font-medium text-ink-2"></span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
         <div id="turma-tabs" class="seg grid-cols-2 hidden">
           <button id="turma-tab-atletas" onclick="turmaTab('atletas')" class="seg-btn is-selected">Atletas</button>
           <button id="turma-tab-pessoas" onclick="turmaTab('pessoas')" class="seg-btn">Pessoas e cargos</button>
@@ -2099,6 +2101,18 @@
     </div>
   </div>
 
+  <!-- Babas anteriores -->
+  <div id="modal-history" class="overlay hidden z-[62]" onclick="if(event.target===this) closeHistory()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between gap-2 flex-shrink-0 -mt-1">
+        <h3 id="history-title" class="title truncate">Babas anteriores</h3>
+        <button onclick="closeHistory()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="history-body" class="space-y-2 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
+    </div>
+  </div>
+
   <!-- Confirm -->
   <div id="modal-confirm" class="overlay hidden z-[90]" onclick="if(event.target===this) resolveConfirm(false)">
     <div class="sheet-panel space-y-4">
@@ -2114,6 +2128,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=fc931962ae"></script>
+  <script src="app.js?v=a777bf0672"></script>
 </body>
 </html>

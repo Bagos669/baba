@@ -111,7 +111,7 @@ class Fake:
         return self.ok([{'id': b['id'], 'state': b['state'], 'updated_at': b['updated']} for b in rows[:1]])
     def f_finishedBabas(self, uid):
         rows = [b for b in self.babas.values() if b['finished'] and self.can_see(b, uid)]
-        return self.ok([{'id': b['id'], 'title': b['title'], 'played_on': b['played_on'], 'matches': b['matches'], 'created_by': b['created_by'],
+        return self.ok([{'id': b['id'], 'title': b['title'], 'played_on': b['played_on'], 'matches': b['matches'], 'created_by': b['created_by'], 'turma_ids': list(b.get('turma_ids') or []),
                          'baba_stats': [dict(s) for s in self.stats.get(b['id'], [])]} for b in rows])
     # --- babas
     def f_upsertBaba(self, uid, row):
