@@ -14,7 +14,7 @@ window.__BABA_FAKE_API__ = (() => {
     async signOut() { setS(null); },
     async getSession() { return JSON.parse(localStorage.getItem('fake_session') || 'null'); },
     updatePassword: m('updatePassword'), memberships: m('memberships'), players: m('players'), openBaba: m('openBaba'),
-    finishedBabas: m('finishedBabas'), profile: m('profile'), upsertBaba: m('upsertBaba'), deleteBaba: m('deleteBaba'),
+    finishedBabas: m('finishedBabas'), turmaOpenBabas: m('turmaOpenBabas'), profile: m('profile'), upsertBaba: m('upsertBaba'), deleteBaba: m('deleteBaba'),
     replaceStats: m('replaceStats'), upsertTurma: m('upsertTurma'), turmaInvite: m('turmaInvite'), setInvite: m('setInvite'),
     deleteTurma: m('deleteTurma'), leaveTurma: m('leaveTurma'), insertPlayers: m('insertPlayers'), deletePlayers: m('deletePlayers'),
     setKeeper: m('setKeeper'), setFemale: m('setFemale'), renamePlayer: m('renamePlayer'), join: m('join'), claim: m('claim'), unclaim: m('unclaim'),
@@ -23,6 +23,7 @@ window.__BABA_FAKE_API__ = (() => {
     buyItem: m('buyItem'), equipItem: m('equipItem'), createLive: m('createLive'), updateLive: m('updateLive'), liveList: m('liveList'), getLive: m('getLive'),
     placePalpite: m('placePalpite'), myPalpites: m('myPalpites'), settlePalpites: m('settlePalpites'), liveRanking: m('liveRanking'),
     chatList: m('chatList'), chatSend: m('chatSend'), chatDelete: m('chatDelete'), chatReport: m('chatReport'), liveChat: m('liveChat'), peopleCards: m('peopleCards'),
-    myStatus: m('myStatus'), pingActivity: m('pingActivity'), myMissions: m('myMissions'), claimMission: m('claimMission')
+    myStatus: m('myStatus'), pingActivity: m('pingActivity'), myMissions: m('myMissions'), claimMission: m('claimMission'),
+    challengeCandidates: m('challengeCandidates'), createChallenge: m('createChallenge'), respondChallenge: m('respondChallenge'), cancelChallenge: m('cancelChallenge'), myChallenges: m('myChallenges')
   };
 })();

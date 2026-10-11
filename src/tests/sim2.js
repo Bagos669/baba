@@ -141,9 +141,9 @@ async function runSims() {
   openPlayerSheet(cs.id); await deletePlayerFromSheet(); check('s4 delete avulso');
 
   // ---------- Scenario 5: format change and tiny groups ----------
-  updateGameFormat('society'); await finishMatchAndNextChallenger(true); check('s5 society');
+  updateKeeperMode('time'); updateGameFormat(7); await finishMatchAndNextChallenger(true); check('s5 society');
   report.notes.push(`s5 after society: sizes ${state.court.A.ids.length}/${state.court.B ? state.court.B.ids.length : 0}, queue ${state.queue.length}`);
-  updateGameFormat('futsal');
+  updateGameFormat(4);
   // exactly 2 teams' worth: labels should be reused, not grow forever
   localStorage.clear(); state = defaultState(); state.match.goalLimitRule = 'none';
   state.selectedTeams = ['fiasco']; syncPool(); state.players.slice(0, 10).forEach(p => checkIn(p.id)); buildTeams();

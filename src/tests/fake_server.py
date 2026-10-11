@@ -493,3 +493,107 @@ def f_setFemale(self, uid, pid, v):
     if not getattr(self, 'female_col', True): return self.err('42703', 'column is_female does not exist')
     p['is_female'] = v; return self.ok([])
 Fake.f_setFemale = f_setFemale
+
+# ---- v10: babas in progress in my turmas
+def f_turmaOpenBabas(self, uid):
+    rows = [b for b in self.babas.values() if not b['finished'] and self.can_see(b, uid)]
+    rows.sort(key=lambda b: b['updated'], reverse=True)
+    return self.ok([{'id': b['id'], 'title': b.get('title'), 'created_by': b['created_by'], 'state': b.get('state'), 'updated_at': '2099-01-01T00:00:00Z'} for b in rows[:20]])
+Fake.f_turmaOpenBabas = f_turmaOpenBabas
+
+# ---- v10: Desafio 1v1
+def _ch(self):
+    self._v7init()
+    if not hasattr(self, 'chals'): self.chals = []; self.v10_enabled = True
+    if not self.v10_enabled: raise LookupError()
+def _can_ch(self, u):
+    return bool(u) and self._adult(u) and bool(self.acct.get(u, {}).get('at')) and u not in getattr(self, 'bans', {})
+def _open_for(self, lid):
+    g = self.lives.get(lid); mk = (g or {}).get('markets') or {}
+    if not g or not g['active'] or not g.get('palpites') or not mk.get('open'): return None
+    return mk.get('match_no')
+Fake._ch = _ch; Fake._can_ch = _can_ch; Fake._open_for = _open_for
+def _chk(fn):
+    def g(self, uid, *a):
+        self._ch(); return fn(self, uid, *a)
+    g.__name__ = fn.__name__; setattr(Fake, fn.__name__, _wrap(g)); return fn
+@_chk
+def f_challengeCandidates(self, uid, lid):
+    g = self.lives.get(lid)
+    if not g: return self.err('P0001', 'no_game')
+    room = 'live:' + lid
+    ids = {m['user_id'] for m in self.chat if m['room'] == room} | {p['user'] for p in self.palps if p['live'] == lid}
+    if any(self.is_member(t, uid) for t in g.get('turma_ids', [])):
+        ids |= {u for t in g.get('turma_ids', []) for u in self.profiles if self.is_member(t, u)}
+    ids = [u for u in ids if u and u != uid and u != g['owner'] and self._can_ch(u)]
+    return self.ok(sorted([{'id': u, 'name': self.profiles[u]['name'], 'avatar': self.profiles[u].get('avatar'), 'cosmetics': self.profiles[u].get('cosmetics') or {}} for u in ids], key=lambda r: r['name']))
+@_chk
+def f_createChallenge(self, uid, lid, opp, kind, pc, po, lc, lo, stake):
+    if not self._can_ch(uid): return self.err('P0001', 'adult_only')
+    mno = self._open_for(lid)
+    if mno is None: return self.err('P0001', 'closed')
+    g = self.lives[lid]
+    if uid in (g['owner'],) or opp == g['owner']: return self.err('P0001', 'own_game')
+    if opp == uid: return self.err('P0001', 'self')
+    if not self._can_ch(opp): return self.err('P0001', 'opponent_not_allowed')
+    if kind == 'vencedor':
+        pc, po = pc.upper(), po.upper()
+        if {pc, po} != {'A', 'B'}: return self.err('P0001', 'bad_pick')
+    else:
+        names = {n.strip().lower()[:60] for t in ('A', 'B') for n in ((g.get('state') or {}).get(t) or {}).get('names', [])}
+        pc, po = pc.strip().lower()[:60], po.strip().lower()[:60]
+        if pc not in names or po not in names or pc == po: return self.err('P0001', 'bad_pick')
+    if not (10 <= stake <= 500): return self.err('P0001', 'bad_stake')
+    if sum(1 for c in self.chals if c['c'] == uid and c['live'] == lid and c['match_no'] == mno and c['status'] in ('pending', 'accepted')) >= 3: return self.err('P0001', 'limit')
+    self.f_myWallet(uid); self._add(uid, -stake, 'desafio')
+    cid = len(self.chals) + 1
+    self.chals.append({'id': cid, 'live': lid, 'match_no': mno, 'kind': kind, 'c': uid, 'o': opp, 'stake': stake, 'pc': pc, 'po': po, 'lc': lc[:80], 'lo': lo[:80], 'status': 'pending', 'created_at': _dt.datetime.now().isoformat()})
+    return self.ok(cid)
+@_chk
+def f_respondChallenge(self, uid, cid, accept):
+    c = next((x for x in self.chals if x['id'] == cid), None)
+    if not c or c['o'] != uid: return self.err('P0001', 'not_found')
+    if c['status'] != 'pending': return self.err('P0001', 'already')
+    if not accept:
+        c['status'] = 'declined'; self._add(c['c'], c['stake'], 'desafio-devolvido'); return self.ok('declined')
+    if self._open_for(c['live']) != c['match_no']: return self.err('P0001', 'closed')
+    self.f_myWallet(uid); self._add(uid, -c['stake'], 'desafio'); c['status'] = 'accepted'; return self.ok('accepted')
+@_chk
+def f_cancelChallenge(self, uid, cid):
+    c = next((x for x in self.chals if x['id'] == cid), None)
+    if not c or c['c'] != uid: return self.err('P0001', 'not_found')
+    if c['status'] != 'pending': return self.err('P0001', 'already')
+    c['status'] = 'canceled'; self._add(uid, c['stake'], 'desafio-devolvido'); return self.ok(None)
+@_chk
+def f_myChallenges(self, uid, lid):
+    out = []
+    for c in reversed(self.chals):
+        if c['live'] != lid or uid not in (c['c'], c['o']): continue
+        me = c['c'] == uid; other = c['o'] if me else c['c']
+        out.append({'id': c['id'], 'match_no': c['match_no'], 'kind': c['kind'], 'stake': c['stake'], 'status': c['status'], 'mine_is_challenger': me,
+                    'other_id': other, 'other_name': self.profiles.get(other, {}).get('name', 'Conta excluída'),
+                    'my_label': c['lc'] if me else c['lo'], 'their_label': c['lo'] if me else c['lc'], 'created_at': c['created_at']})
+    return self.ok(out[:30])
+def _settle_ch(self, lid, mno, result):
+    if not hasattr(self, 'chals'): return
+    for c in self.chals:
+        if c['live'] != lid or c['match_no'] != mno or c['status'] not in ('pending', 'accepted'): continue
+        if c['status'] == 'pending' or result.get('void'):
+            if c['status'] == 'accepted': self._add(c['o'], c['stake'], 'desafio-devolvido')
+            c['status'] = 'void'; self._add(c['c'], c['stake'], 'desafio-devolvido'); continue
+        if c['kind'] == 'vencedor':
+            w = 'c' if result.get('winner') == c['pc'] else 'o' if result.get('winner') == c['po'] else 'push'
+        else:
+            gb = result.get('goalsBy') or {}; sc = result.get('scorers') or []
+            a = gb.get(c['pc'], 1 if c['pc'] in sc else 0); b = gb.get(c['po'], 1 if c['po'] in sc else 0)
+            w = 'c' if a > b else 'o' if b > a else 'push'
+        if w == 'push': c['status'] = 'push'; self._add(c['c'], c['stake'], 'desafio-devolvido'); self._add(c['o'], c['stake'], 'desafio-devolvido')
+        else: c['status'] = 'won_' + w; self._add(c[w], c['stake'] * 2, 'desafio-ganho')
+Fake._settle_ch = _settle_ch
+_old_settle = Fake.f_settlePalpites
+def f_settlePalpites(self, uid, lid, match_no, result):
+    r = _old_settle(self, uid, lid, match_no, result)
+    if 'err' not in r:
+        self.last_result = result; self._settle_ch(lid, match_no, result)
+    return r
+Fake.f_settlePalpites = f_settlePalpites

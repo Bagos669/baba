@@ -47,7 +47,7 @@ async def main():
         # returning user on an older version gets the notes once
         await ev("localStorage.setItem('baba_notes_seen_v1', '9')")
         await pg.reload(wait_until='load'); await pg.wait_for_timeout(1500)
-        await check("!document.getElementById('modal-popup').classList.contains('hidden') && document.getElementById('popup-eyebrow').innerText.includes('9.5')", 'release notes pop-up')
+        await check("!document.getElementById('modal-popup').classList.contains('hidden') && document.getElementById('popup-eyebrow').innerText.includes('10') && document.getElementById('popup-body').innerText.includes('Goleiro da fila')", 'release notes pop-up')
         await check("!document.getElementById('popup-body').innerText.includes('Missões da semana na lojinha')", 'only notes since last version')
         await pg.screenshot(path=f'{SHOTS}/v95_popup_notes.png')
         await pg.click('#popup-ok'); await pg.wait_for_timeout(300)
@@ -56,7 +56,7 @@ async def main():
 
         # ---- remove from the waiting line
         await ev(SETUP, 13)
-        await ev("updateGameFormat('futsal'); buildTeams(); switchTab('fila')"); await pg.wait_for_timeout(300)
+        await ev("updateKeeperMode('time'); updateGameFormat(4); buildTeams(); switchTab('fila')"); await pg.wait_for_timeout(300)
         await check("state.queue.length === 3", 'queue of 3')
         await pg.click('#queue-list button[aria-label="Tirar P11 da fila"]'); await pg.wait_for_timeout(200)
         await pg.click('#modal-confirm-ok'); await pg.wait_for_timeout(300)
@@ -80,7 +80,7 @@ async def main():
 
         # ---- goalkeepers from the line (planilha), 15 players, 4 on the line
         await ev(SETUP, 15)
-        await ev("updateSetting('keeperMode', 'fila'); updateGameFormat('futsal4'); buildTeams(); switchTab('placar')"); await pg.wait_for_timeout(300)
+        await ev("updateKeeperMode('fila'); updateGameFormat(4); buildTeams(); switchTab('placar')"); await pg.wait_for_timeout(300)
         r = await ev("({ A: state.court.A.ids.join(), B: state.court.B.ids.join(), q: state.queue.join(), gk: queueKeepers().join(), line: document.getElementById('fixed-keepers').innerText })")
         out['planilha_start'] = r
         if not (r['A'] == '1,2,3,4' and r['B'] == '5,6,7,8' and r['gk'] == '9,10' and 'P9' in r['line'] and 'P10' in r['line']): bad.append('keepers are the next two in line')
@@ -90,11 +90,11 @@ async def main():
         out['planilha_after'] = r
         # team 1 lost: its players go to the end one by one; winners stay; next 4 come in
         if not (r['A'] == '5,6,7,8' and r['B'] == '9,10,11,12' and r['q'] == '13,14,15,1,2,3,4' and r['gk'] == '13,14' and r['m9'] == 1 and r['m1'] == 1): bad.append('planilha rotation')
-        await ev("updateSetting('keeperMode', 'fixo')")
+        await ev("updateKeeperMode('fixo')")
 
         # ---- edit the ficha from the team list; jogadora titles
         await ev(SETUP, 10)
-        await ev("updateGameFormat('futsal'); buildTeams(); switchTab('fila')"); await pg.wait_for_timeout(300)
+        await ev("updateKeeperMode('time'); updateGameFormat(4); buildTeams(); switchTab('fila')"); await pg.wait_for_timeout(300)
         await pg.click('#court-manager button[aria-label="Ficha de P2"]'); await pg.wait_for_timeout(300)
         await check("!document.getElementById('modal-player').classList.contains('hidden')", 'ficha opens from team')
         await pg.check('input[name="player-edit-sex"][value="f"]', force=True)

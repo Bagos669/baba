@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=9ba5f3905f" />
+  <link rel="stylesheet" href="app.css?v=eb91259f05" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -244,6 +244,10 @@
     .dprog { display: flex; gap: 4px; margin-top: 4px; }
     .dprog i { flex: 1; height: 3px; border-radius: 3px; background: rgb(var(--c-ink) / .12); }
     .dprog i.on { background: rgb(var(--c-pitch)); }
+    .weather-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 9999px; background: rgb(var(--c-card)); border: 1px solid rgb(var(--c-ink) / .1); font-size: 12.5px; font-weight: 800; color: rgb(var(--c-ink)); white-space: nowrap; }
+    .pen-dot { width: 26px; height: 26px; border-radius: 9999px; border: 2px dashed rgb(var(--c-ink) / .22); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+    .pen-dot.is-goal { background: #2E7D54; border: 2px solid #2E7D54; color: #fff; }
+    .pen-dot.is-miss { background: rgb(var(--c-danger) / .12); border: 2px solid rgb(var(--c-danger) / .6); color: rgb(var(--c-danger)); }
     .tour-dot { width: 6px; height: 6px; border-radius: 9999px; background: rgb(var(--c-ink) / .18); transition: all .2s; }
     .tour-dot.on { width: 16px; background: rgb(var(--c-pitch)); }
 
@@ -326,6 +330,9 @@
     .chat-meta { font-size: 11px; font-weight: 700; margin: 0 4px 2px; }
     .chat-del { font-style: italic; opacity: .6; }
     .chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid rgb(var(--c-ink) / .08); }
+    .chat-emotes { padding: 10px; border-top: 1px solid rgb(var(--c-ink) / .08); max-height: 236px; overflow-y: auto; background: rgb(var(--c-sunk) / .45); }
+    .chat-sticker { width: 104px; height: auto; display: block; filter: drop-shadow(0 6px 10px rgba(0,0,0,.18)); }
+    .chat-jumbo { font-size: 40px; line-height: 1.15; }
 
     .logo-mark { display: inline-block; flex-shrink: 0; background: var(--logo) center / cover no-repeat; }
     .orb { position: absolute; border-radius: 9999px; pointer-events: none; }
@@ -643,7 +650,10 @@
       <!-- =================== INÍCIO =================== -->
       <div id="tab-content-inicio" class="tab-content space-y-7">
         <div class="pt-2">
-          <p id="home-date" class="text-[13px] font-semibold text-ink-2"></p>
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <p id="home-date" class="text-[13px] font-semibold text-ink-2"></p>
+            <div id="home-weather"></div>
+          </div>
           <h1 class="mt-1 text-[38px] leading-[1.02] font-semibold tracking-[-0.035em]"><span id="home-hello">Bom dia,</span><br><span id="home-name" class="font-serif italic font-normal text-pitch text-[46px] tracking-[-0.01em]">craque.</span></h1>
           <p id="home-status" class="mt-2 text-[14px] text-ink-2"></p>
         </div>
@@ -692,15 +702,8 @@
 
         <div class="card p-3.5 grid grid-cols-2 gap-2.5">
           <label class="block min-w-0">
-            <span class="label">Formato</span>
-            <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select">
-              <option value="futsal4">Futsal · 4 + goleiro</option>
-              <option value="futsal">Futsal · 5</option>
-              <option value="society7">Society · 7 + goleiro</option>
-              <option value="society">Society · 8</option>
-              <option value="campo11">Campo · 11 + goleiro</option>
-              <option value="campo">Campo · 12</option>
-            </select>
+            <span class="label">Jogo (na linha)</span>
+            <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option><option value="6">6v6</option><option value="7">7v7</option><option value="8">8v8</option><option value="9">9v9</option><option value="10">10v10</option><option value="11">11v11</option><option value="12">12v12</option></select>
           </label>
           <label class="block min-w-0">
             <span class="label">Fim de jogo</span>
@@ -710,6 +713,15 @@
               <option value="3">3 gols</option>
               <option value="5">5 gols</option>
               <option value="diff2">Dif. de 2</option>
+            </select>
+          </label>
+          <label class="block min-w-0 col-span-2">
+            <span class="label">Goleiro</span>
+            <select id="match-gk-mode" onchange="updateKeeperMode(this.value)" class="select">
+              <option value="time">Do time: cada time tem o seu (N + goleiro)</option>
+              <option value="fixo">Fixo: quem é goleiro não sai do gol</option>
+              <option value="fila">Da fila: os 2 próximos vão pro gol</option>
+              <option value="sem">Sem goleiro</option>
             </select>
           </label>
           <p id="fixed-keepers" class="hidden col-span-2 flex items-start gap-2 text-[12.5px] leading-snug text-ink bg-sunk/70 rounded-xl px-3 py-2.5"></p>
@@ -723,7 +735,7 @@
           </div>
           <div class="relative flex items-stretch gap-2.5">
             <div id="timer-box" class="relative flex-1 min-w-0 flex items-center justify-center rounded-2xl bg-black/25 border border-white/10 py-2.5">
-              <div id="timer-display" class="font-serif text-[70px] leading-none text-butter">07:00</div>
+              <div id="timer-display" class="font-serif leading-none text-butter whitespace-nowrap" style="font-size: clamp(44px, calc(29vw - 46px), 70px)">07:00</div>
               <span id="timer-added-badge" class="hidden absolute -top-2.5 right-2 text-[11px] leading-none font-extrabold text-pitch bg-butter rounded-md px-1.5 py-1 shadow"></span>
             </div>
             <button id="btn-timer-toggle" onclick="toggleMatchTimer()" class="w-[68px] flex-shrink-0 rounded-2xl bg-butter text-pitch text-2xl flex items-center justify-center active:scale-95 transition" aria-label="Iniciar ou pausar">
@@ -874,12 +886,13 @@
             <h3 class="title">Regras do Rei da Quadra</h3>
           </div>
           <p class="text-[13px] text-ink-2 leading-snug">Quem chega primeiro joga primeiro. Quem perde volta pro fim da fila, um por um, e completa os próximos times: assim os times vão se misturando.</p>
-          <div class="grid grid-cols-2 gap-2.5">
+          <div class="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2.5">
             <label class="block min-w-0">
               <span class="label">No empate</span>
               <select id="set-draw" onchange="updateSetting('drawRule', this.value)" class="select">
                 <option value="king">Sai o rei</option>
                 <option value="both">Saem os dois</option>
+                <option value="penaltis">Pênaltis decidem</option>
               </select>
             </label>
             <label class="block min-w-0">
@@ -891,7 +904,7 @@
               </select>
             </label>
           </div>
-          <div class="grid grid-cols-2 gap-2.5">
+          <div class="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2.5">
             <label class="block min-w-0">
               <span class="label">Ordem da fila</span>
               <select id="set-order" onchange="updateSetting('queueOrder', this.value)" class="select">
@@ -910,11 +923,13 @@
             </label>
           </div>
           <p class="text-[12px] text-ink-2 leading-snug -mt-1">Régua de tempo: quem chega depois desse tempo, contado do primeiro jogo, entra em 1º na fila. Antes disso, entra no fim.</p>
-          <label id="set-gk-mode-row" class="hidden block min-w-0">
-            <span class="label">Goleiro (formatos 4, 7 e 11)</span>
-            <select id="set-gk-mode" onchange="updateSetting('keeperMode', this.value)" class="select">
+          <label id="set-gk-mode-row" class="block min-w-0">
+            <span class="label">Goleiro</span>
+            <select id="set-gk-mode" onchange="updateKeeperMode(this.value)" class="select">
+              <option value="time">Do time: cada time tem o seu (N + goleiro)</option>
               <option value="fixo">Fixo: quem é goleiro não sai do gol</option>
               <option value="fila">Da fila: os 2 próximos vão pro gol</option>
+              <option value="sem">Sem goleiro</option>
             </select>
           </label>
           <label id="set-keeper-row" class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-sunk/70 cursor-pointer">
@@ -960,6 +975,7 @@
             <button onclick="switchStatsCategory('saves')" id="btn-stats-saves" class="chip">Defesas</button>
             <button onclick="switchStatsCategory('total')" id="btn-stats-total" class="chip">G+A</button>
             <button onclick="switchStatsCategory('wins')" id="btn-stats-wins" class="chip">Vitórias</button>
+            <button onclick="switchStatsCategory('pens')" id="btn-stats-pens" class="chip">Pênaltis</button>
           </div>
 
           <div class="card p-5 text-center">
@@ -1500,7 +1516,18 @@
         </div>
         <div id="lv-markets" class="space-y-3"></div>
         <div id="lv-mine" class="mt-3"></div>
-        <p class="text-[11px] text-ink-3 leading-snug mt-2 px-1">Sem dinheiro: baba points não se compram nem se sacam. Só para maiores de 18.</p>
+        <div id="lv-duel" class="hidden card-flat p-3 mt-4">
+          <div class="flex items-center gap-3">
+            <img src="babinha/arrogante.webp" alt="" class="w-12 h-12 object-contain flex-shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p class="text-[15px] font-extrabold leading-tight">Desafio 1v1</p>
+              <p class="text-[12.5px] text-ink-2 leading-snug mt-0.5">Aposte direto contra alguém: quem vence ou quem faz mais gols. Quem acertar leva os pontos dos dois.</p>
+            </div>
+          </div>
+          <button id="lv-duel-btn" onclick="openDuel()" class="btn-primary w-full h-11 mt-3 text-[14px]"><i class="fa-solid fa-hand-fist mr-1"></i> Desafiar alguém</button>
+          <div id="lv-duels" class="mt-3 empty:hidden"></div>
+        </div>
+        <p class="text-[11px] text-ink-3 leading-snug mt-2 px-1">A porcentagem é a chance calculada pelos números de cada um (gols por partida, vitórias e o placar agora). Sem dinheiro: baba points não se compram nem se sacam. Só para maiores de 18.</p>
       </section>
 
       <section id="lv-ranking-box" class="hidden">
@@ -1532,6 +1559,36 @@
   </div>
 
   <!-- QR do jogo ao vivo -->
+  <!-- Disputa de pênaltis -->
+  <div id="modal-pens" class="overlay hidden z-[89]">
+    <div class="sheet-panel space-y-4 max-h-[94dvh] overflow-y-auto">
+      <div class="grabber"></div>
+      <div class="flex items-start justify-between gap-3 -mt-1">
+        <div class="min-w-0"><h3 class="title">Disputa de pênaltis</h3><p class="text-[13px] text-ink-2">Empatou: 5 cobranças pra cada lado, depois alternadas.</p></div>
+        <img src="babinha/chute.webp" alt="" class="w-16 h-16 object-contain flex-shrink-0 -mt-2" />
+      </div>
+      <div id="pens-board" class="card-flat px-4 py-1"></div>
+      <div id="pens-turn" class="space-y-3">
+        <p id="pens-title" class="text-[14px] font-bold"></p>
+        <div>
+          <p class="label">Quem cobra</p>
+          <div id="pens-kickers" class="flex flex-wrap gap-1.5"></div>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="recordPen('gol')" class="btn-primary h-14 text-[14px] flex-col !gap-0.5"><i class="fa-solid fa-futbol"></i> Gol</button>
+          <button onclick="recordPen('fora')" class="btn-outline h-14 text-[14px] flex-col !gap-0.5"><i class="fa-solid fa-xmark"></i> Pra fora</button>
+          <button id="pens-save" onclick="recordPen('defesa')" class="btn-soft h-14 text-[13px] flex-col !gap-0.5 leading-tight px-1"><i class="fa-solid fa-hand"></i> Defesa</button>
+        </div>
+        <div class="flex gap-2">
+          <button id="pens-undo" onclick="undoPen()" class="btn-soft flex-1 h-10 text-[13px]"><i class="fa-solid fa-rotate-left"></i> Desfazer cobrança</button>
+          <button onclick="skipShootout()" class="btn-outline flex-1 h-10 text-[13px]">Sem pênaltis</button>
+        </div>
+      </div>
+      <div id="pens-done" class="hidden"></div>
+      <p class="text-[12px] text-ink-2 leading-snug">Os gols e as defesas dos pênaltis contam em Stats → Pênaltis. O placar do jogo fica empatado; quem vence nos pênaltis fica em quadra.</p>
+    </div>
+  </div>
+
   <!-- Pop-up: aviso do suporte / novidades -->
   <div id="modal-popup" class="overlay hidden z-[88] !justify-center px-4" onclick="if(event.target===this) closePopup()">
     <div class="card w-full max-w-sm mx-auto overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="popup-title" style="animation: slideUp .28s cubic-bezier(.16,1,.3,1) both">
@@ -1615,6 +1672,25 @@
       <p class="text-[14px] text-ink-2">Se acertar, você recebe <b id="pp-return" class="text-pitch text-[18px] font-serif"></b> pontos.</p>
       <p id="pp-error" class="hidden text-[13px] font-semibold text-danger"></p>
       <button id="btn-palpite" onclick="confirmPalpite()" class="btn-primary w-full h-14 text-[16px]">Confirmar palpite</button>
+    </div>
+  </div>
+
+  <!-- Desafio 1v1 -->
+  <div id="modal-duel" class="overlay hidden z-[84]" onclick="if(event.target===this) closeDuel()">
+    <div class="sheet-panel space-y-4 max-h-[92dvh] overflow-y-auto overscroll-contain">
+      <div class="grabber"></div>
+      <div class="flex items-start gap-3 -mt-1">
+        <img src="babinha/arrogante.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" />
+        <div class="min-w-0 flex-1">
+          <p class="eyebrow">Desafio 1v1</p>
+          <h3 class="title mt-0.5">Desafiar alguém</h3>
+          <p class="text-[13px] text-ink-2 leading-snug">Os dois põem os mesmos pontos. Quem acertar leva tudo; empate devolve.</p>
+        </div>
+        <button onclick="closeDuel()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="duel-body" class="space-y-4"></div>
+      <p id="duel-error" class="hidden text-[13px] font-semibold text-danger"></p>
+      <button id="btn-duel" onclick="sendDuel()" class="btn-primary w-full h-14 text-[16px]">Mandar desafio</button>
     </div>
   </div>
 
@@ -1763,6 +1839,26 @@
     </div>
   </div>
 
+  <!-- Montar times na mão -->
+  <div id="modal-manual" class="overlay hidden" onclick="if(event.target===this) closeManualTeams()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0">
+          <h3 class="title">Escolher os times</h3>
+          <p class="text-[13px] text-ink-2 leading-snug">Toque em A, B ou Fila pra cada um. Quem sair de quadra volta pra frente da fila.</p>
+        </div>
+        <button onclick="closeManualTeams()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p id="manual-count" class="text-[13px] font-bold flex-shrink-0"></p>
+      <div id="manual-list" class="overflow-y-auto flex-grow pr-1 overscroll-contain divide-y divide-ink/[0.07]"></div>
+      <div class="flex gap-2 flex-shrink-0 pt-1">
+        <button onclick="closeManualTeams()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+        <button onclick="saveManualTeams()" class="btn-primary flex-1 h-12 text-[14px]">Salvar times</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Add player -->
   <div id="modal-add-player" class="overlay hidden" onclick="if(event.target===this) closeAddPlayerModal()">
     <div class="sheet-panel space-y-3.5">
@@ -1905,6 +2001,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=0f3ffba3ff"></script>
+  <script src="app.js?v=9b7a154c7b"></script>
 </body>
 </html>

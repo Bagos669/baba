@@ -12,10 +12,12 @@
        =================================================================== */
     const STORAGE_KEY = 'baba_gestao_digital_v3';
     const STATE_VERSION = 4;
-    const FORMAT_SIZES = { futsal4: 4, futsal: 5, society7: 7, society: 8, campo11: 11, campo: 12 };
-    const FORMAT_LABELS = { futsal4: 'Futsal (4 na linha + goleiro)', futsal: 'Futsal (5)', society7: 'Society (7 na linha + goleiro)', society: 'Society (8)', campo11: 'Campo (11 na linha + goleiro)', campo: 'Campo (12)' };
-    // In these formats the goalkeepers stay on court: teams are line players only.
-    const FIXED_KEEPER_FORMATS = { futsal4: true, society7: true, campo11: true };
+    // v10: a game is NvN, N = line players per team (1 to 12). The goalkeeper is always apart:
+    // 'time' = each team brings one (team = N + 1), 'fixo' = keepers never rotate,
+    // 'fila' = the next two in line keep goal, 'sem' = no goalkeeper.
+    const KEEPER_MODES = { time: 'goleiro do time', fixo: 'goleiro fixo', fila: 'goleiro da fila', sem: 'sem goleiro' };
+    // Old formats (before v10) → [N, keeper mode] (null = keep the chosen one).
+    const OLD_FORMATS = { futsal: [4, 'time'], society: [7, 'time'], campo: [11, 'time'], futsal4: [4, null], society7: [7, null], campo11: [11, null] };
 
     const PRELOADED_DATABASES = {
       fiasco: {
@@ -61,7 +63,7 @@
         addedSeconds: 0,       // acréscimo dado nesta partida
         isRunning: false,
         endAt: null,
-        gameFormat: 'futsal',
+        lineSize: 4,
         goalLimitRule: '2',
         events: []
       };
@@ -71,7 +73,7 @@
       // queueOrder: 'chegada' | 'menos-jogos' · lateAfter: minutes after the first kick-off
       // from which a new arrival goes to the front of the line (0 = off) · keeperMode for the
       // line-only formats: 'fixo' (keepers never rotate) | 'fila' (the next two in line keep goal).
-      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'fixo' };
+      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time' };
     }
 
     function seedTurmas() {
@@ -130,6 +132,15 @@
       if (!Array.isArray(s.pastDays)) s.pastDays = [];
       s.pastDays = s.pastDays.filter(d => d && d.id && Array.isArray(d.players));
       s.settings = Object.assign(defaultSettings(), parsed.settings || {});
+      // Before v10 the format named the sport (futsal/society/campo); now it is NvN + a keeper mode.
+      if (!(Number((parsed.match || {}).lineSize) >= 1)) {
+        const [n, km] = OLD_FORMATS[(parsed.match || {}).gameFormat] || [4, 'time'];
+        s.match.lineSize = n;
+        if (km) s.settings.keeperMode = km;
+        else if (!['fixo', 'fila'].includes(s.settings.keeperMode)) s.settings.keeperMode = 'fixo';
+      }
+      delete s.match.gameFormat;
+      if (!KEEPER_MODES[s.settings.keeperMode]) s.settings.keeperMode = 'time';
 
       if (!Array.isArray(parsed.turmas)) {
         s.turmas = seedTurmas();
@@ -160,6 +171,9 @@
         saves: p.saves || 0,
         matches: p.matches || 0,
         wins: p.wins || 0,
+        penGoals: p.penGoals || 0,
+        penMisses: p.penMisses || 0,
+        penSaves: p.penSaves || 0,
         present: p.present !== false,
         arrival: p.arrival || null,
         arrivedAt: p.arrivedAt || null,
@@ -242,6 +256,9 @@
       readLiveFromUrl();
       // Multipliers depend on the time left: refresh them while the clock runs.
       setInterval(() => { if (state.live && state.match.isRunning) pushLive(); }, 20000);
+      setInterval(() => { if (document.visibilityState === 'visible') renderClock(); }, 15000);
+      // Members see today's numbers (and the turma's new babas) without reopening the app.
+      setInterval(() => { if (document.visibilityState === 'visible' && currentUser && !state.match.isRunning) pullCloud(); }, 60000);
       document.addEventListener('pointerdown', unlockAudio, { passive: true });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
@@ -306,8 +323,10 @@
     let pushTimer = null;
     let lastPull = 0;
     let myPlayerIds = [];
+    let othersOpen = [];         // babas in progress on other organizers' phones (my turmas)
     let schemaV2 = null;         // server has owners/pictures/prefs (null = not checked yet)
     let femaleCol = null;        // server keeps "jogadora" on turma players (v9.5)
+    let penCol = null;           // server keeps penalty numbers (v10)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -418,7 +437,19 @@
         return q(sb.from('turma_players').select('id, turma_id, name, is_goalkeeper, user_id').in('turma_id', ids).order('created_at'));
       },
       openBaba: uid => q(sb.from('babas').select('id, state, updated_at').eq('created_by', uid).eq('finished', false).order('updated_at', { ascending: false }).limit(1)),
-      finishedBabas: () => q(sb.from('babas').select('id, title, played_on, matches, created_by, baba_stats(name, goals, assists, saves, matches, wins, turma_player_id)').eq('finished', true).order('played_on', { ascending: false }).limit(150)),
+      // Babas still being played in my turmas (by other organizers): "Meus números" counts them live.
+      turmaOpenBabas: () => q(sb.from('babas').select('id, title, created_by, state, updated_at').eq('finished', false).gt('updated_at', new Date(Date.now() - 2 * 864e5).toISOString()).order('updated_at', { ascending: false }).limit(20)),
+      async finishedBabas() {
+        const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
+        const base = 'name, goals, assists, saves, matches, wins, turma_player_id';
+        if (penCol !== false) {
+          const { data, error } = await run(base + ', pen_goals, pen_misses, pen_saves');
+          if (!error) { penCol = true; return data || []; }
+          if (!isMissingColumn(error)) throw error;
+          penCol = false;
+        }
+        return q(run(base));
+      },
       async profile(uid) {
         if (schemaV2 !== false) {
           const { data, error } = await sb.from('profiles').select('name, avatar, prefs').eq('id', uid).limit(1);
@@ -446,7 +477,15 @@
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
         await q(sb.from('baba_stats').delete().eq('baba_id', babaId));
-        if (rows.length) await q(sb.from('baba_stats').insert(rows));
+        if (!rows.length) return;
+        // Penalty columns arrive with the v10 server update; send without them until then.
+        const plain = rows.map(r => { const x = Object.assign({}, r); delete x.pen_goals; delete x.pen_misses; delete x.pen_saves; return x; });
+        if (penCol === false) return q(sb.from('baba_stats').insert(plain));
+        const { error } = await sb.from('baba_stats').insert(rows);
+        if (!error) { penCol = true; return; }
+        if (!isMissingColumn(error)) throw error;
+        penCol = false;
+        await q(sb.from('baba_stats').insert(plain));
       },
       upsertTurma: (id, name, icon) => q(sb.from('turmas').upsert(schemaV2 ? { id, name, icon: icon || null } : { id, name })),
       turmaInvite: async id => ((await q(sb.from('turmas').select('invite_code').eq('id', id).limit(1)))[0] || {}).invite_code || null,
@@ -652,7 +691,8 @@
         row: { id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: null, finished: true, matches: summary.matches },
         stats: summary.players.map(p => ({
           baba_id: id, turma_player_id: p.cloudId || null, name: p.name,
-          goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0, matches: p.matches || 0, wins: p.wins || 0
+          goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0, matches: p.matches || 0, wins: p.wins || 0,
+          pen_goals: p.penGoals || 0, pen_misses: p.penMisses || 0, pen_saves: p.penSaves || 0
         }))
       });
     }
@@ -724,8 +764,16 @@
           title: d.title || 'Baba',
           matches: d.matches || 0,
           owner: d.created_by === uid,
-          players: (d.baba_stats || []).map(s => ({ name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins }))
+          players: (d.baba_stats || []).map(s => ({ name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
+            penGoals: s.pen_goals || 0, penMisses: s.pen_misses || 0, penSaves: s.pen_saves || 0 }))
         })));
+
+        // Today's numbers from babas other people are running right now.
+        try {
+          const others = await api.turmaOpenBabas();
+          othersOpen = (others || []).filter(b => b.created_by !== uid && b.state && Array.isArray(b.state.players) && !state.pastDays.some(d => d.id === b.id))
+            .map(b => ({ id: b.id, players: b.state.players.filter(hasStats).map(p => Object.assign({ name: p.name, turmaId: p.turmaId }, Object.fromEntries(STAT_KEYS.map(k => [k, p[k] || 0])))) }));
+        } catch (e) {}
 
         if (state.selectedTeams.length) syncPool();
         repair();
@@ -1058,7 +1106,7 @@
       await api.signOut();
       currentUser = null;
       prefsPulledFor = null;
-      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null; missionsCache = null; popupsArmed = false;
+      account = null; wallet = null; v7 = null; liveListCache = []; status8 = null; missionsCache = null; popupsArmed = false; othersOpen = [];
       { const ps = document.getElementById('profile-staff'); if (ps) ps.classList.add('hidden'); }
       state = defaultState();
       showAuth('login');
@@ -1203,7 +1251,8 @@
       const myNamesToday = new Set();
       state.turmas.forEach(t => Object.entries(t.meta || {}).forEach(([n, m]) => { if (m.userId === currentUser.id) myNamesToday.add(n); }));
       if (!linked.size && !myNamesToday.size) return null;
-      const tot = { babas: 0, goals: 0, assists: 0, saves: 0, matches: 0, wins: 0 };
+      const tot = { babas: 0 };
+      STAT_KEYS.forEach(k => { tot[k] = 0; });
       state.pastDays.forEach(d => {
         const rows = d.players.filter(p => p.cloudId && linked.has(p.cloudId));
         if (rows.length) tot.babas++;
@@ -1211,6 +1260,11 @@
       });
       const today = state.players.find(p => myNamesToday.has(p.name.trim().toLowerCase()) && hasStats(p));
       if (today) { tot.babas++; STAT_KEYS.forEach(k => { tot[k] += Number(today[k]) || 0; }); }
+      // A baba someone else is organizing right now, where my name is linked.
+      othersOpen.forEach(b => {
+        const row = b.players.find(p => { const t = turmaById(p.turmaId); const m = t && t.meta ? t.meta[String(p.name).trim().toLowerCase()] : null; return m && m.userId === currentUser.id; });
+        if (row) { tot.babas++; tot.live = true; STAT_KEYS.forEach(k => { tot[k] += Number(row[k]) || 0; }); }
+      });
       return tot;
     }
 
@@ -1864,19 +1918,24 @@
       ['Começando', 'Como começo um baba?', 'Escolha a turma em <b>Início → Turmas</b> (ou crie uma), confirme e vá em <b>Lista</b> marcando quem chegou, na ordem. Depois, em <b>Times</b>, toque em Montar times.'],
       ['Começando', 'Preciso de internet na quadra?', 'Não. Tudo fica salvo no celular e vai pra nuvem quando o sinal voltar. O pontinho no seu avatar mostra: verde é sincronizado, amarelo é esperando internet.'],
       ['Começando', 'Como instalo o BABA no celular?', 'No Android, abra o site no Chrome e toque em <b>Adicionar à tela inicial</b>. No iPhone, no Safari, toque em Compartilhar → <b>Adicionar à Tela de Início</b>.'],
-      ['Na quadra', 'Como a fila e os times funcionam?', 'Quem chega primeiro joga primeiro. Quem perde vai pro fim da fila e o próximo entra. No empate, você escolhe em Times se sai o rei ou os dois.'],
+      ['Na quadra', 'Como a fila e os times funcionam?', 'Quem chega primeiro joga primeiro. Quem perde vai pro fim da fila e o próximo entra. No empate, você escolhe em Times se sai o rei, saem os dois ou se decide nos pênaltis.'],
       ['Na quadra', 'Como registro um gol?', 'No Placar, toque em <b>Gol</b> do lado certo, escolha quem fez e depois quem deu o passe (ou "Sem assistência").'],
       ['Na quadra', 'Errei um lance, e agora?', 'Use <b>Desfazer</b> nos lances da partida. Se já finalizou a partida, em Stats → Times e jogos tem "Desfazer última".'],
       ['Na quadra', 'Alguém se machucou. Dá pra trocar?', 'Sim. Em Times, toque no jogador em quadra e escolha quem entra. Quem sai pode ir pro começo ou fim da fila, ou sair do baba.'],
       ['Na quadra', 'Como deixo o placar em tela cheia?', 'No Placar, com os times em quadra, toque no botão de expandir ao lado do relógio. O celular vira um placar deitado pra galera ver.'],
-      ['Na quadra', 'Como funciona o goleiro?', 'Marque "GOL" no nome do goleiro na turma. Com a opção "1 goleiro por time" ligada, cada time puxa um goleiro da fila.'],
-      ['Na quadra', 'Como funcionam os formatos 4, 7 e 11 + goleiro?', 'Nos formatos <b>Futsal · 4</b>, <b>Society · 7</b> e <b>Campo · 11</b> os times são só de linha. Em Times → Regras você escolhe o goleiro: <b>Fixo</b> (quem tem GOL marcado fica no gol a noite toda) ou <b>Da fila</b> (os dois próximos da fila vão pro gol e não perdem o lugar, como na planilha).'],
+      ['Na quadra', 'Como escolho o tamanho do jogo?', 'No Placar, em <b>Jogo (na linha)</b>, de <b>1v1 a 12v12</b>. Conta só quem joga na linha; o goleiro é escolhido ao lado.'],
+      ['Na quadra', 'Como funciona o goleiro?', 'No Placar (ou em Times → Regras), em <b>Goleiro</b>: <b>do time</b> (quem tem GOL marcado entra junto com o time; num 4v4 o time tem 5), <b>fixo</b> (os goleiros ficam no gol a noite toda e não entram na fila), <b>da fila</b> (os dois próximos da fila vão pro gol e não perdem o lugar, como na planilha) ou <b>sem goleiro</b>.'],
+      ['Na quadra', 'Dá pra decidir o empate nos pênaltis?', 'Sim: Times → Regras → Empate → <b>Pênaltis decidem</b>. No empate abre a disputa: 5 cobranças pra cada lado, depois alternadas. Marque gol, defesa ou fora. Gols e defesas nas cobranças contam no Stats, em <b>Pênaltis</b>; o placar do jogo fica empatado.'],
+      ['Na quadra', 'Como troco atletas entre os times?', 'Em Times, toque em <b>Trocar</b> ao lado de quem sai e, lá embaixo, em <b>Trocar com o outro time</b>. Ninguém vai pra fila.'],
+      ['Na quadra', 'Quero montar os times do zero.', 'Em Times, toque em <b>Escolher os times na mão</b> (ou <b>Mexer nos times</b>, se já tem time em quadra) e mande cada um pro Time A, Time B ou pra fila.'],
       ['Na quadra', 'Alguém foi embora. Como tiro da fila?', 'Na aba <b>Times</b>, toque no <b>x</b> ao lado do nome na fila de espera. Se a pessoa estiver em quadra, toque no nome dela e em <b>Foi embora</b>. Os números do dia continuam.'],
       ['Na quadra', 'O que é a régua de tempo?', 'Em Times → Regras: quem chega depois do tempo escolhido (contado do primeiro jogo) entra em 1º na fila. Quem chega antes disso vai pro fim, como sempre.'],
       ['Na quadra', 'Dá pra quem jogou menos jogar antes?', 'Sim: Times → Regras → Ordem da fila → <b>Quem jogou menos</b>. A fila se arruma sozinha pelo número de jogos do dia.'],
       ['Na quadra', 'Como corrijo o gol de alguém?', 'Toque no nome da pessoa (na Lista, no time ou na fila) e ajuste gols, assistências e defesas em <b>Números de hoje</b>.'],
       ['Na quadra', 'Tem jogadora no baba. Como marco?', 'Abra a ficha dela e escolha <b>Jogadora</b>. Os destaques viram artilheira, garçonete e paredona, e a turma guarda isso pros próximos babas.'],
       ['Ao vivo', 'Como assisto um jogo pelo código?', 'Na tela de entrada do app (ou em <b>Início</b>, se já tem conta), toque em <b>Assistir um jogo ao vivo</b> e digite o código que aparece no celular de quem organiza. Não precisa de conta pra assistir.'],
+      ['Ao vivo', 'O que é o Desafio 1v1?', 'No jogo ao vivo, maiores de 18 desafiam alguém direto: <b>quem vence</b> ou <b>quem faz mais gols</b> na partida. Os dois põem os mesmos pontos, quem acertar leva tudo e empate devolve. Se a pessoa não aceitar até a partida acabar, os pontos voltam.'],
+      ['Ao vivo', 'De onde vêm os multiplicadores?', 'Dos números da turma: gols por partida de cada um (puxados pra média enquanto a pessoa tem poucos jogos), vitórias e o placar do momento. A porcentagem ao lado é a chance calculada. Quem quase nunca marca aparece com até x20.'],
       ['Baba points', 'Como ganho baba points?', 'No bônus do dia, nas <b>Missões da semana</b> (na Lojinha) e acertando palpites. As missões renovam toda segunda.'],
       ['Turmas e convites', 'Como chamo a galera pra turma?', 'Abra a turma e toque em <b>Convidar</b>. Mande o link no grupo: quem entrar vê a turma e o histórico, e toca no próprio nome pra ligar à conta.'],
       ['Turmas e convites', 'Qual a diferença entre dono e adm?', 'O <b>adm</b> adiciona e remove atletas, marca goleiro, convida e tira pessoas. O <b>dono</b> faz tudo isso e ainda escolhe os adms, passa a turma pra outra pessoa e é o único que pode excluir a turma.'],
@@ -1890,7 +1949,9 @@
       ['Recordações', 'Como faço o PDF com fotos?', 'Em Perfil → <b>PDF do baba com fotos</b> (ou Stats → Times e jogos → PDF). Escolha as fotos, o título e um recado. A primeira foto vira a capa.'],
       ['Recordações', 'Onde ficam os babas antigos?', 'Em Perfil → <b>Babas anteriores, backup e importar</b>. Cada baba antigo também gera PDF.'],
       ['App', 'Como deixo no modo escuro?', 'Perfil → Aparência → <b>Escuro</b>. Em "Auto" o BABA segue o tema do celular.'],
-      ['App', 'As letras estão pequenas.', 'Perfil → Aparência → <b>Texto maior</b>.']
+      ['App', 'As letras estão pequenas.', 'Perfil → Aparência → <b>Texto maior</b>.'],
+      ['App', 'Como aparece o clima no Início?', 'Toque em <b>Ver o clima</b> e permita a localização. Ela fica só no seu celular, arredondada; o clima vem do Open-Meteo e atualiza a cada 20 minutos.'],
+      ['App', 'Como mando o Babinha no chat?', 'No chat, toque na carinha ao lado da mensagem: tem as figurinhas do Babinha e os emojis. Mensagem só com emoji aparece grandona.']
     ];
 
     function openSupport() {
@@ -1943,34 +2004,36 @@
         { img: 'wave', tab: 'inicio', title: 'E aí! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Em 9 passos te mostro como um baba roda no BABA, do começo ao fim.' },
         { img: 'aidentro', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'A turma é o grupo fixo do seu baba: os atletas, quem é goleiro e o histórico de todos os jogos. Crie a sua ou entre pelo link de convite que a galera mandou.' },
         { img: 'run', tab: 'ficha', target: '#sheet-players-tbody', fallback: '#tab-nav-ficha', title: 'Lista de chegada', text: 'No dia, marque quem chegou, na ordem em que chegou. Essa ordem vira a fila: quem chega primeiro, joga primeiro. Apareceu alguém de fora? Adicione como avulso.' },
-        { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Montar os times', text: 'Em Times, toque em Montar: o BABA pega os primeiros da fila e monta Time 1 x Time 2. O tamanho vem do formato escolhido no Placar (ex.: Futsal, 5 por time).' },
+        { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Montar os times', text: 'Em Times, toque em Montar: o BABA pega os primeiros da fila e monta Time 1 x Time 2. O tamanho vem do jogo escolhido no Placar (ex.: 4v4 com goleiro do time = 5 por time). Prefere escolher? Dá pra montar na mão.' },
         { img: 'calculante', tab: 'fila', demo: 'rotacao', title: 'Rei da Quadra: quem perde sai', text: 'Quem ganha fica. Quem perde volta pro fim da fila, um por um, e os primeiros da fila entram. Assim os times vão se misturando a noite toda.' },
         { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo de jogo e dê play. Precisou? +1, +2 ou +3 de acréscimo. Pode apagar a tela: o relógio continua certo.' },
         { img: 'siuu', tab: 'placar', target: '#placar-sides', title: 'Gol, passe e defesa', text: 'Toque em Gol no time que marcou, escolha quem fez e quem deu o passe. Defesa do goleiro também conta. Tudo isso vira estatística.' },
         { img: 'red', tab: 'placar', target: '#btn-finish', title: 'Finalizar a partida', text: 'Acabou? Finalize: o placar vai pro histórico, o vencedor fica e o próximo time entra. Errou alguma coisa? Tem Desfazer.' },
         { img: 'champion', tab: 'inicio', title: 'Pronto pro primeiro baba!', text: 'Tem mais 5 capítulos curtinhos: regras, imprevistos, ao vivo, baba points e conta. Ficam em Perfil → Suporte → Tutorial, e o Início te lembra.' }
       ] },
-      { id: 'regras', title: 'Regras do Rei da Quadra', img: 'calculante', desc: 'Formatos, empate, ordem da fila, régua de tempo e goleiros.', steps: [
-        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Formato = tamanho do time', text: 'Futsal 5, Society 8 e Campo 12: o goleiro joga dentro do time. Futsal 4, Society 7 e Campo 11: os times são só de linha, e o goleiro fica à parte.' },
-        { img: 'coach', tab: 'fila', target: '#rules-card', title: 'Empate e vitórias seguidas', text: 'No empate, você escolhe: sai o rei (quem já estava em quadra) ou saem os dois. E dá pra limitar: depois de 2 ou 3 vitórias seguidas, o time sai mesmo ganhando.' },
+      { id: 'regras', title: 'Regras do Rei da Quadra', img: 'calculante', desc: 'Tamanho do jogo, goleiro, empate e pênaltis, fila e régua de tempo.', steps: [
+        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Tamanho do jogo e goleiro', text: 'Escolha de 1v1 a 12v12, contando só a linha. Ao lado, o goleiro: do time (entra junto: 4v4 vira 5 por time), fixo, da fila ou sem goleiro.' },
+        { img: 'coach', tab: 'fila', target: '#rules-card', title: 'Empate e vitórias seguidas', text: 'No empate, você escolhe: sai o rei, saem os dois ou pênaltis (5 cobranças pra cada lado, e os gols contam no Stats). E dá pra limitar: depois de 2 ou 3 vitórias seguidas, o time sai mesmo ganhando.' },
         { img: 'arrogante', tab: 'fila', demo: 'menosjogos', title: 'Ordem da fila', text: 'Ordem de chegada é o padrão. Em "Quem jogou menos", a fila se arruma sozinha: quem tem menos jogos no dia vai pra frente.' },
         { img: 'bike', tab: 'fila', demo: 'regua', title: 'Régua de tempo (atrasados)', text: 'Sem régua, atrasado vai pro fim. Com a régua em 1 h, por exemplo: quem chega depois de 1 h do primeiro jogo entra em 1º na fila; antes disso, vai pro fim.' },
-        { img: 'wink', tab: 'fila', demo: 'goleiro', title: 'Goleiro da fila', text: 'Nos formatos 4, 7 e 11 você escolhe o goleiro. Fixo: quem é goleiro não sai do gol. Da fila: os 2 próximos da fila vão pro gol, um em cada time, e não perdem o lugar.' },
+        { img: 'wink', tab: 'fila', demo: 'goleiro', title: 'Goleiro da fila', text: 'Goleiro fixo: quem é goleiro não sai do gol nem entra na fila. Goleiro da fila: os 2 próximos da fila vão pro gol, um em cada time, e não perdem o lugar.' },
         { img: 'tired', tab: 'placar', target: '#match-goal-limit-rule', title: 'Fim de jogo por gols', text: 'Além do tempo, a partida pode acabar com 2, 3 ou 5 gols, ou com diferença de 2. Bateu a meta, o BABA finaliza sozinho.' }
       ] },
-      { id: 'meio', title: 'Imprevistos no meio do baba', img: 'carretilha', desc: 'Ficha, substituição, quem foi embora, atrasados e desfazer.', steps: [
+      { id: 'meio', title: 'Imprevistos no meio do baba', img: 'carretilha', desc: 'Ficha, substituição, trocas entre times, atrasados e desfazer.', steps: [
         { img: 'carretilha', tab: 'fila', target: '#court-manager', title: 'A ficha de cada um', text: 'Toque no nome de quem está no time ou na fila: muda nome, posição, jogador ou jogadora, e corrige gols, passes e defesas do dia, sem tirar ninguém do time.' },
         { img: 'run', tab: 'fila', target: '#court-manager', title: 'Substituição', text: 'Cansou ou machucou? Toque em Trocar ao lado do nome e escolha quem entra. Quem sai pode voltar pro começo ou pro fim da fila.' },
+        { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Mexer nos times', text: 'Time desequilibrado? No Trocar dá pra trocar dois atletas entre os times. E em Mexer nos times você manda cada um pro Time A, Time B ou pra fila.' },
         { img: 'worried', tab: 'fila', target: '#queue-card', title: 'Alguém foi embora', text: 'Na fila, toque no x ao lado do nome. Se a pessoa estava em quadra, abra a ficha e toque em Foi embora. Os números do dia continuam valendo.' },
         { img: 'bike', tab: 'ficha', target: '#tab-nav-ficha', title: 'Chegou atrasado', text: 'Marque a chegada na Lista a qualquer hora. A pessoa entra no fim da fila, ou em 1º se a régua de tempo estiver ligada e já tiver passado o tempo.' },
         { img: 'ney', tab: 'placar', target: '#btn-court-mode', title: 'Placar deitado', text: 'Com os dois times em quadra, este botão deita o celular com um placar gigante, pra galera ver de longe.' },
         { img: 'scared', tab: 'placar', target: '#btn-undo', title: 'Desfazer', text: 'Gol marcado errado? Desfaça o último lance. Finalizou sem querer? O aviso de partida finalizada tem Desfazer, e em Stats → Jogos também.' }
       ] },
-      { id: 'aovivo', title: 'Ao vivo, palpites e chat', img: 'chute', desc: 'Transmitir pelo QR, assistir pelo código, palpitar e conversar.', steps: [
+      { id: 'aovivo', title: 'Ao vivo, palpites e chat', img: 'chute', desc: 'Transmitir pelo QR, assistir pelo código, palpites, desafios e chat.', steps: [
         { img: 'chute', tab: 'placar', target: '#live-pill', title: 'Transmitir o jogo', text: 'Com internet, toque em Transmitir: aparece um QR code e um código. Quem escanear ou digitar o código acompanha o placar ao vivo, mesmo sem conta.' },
         { img: 'aidentro', tab: 'inicio', target: '#home-v7', title: 'Assistir pelo código', text: 'Recebeu um código? No Início (ou na tela de entrada do app), toque em "Assistir um jogo ao vivo" e digite.' },
-        { img: 'calculante', tab: 'inicio', title: 'Palpites (só 18+)', text: 'No ao vivo, quem tem conta e 18 anos ou mais palpita com baba points: quem faz gol, quem vence. O multiplicador sai das estatísticas da turma. Pontos não valem dinheiro: é brincadeira.' },
-        { img: 'shhh', tab: 'inicio', title: 'Chat da turma e do jogo', text: 'Cada turma tem chat, e cada jogo ao vivo também. Mensagem ofensiva? Toque no ⋯ e denuncie: com 3 denúncias ela some e o suporte fica sabendo.' }
+        { img: 'calculante', tab: 'inicio', title: 'Palpites (só 18+)', text: 'No ao vivo, quem tem conta e 18 anos ou mais palpita com baba points: quem faz gol, quem vence. O multiplicador e a chance (%) saem dos números da turma. Pontos não valem dinheiro: é brincadeira.' },
+        { img: 'arrogante', tab: 'inicio', title: 'Desafio 1v1', text: 'Quer provocar o amigo? Desafie direto: quem vence ou quem faz mais gols. Os dois põem os mesmos pontos e quem acertar leva tudo. Empate devolve.' },
+        { img: 'shhh', tab: 'inicio', title: 'Chat da turma e do jogo', text: 'Cada turma tem chat, e cada jogo ao vivo também, com figurinhas do Babinha na carinha ao lado da mensagem. Mensagem ofensiva? Toque no ⋯ e denuncie: com 3 denúncias ela some e o suporte fica sabendo.' }
       ] },
       { id: 'pontos', title: 'Baba points e lojinha', img: 'dancinha', desc: 'Bônus do dia, missões da semana, lojinha e exclusivos.', steps: [
         { img: 'money', tab: 'inicio', target: '#home-v7', title: 'Seus baba points', text: 'Toda conta começa com 1.000 pontos. Ganha mais no bônus do dia, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.' },
@@ -2021,7 +2084,7 @@
               '<span class="dlabel" style="left:28%;top:0">Time 1</span><span class="dlabel" style="left:58%;top:0">Time 2</span>',
         chips: [['a1', 'Ana', 'a'], ['a2', 'Beto', 'a'], ['b1', 'Duda', 'b'], ['b2', 'Edu', 'b'], ['g1', 'Gui', 'q'], ['g2', 'Hugo', 'q'], ['q3', 'Ivo', 'q'], ['q4', 'Jô', 'q'], ['s1', 'vaga do Gui', 'ghost'], ['s2', 'vaga do Hugo', 'ghost']],
         frames: [
-          { cap: 'Formato "4 + goleiro", goleiro da fila: os 2 primeiros da fila são Gui e Hugo...', hide: ['s1', 's2'], pos: { a1: [27, 24], a2: [27, 52], b1: [57, 24], b2: [57, 52], g1: [2, 92], g2: [30, 92], q3: [60, 92], q4: [77, 92], s1: [2, 92], s2: [30, 92] } },
+          { cap: '4v4 com goleiro da fila: os 2 primeiros da fila são Gui e Hugo...', hide: ['s1', 's2'], pos: { a1: [27, 24], a2: [27, 52], b1: [57, 24], b2: [57, 52], g1: [2, 92], g2: [30, 92], q3: [60, 92], q4: [77, 92], s1: [2, 92], s2: [30, 92] } },
           { cap: '...então eles vão pro gol, um de cada lado, e o lugar deles na fila fica guardado.', cls: { g1: 'gk', g2: 'gk' }, pos: { a1: [27, 24], a2: [27, 52], b1: [57, 24], b2: [57, 52], g1: [1, 31], g2: [79, 31], q3: [60, 92], q4: [77, 92], s1: [2, 92], s2: [30, 92] } }
         ] }
     };
@@ -2583,7 +2646,7 @@
           if (!state.matchHistory.length) row([{ text: 'Nenhuma partida finalizada.', x: M + 2 }]);
           else [...state.matchHistory].reverse().forEach(h => {
             ensure(12);
-            row([{ text: h.timestamp, x: M + 2 }, { text: `Time ${h.labelA}   ${h.scoreA} x ${h.scoreB}   Time ${h.labelB}`, x: 40 }]);
+            row([{ text: h.timestamp, x: M + 2 }, { text: `Time ${h.labelA}   ${h.scoreA} x ${h.scoreB}   Time ${h.labelB}${h.pens ? `   (pên. ${h.pens.a} x ${h.pens.b})` : ''}`, x: 40 }]);
             if (h.namesA && h.namesA.length) small(`${shortNames(h.namesA)}  vs  ${shortNames(h.namesB)}`);
           });
           y += 4;
@@ -2690,6 +2753,11 @@
       myPalpites: liveId => q(sb.from('palpites').select('id, match_no, market, label, odd, stake, status, payout').eq('live_id', liveId).order('id', { ascending: false }).limit(30)),
       settlePalpites: (live, matchNo, result) => rpc('settle_palpites', { live, match_no: matchNo, result }),
       liveRanking: live => rpc('live_ranking', { live }),
+      challengeCandidates: live => rpc('challenge_candidates', { live }),
+      createChallenge: (live, opponent, kind, pickC, pickO, labelC, labelO, stake) => rpc('create_challenge', { live, opponent, kind, pick_c: pickC, pick_o: pickO, label_c: labelC, label_o: labelO, stake }),
+      respondChallenge: (id, accept) => rpc('respond_challenge', { challenge: id, accept }),
+      cancelChallenge: id => rpc('cancel_challenge', { challenge: id }),
+      myChallenges: live => rpc('my_challenges', { live }),
       chatList: (room, afterId) => q(sb.from('chat_messages').select('id, user_id, body, deleted, created_at').eq('room', room).gt('id', afterId || 0).order('id', { ascending: false }).limit(60)),
       chatSend: (room, body) => q(sb.from('chat_messages').insert({ room, body })),
       chatDelete: id => rpc('delete_message', { msg: id }),
@@ -2751,9 +2819,19 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '9.5.1';
+    const APP_VERSION = '10';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '10', date: '11/10/2026', title: 'Pênaltis, desafios e jogos de 1 a 12', items: [
+        'Jogo de 1v1 até 12v12, e o goleiro do jeito da sua turma: do time, fixo, da fila ou sem goleiro.',
+        'Empate pode ir pros pênaltis (Regras → Empate). Gols e defesas nas cobranças contam no Stats, com categoria própria.',
+        'Times: troque dois atletas entre os times ou monte os times na mão, do zero.',
+        'Desafio 1v1 no jogo ao vivo: aposte pontos direto contra alguém em quem vence ou quem faz mais gols.',
+        'Os multiplicadores foram recalibrados e agora mostram a chance de cada palpite.',
+        'Emotes do Babinha e emojis no chat.',
+        'O Início mostra a hora e, se você deixar, o clima de onde você está.',
+        'Corrigido: quem assumiu o próprio nome agora vê os números do baba que está rolando no celular do organizador.'
+      ] },
       { v: '9.5.1', date: '11/10/2026', title: 'Tutorial novinho', items: [
         'O tutorial foi refeito do zero: 6 capítulos curtos com o Babinha, cobrindo o BABA inteiro.',
         'As regras mais difíceis (rodízio, régua de tempo, goleiro da fila, ordem por jogos) agora têm animação mostrando como funcionam.',
@@ -3334,7 +3412,7 @@
           who: e.type === 'goal' ? nameOf(e.scorerId) : nameOf(e.playerId || e.keeperId || e.scorerId),
           assist: e.assistId ? nameOf(e.assistId) : null
         })),
-        history: state.matchHistory.slice(0, 3).map(h => ({ a: `Time ${h.labelA}`, b: `Time ${h.labelB}`, sa: h.scoreA, sb: h.scoreB })),
+        history: state.matchHistory.slice(0, 3).map(h => Object.assign({ a: `Time ${h.labelA}`, b: `Time ${h.labelB}`, sa: h.scoreA, sb: h.scoreB }, h.pens ? { pens: [h.pens.a, h.pens.b] } : {})),
         queue: state.queue.length,
         at: Date.now()
       };
@@ -3359,12 +3437,19 @@
       return tot;
     }
 
+    /* Each player's rate is pulled toward the turma's average by 6 matches' worth of weight.
+       (Checked against simulated seasons: with a weaker pull, whoever had a quiet first
+       baba showed x15+ while really scoring about twice as often as that implied.) */
+    const RATE_PULL = 6;
     function teamModel(team, rates) {
+      let G = 0, M = 0;
+      rates.forEach(r => { G += r.g; M += r.m; });
+      const avg = (G + 0.25 * 12) / (M + 12);
       return team.ids.map(id => {
         const p = byId(id);
         const r = rates.get(String(p ? p.name : '').trim().toLowerCase()) || { g: 0, m: 0, w: 0 };
-        const prior = p && p.isGoalkeeper ? 0.05 : 0.32;
-        return { id, key: String(p ? p.name : '').trim().toLowerCase().slice(0, 60), name: p ? p.name : '?', gpm: (r.g + prior * 2) / (r.m + 2), wr: (r.w + 1) / (r.m + 2) };
+        const prior = p && p.isGoalkeeper ? 0.05 : avg;
+        return { id, key: String(p ? p.name : '').trim().toLowerCase().slice(0, 60), name: p ? p.name : '?', gpm: (r.g + prior * RATE_PULL) / (r.m + RATE_PULL), wr: (r.w + 1) / (r.m + 2) };
       });
     }
 
@@ -3372,13 +3457,13 @@
       const avg = a => a.reduce((s, x) => s + x.wr, 0) / Math.max(1, a.length);
       const tilt = Math.sqrt(avg(mA) / avg(mB));
       const dur = opts.total / 420;
-      const lA = Math.max(0.15, mA.reduce((s, p) => s + p.gpm, 0) * tilt * dur * 0.85);
-      const lB = Math.max(0.15, mB.reduce((s, p) => s + p.gpm, 0) / tilt * dur * 0.85);
+      const lA = Math.max(0.15, mA.reduce((s, p) => s + p.gpm, 0) * tilt * dur);
+      const lB = Math.max(0.15, mB.reduce((s, p) => s + p.gpm, 0) / tilt * dur);
       const frac = Math.max(0, Math.min(1, opts.left / opts.total));
       const lim = opts.rule === 'none' || opts.rule === 'diff2' ? 0 : Number(opts.rule) || 0;
       const pick = (arr, sum) => { let x = Math.random() * sum; for (const p of arr) { x -= p.gpm; if (x <= 0) return p.key; } return arr[arr.length - 1].key; };
       const sumA = mA.reduce((s, p) => s + p.gpm, 0), sumB = mB.reduce((s, p) => s + p.gpm, 0);
-      const N = 2500;
+      const N = 4000;
       const res = { A: 0, B: 0, draw: 0, over15: 0, both: 0, scorers: new Map() };
       for (let i = 0; i < N; i++) {
         let a = opts.sa, b = opts.sb;
@@ -3403,7 +3488,10 @@
       return res;
     }
 
-    const oddFrom = p => Math.min(15, Math.max(1.05, Math.round((0.9 / p) * 100) / 100));
+    /* 10% margin over the fair price, capped at x20 (the server's limit). Below ~4.5% the cap
+       makes the multiplier less than fair, which is fine: a player who almost never scores
+       still shows up, just not as a jackpot. */
+    const oddFrom = p => Math.min(20, Math.max(1.05, Math.round((0.9 / p) * 100) / 100));
 
     function liveMarkets(enabled) {
       const m = state.match;
@@ -3415,7 +3503,7 @@
       const mA = teamModel(A, rates), mB = teamModel(B, rates);
       const sim = simulateMatch(mA, mB, { sa: m.scoreA, sb: m.scoreB, left, total: (m.initialSeconds || 420) + (m.addedSeconds || 0), rule: m.goalLimitRule });
       const items = [];
-      const push = (key, label, group, p) => { if (p >= 0.03 && p <= 0.96) items.push({ key, label, group, odd: oddFrom(p) }); };
+      const push = (key, label, group, p) => { if (p >= 0.03 && p <= 0.96) items.push({ key, label, group, odd: oddFrom(p), pct: Math.round(p * 100) }); };
       push('res:A', `Time ${A.label} vence`, 'Resultado', sim.A);
       push('res:draw', 'Empate', 'Resultado', sim.draw);
       push('res:B', `Time ${B.label} vence`, 'Resultado', sim.B);
@@ -3434,7 +3522,9 @@
     function queueLiveSettle(matchNo, A, B, scoreA, scoreB, events) {
       if (!state.live || !state.live.id) return;
       const scorers = [...new Set(events.filter(e => e.type === 'goal' && e.scorerId != null).map(e => String(nameOf(e.scorerId)).trim().toLowerCase().slice(0, 60)))];
-      const result = { winner: scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : 'draw', goalsA: scoreA, goalsB: scoreB, scorers };
+      const goalsBy = {};
+      events.filter(e => e.type === 'goal' && e.scorerId != null).forEach(e => { const k = String(nameOf(e.scorerId)).trim().toLowerCase().slice(0, 60); goalsBy[k] = (goalsBy[k] || 0) + 1; });
+      const result = { winner: scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : 'draw', goalsA: scoreA, goalsB: scoreB, scorers, goalsBy };
       enqueue({ type: 'live_settle', liveId: state.live.id, matchNo, result });
     }
 
@@ -3595,7 +3685,7 @@
       renderLive();
       if (first) mountLiveChat();
       const now = Date.now();
-      if (currentUser && d.markets && now - (liveView.mineAt || 0) > 6000) { liveView.mineAt = now; loadMyPalpites(); }
+      if (currentUser && d.markets && now - (liveView.mineAt || 0) > 6000) { liveView.mineAt = now; loadMyPalpites(); loadMyDuels(); }
       if (now - liveView.rankingAt > 15000) { liveView.rankingAt = now; loadLiveRanking(); }
     }
 
@@ -3633,13 +3723,14 @@
       const ev = (s.events || []).map(e => `
         <div class="flex items-center gap-2.5 text-[13px]"><span class="text-ink-3 tabular w-11 flex-shrink-0">${escapeHtml(e.time || '')}</span>
           <span class="min-w-0"><i class="fa-solid ${e.type === 'goal' ? 'fa-futbol text-pitch' : 'fa-hand text-ink-2'} mr-1"></i><b>${escapeHtml(e.who || '?')}</b>${e.assist ? ` <span class="text-ink-2">· passe de ${escapeHtml(e.assist)}</span>` : ''}</span></div>`).join('');
-      const hist = (s.history || []).map(h => `<span class="inline-block mr-3">${escapeHtml(h.a)} ${h.sa}×${h.sb} ${escapeHtml(h.b)}</span>`).join('');
+      const hist = (s.history || []).map(h => `<span class="inline-block mr-3">${escapeHtml(h.a)} ${h.sa}×${h.sb} ${escapeHtml(h.b)}${Array.isArray(h.pens) ? ` (pên. ${Number(h.pens[0]) || 0}×${Number(h.pens[1]) || 0})` : ''}</span>`).join('');
       document.getElementById('lv-events').innerHTML = (ev ? `<div class="card-flat p-3 space-y-1.5">${ev}</div>` : '') + (hist ? `<p class="text-[12px] text-ink-2 px-1">Últimas: ${hist}</p>` : '');
       document.getElementById('lv-guest').classList.toggle('hidden', !!currentUser);
       const bal = document.getElementById('lv-balance');
       bal.classList.toggle('hidden', !(currentUser && wallet));
       if (wallet) bal.querySelector('span').innerText = fmtPts(wallet.balance);
       renderLiveMarkets();
+      renderDuels();
     }
 
     function renderLiveMarkets() {
@@ -3667,7 +3758,7 @@
             ${mk.items.filter(i => (i.group || 'Palpites') === g).map(i => `
               <button onclick="openPalpite(${escapeHtml(JSON.stringify(i.key))})" class="card-flat p-2.5 text-left active:scale-[0.97] transition min-w-0">
                 <span class="block text-[12.5px] font-semibold leading-tight truncate">${escapeHtml(i.label)}</span>
-                <span class="block font-serif text-[22px] text-pitch leading-tight mt-0.5">x${Number(i.odd).toFixed(2).replace('.', ',')}</span>
+                <span class="flex items-baseline justify-between gap-1 mt-0.5"><span class="font-serif text-[22px] text-pitch leading-tight">x${Number(i.odd).toFixed(2).replace('.', ',')}</span>${i.pct ? `<span class="text-[11px] font-semibold text-ink-3">${i.pct < 1 ? '<1' : i.pct}%</span>` : ''}</span>
               </button>`).join('')}
           </div>
         </div>`).join('');
@@ -3767,6 +3858,209 @@
       }
     }
 
+    /* ---- Desafio 1v1 ----
+       Two people put the same points on opposite sides; the server holds both stakes and
+       pays the winner when the organizer closes the match. */
+    let duelDraft = null;
+    const DUEL_STATUS = {
+      won: r => `<span class="text-leaf font-extrabold">+${fmtPts(r.stake * 2)}</span>`,
+      lost: () => '<span class="text-ink-3 font-bold">Perdeu</span>',
+      push: () => '<span class="text-ink-2 font-bold">Empate · devolvido</span>',
+      void: () => '<span class="text-ink-2 font-bold">Devolvido</span>',
+      declined: r => `<span class="text-ink-2 font-bold">${r.mine_is_challenger ? 'Recusado' : 'Você recusou'}</span>`,
+      canceled: () => '<span class="text-ink-3 font-bold">Cancelado</span>'
+    };
+    const duelOutcome = r => r.status === 'won_c' ? (r.mine_is_challenger ? 'won' : 'lost') : r.status === 'won_o' ? (r.mine_is_challenger ? 'lost' : 'won') : r.status;
+
+    function duelAllowed() {
+      const d = liveView && liveView.data;
+      return !!(d && currentUser && d.palpites && !d.is_owner && d.markets && !liveView.duelOff);
+    }
+
+    async function loadMyDuels() {
+      if (!liveView || !liveView.data || !currentUser || liveView.duelOff) return;
+      try {
+        const rows = (await api.myChallenges(liveView.data.id)) || [];
+        if (!liveView) return;
+        const seen = liveView.duelSeen;
+        if (seen) {
+          const incoming = rows.filter(r => r.status === 'pending' && !r.mine_is_challenger && !seen.has(r.id + ':pending'));
+          const won = rows.filter(r => duelOutcome(r) === 'won' && !seen.has(r.id + ':won'));
+          if (incoming.length) { showToast(`${incoming[0].other_name} te desafiou! Veja em Desafio 1v1.`); try { navigator.vibrate && navigator.vibrate(30); } catch (e) {} }
+          else if (won.length) { showToast(`Desafio ganho! +${fmtPts(won.reduce((s, r) => s + r.stake * 2, 0))} pontos`); refreshWallet().then(() => liveView && renderLive()); }
+        }
+        liveView.duelSeen = new Set(rows.map(r => r.id + ':' + (duelOutcome(r) === 'won' ? 'won' : r.status)));
+        liveView.duels = rows;
+        renderDuels();
+      } catch (e) {
+        if (isMissingFn(e)) { liveView.duelOff = true; renderDuels(); }
+      }
+    }
+
+    function renderDuels() {
+      const box = document.getElementById('lv-duel');
+      if (!box) return;
+      const ok = duelAllowed();
+      box.classList.toggle('hidden', !ok);
+      if (!ok) return;
+      const open = !!(liveView.data.markets && liveView.data.markets.open);
+      const btn = document.getElementById('lv-duel-btn');
+      btn.disabled = !open;
+      btn.innerHTML = open ? '<i class="fa-solid fa-hand-fist mr-1"></i> Desafiar alguém' : 'Abre junto com os palpites';
+      // Someone who cancels before you answer doesn't need to show up on your list.
+      const rows = (liveView.duels || []).filter(r => !(r.status === 'canceled' && !r.mine_is_challenger)).slice(0, 8);
+      document.getElementById('lv-duels').innerHTML = rows.length ? `<div class="divide-y divide-ink/[0.07] -mx-1">${rows.map(r => {
+        const o = duelOutcome(r);
+        const who = escapeHtml(r.other_name || '?');
+        const head = r.status === 'pending'
+          ? (r.mine_is_challenger ? `Esperando <b>${who}</b> aceitar` : `<b>${who}</b> te desafiou`)
+          : `Você × <b>${who}</b>`;
+        const right = r.status === 'pending'
+          ? (r.mine_is_challenger
+              ? `<button onclick="cancelDuel(${r.id})" class="h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink-2">Cancelar</button>`
+              : `<span class="flex gap-1.5"><button onclick="answerDuel(${r.id}, false)" class="h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink-2">Recusar</button><button onclick="answerDuel(${r.id}, true)" class="h-8 px-3 rounded-full bg-pitch text-butter text-[12px] font-extrabold">Aceitar</button></span>`)
+          : r.status === 'accepted' ? `<span class="text-[12px] font-extrabold text-pitch">Valendo ${fmtPts(r.stake * 2)}</span>`
+          : (DUEL_STATUS[o] || DUEL_STATUS.void)(r);
+        return `<div class="px-1 py-2.5 flex items-center justify-between gap-3">
+          <div class="min-w-0 text-[13px] leading-snug">
+            <p class="truncate">P${r.match_no} · ${head} · ${fmtPts(r.stake)} pts</p>
+            <p class="text-[12px] text-ink-2 truncate">Você: ${escapeHtml(r.my_label)} · ${who.split(' ')[0]}: ${escapeHtml(r.their_label)}</p>
+          </div>
+          <div class="flex-shrink-0">${right}</div>
+        </div>`;
+      }).join('')}</div>` : '';
+    }
+
+    async function openDuel() {
+      if (!duelAllowed()) return;
+      const s = liveView.data.state || {};
+      if (!s.A || !s.B) return;
+      duelDraft = { opp: null, oppName: '', kind: 'vencedor', pick: null, pickO: null, stake: 25, people: null };
+      document.getElementById('duel-error').classList.add('hidden');
+      document.getElementById('modal-duel').classList.remove('hidden');
+      renderDuel();
+      try { duelDraft.people = (await api.challengeCandidates(liveView.data.id)) || []; }
+      catch (e) { duelDraft.people = []; }
+      if (duelDraft) renderDuel();
+    }
+    function closeDuel() { document.getElementById('modal-duel').classList.add('hidden'); duelDraft = null; }
+
+    function duelSides() {
+      const s = (liveView && liveView.data && liveView.data.state) || {};
+      return { A: s.A || { label: 'Time A', names: [] }, B: s.B || { label: 'Time B', names: [] } };
+    }
+
+    function renderDuel() {
+      if (!duelDraft) return;
+      const d = duelDraft, { A, B } = duelSides();
+      const chip = (on, label, call, extra = '') => `<button onclick="${call}" class="chip ${on ? 'is-selected' : ''} ${extra}">${label}</button>`;
+      const people = d.people === null
+        ? '<p class="text-[13px] text-ink-2">Procurando quem está no jogo...</p>'
+        : !d.people.length
+          ? '<div class="card-flat p-3 flex items-center gap-3"><img src="babinha/shhh.webp" alt="" class="w-11 h-11 object-contain flex-shrink-0" /><p class="text-[13px] text-ink-2 leading-snug">Ninguém pra desafiar ainda. Aparece aqui quem mandou mensagem no chat do jogo, quem palpitou ou quem é da turma (maiores de 18).</p></div>'
+          : `<div class="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">${d.people.map(p => `
+              <button onclick="duelSet('opp', ${escapeHtml(JSON.stringify(p.id))})" class="flex-shrink-0 w-[76px] rounded-2xl p-2 border ${d.opp === p.id ? 'border-pitch bg-pitch/10' : 'border-ink/10 bg-card'} flex flex-col items-center gap-1">
+                ${framedAvatar(p.avatar, p.name, 'w-11 h-11 text-[13px]', p.cosmetics)}
+                <span class="text-[11.5px] font-bold leading-tight w-full truncate text-center">${escapeHtml(String(p.name || '?').split(' ')[0])}</span>
+              </button>`).join('')}</div>`;
+      const other = d.oppName ? escapeHtml(d.oppName.split(' ')[0]) : 'O outro';
+      let picks = '';
+      if (d.kind === 'vencedor') {
+        picks = `<div><span class="label">Você aposta em</span><div class="grid grid-cols-2 gap-2">
+          ${['A', 'B'].map(t => `<button onclick="duelSet('pick', '${t}')" class="h-12 rounded-xl border text-[14px] font-extrabold truncate px-2 ${d.pick === t ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15'}">${escapeHtml((t === 'A' ? A : B).label)} vence</button>`).join('')}
+        </div>${d.pick ? `<p class="text-[12.5px] text-ink-2 mt-1.5">${other} fica com ${escapeHtml((d.pick === 'A' ? B : A).label)}. Empate devolve os pontos.</p>` : ''}</div>`;
+      } else {
+        const names = [...A.names, ...B.names];
+        const list = (field, skip) => `<div class="flex flex-wrap gap-1.5">${names.filter(n => n !== skip).map(n => chip(d[field] === n, escapeHtml(n), `duelSet('${field}', ${escapeHtml(JSON.stringify(n))})`, 'max-w-full truncate')).join('')}</div>`;
+        picks = `<div><span class="label">Seu jogador (vai fazer mais gols)</span>${list('pick', null)}</div>
+          <div><span class="label">Jogador de ${other}</span>${list('pickO', d.pick)}</div>
+          <p class="text-[12.5px] text-ink-2 -mt-2">Conta os gols nesta partida. Mesmo número de gols (até 0 a 0) devolve.</p>`;
+      }
+      const bal = wallet ? wallet.balance : 0;
+      document.getElementById('duel-body').innerHTML = `
+        <div><span class="label">Contra quem?</span>${people}</div>
+        <div><span class="label">Sobre o quê?</span><div class="grid grid-cols-2 gap-2">
+          ${[['vencedor', 'Quem vence'], ['gols', 'Quem faz mais gols']].map(([k, l]) => `<button onclick="duelSet('kind', '${k}')" class="h-11 rounded-xl border text-[13.5px] font-bold ${d.kind === k ? 'bg-ink text-paper border-ink' : 'bg-card border-ink/15'}">${l}</button>`).join('')}
+        </div></div>
+        ${picks}
+        <div><span class="label">Quantos pontos cada um?</span><div class="grid grid-cols-5 gap-1.5">${STAKES.map(v => `
+          <button onclick="duelSet('stake', ${v})" ${v > bal ? 'disabled' : ''} class="h-11 rounded-xl border text-[14px] font-extrabold transition disabled:opacity-30 ${d.stake === v ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'}">${v}</button>`).join('')}</div>
+          <p class="text-[13px] text-ink-2 mt-2">Se você acertar, leva <b class="text-pitch font-serif text-[17px]">${fmtPts(d.stake * 2)}</b> pontos. Se ${d.oppName ? other + ' não aceitar' : 'ninguém aceitar'}, seus pontos voltam.</p></div>`;
+      document.getElementById('btn-duel').disabled = !duelReady();
+    }
+
+    function duelReady() {
+      const d = duelDraft;
+      return !!(d && d.opp && d.pick && (d.kind === 'vencedor' || (d.pickO && d.pickO !== d.pick)) && wallet && wallet.balance >= d.stake);
+    }
+
+    function duelSet(field, v) {
+      if (!duelDraft) return;
+      const d = duelDraft;
+      if (field === 'opp') { d.opp = v; const p = (d.people || []).find(x => x.id === v); d.oppName = p ? p.name : ''; }
+      else if (field === 'kind') { if (d.kind !== v) { d.kind = v; d.pick = null; d.pickO = null; } }
+      else if (field === 'pick') { d.pick = v; if (d.pickO === v) d.pickO = null; }
+      else d[field] = v;
+      document.getElementById('duel-error').classList.add('hidden');
+      renderDuel();
+    }
+
+    async function sendDuel() {
+      if (!duelReady() || !liveView || !liveView.data) return;
+      const d = duelDraft, { A, B } = duelSides();
+      let pc, po, lc, lo;
+      if (d.kind === 'vencedor') {
+        pc = d.pick; po = d.pick === 'A' ? 'B' : 'A';
+        lc = `${(pc === 'A' ? A : B).label} vence`; lo = `${(po === 'A' ? A : B).label} vence`;
+      } else {
+        pc = d.pick; po = d.pickO;
+        lc = `${pc} faz mais gols`; lo = `${po} faz mais gols`;
+      }
+      const btn = document.getElementById('btn-duel');
+      setBusy(btn, true, 'Enviando...');
+      try {
+        await api.createChallenge(liveView.data.id, d.opp, d.kind, pc, po, lc.slice(0, 80), lo.slice(0, 80), d.stake);
+        const name = d.oppName.split(' ')[0];
+        closeDuel();
+        showToast(`Desafio enviado. Agora é com ${name}.`);
+        await refreshWallet();
+        if (liveView) { renderLive(); loadMyDuels(); }
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showErr('duel-error', isNetworkError(e) ? 'Sem internet agora.'
+          : m.includes('closed') ? 'Os palpites dessa partida acabaram de fechar.'
+          : m.includes('no_points') ? 'Faltam pontos. Pegue o bônus do dia na lojinha.'
+          : m.includes('limit') ? 'Máximo de 3 desafios seus por partida.'
+          : m.includes('opponent_not_allowed') ? 'Essa pessoa não pode receber desafios agora.'
+          : m.includes('bad_pick') ? 'Esse jogador não está mais em quadra. Escolha de novo.'
+          : m.includes('adult_only') ? 'Desafios são só para maiores de 18.'
+          : 'Não deu certo. Tente de novo.');
+      } finally {
+        if (document.body.contains(btn)) { setBusy(btn, false); btn.disabled = !duelReady(); }
+      }
+    }
+
+    async function answerDuel(id, accept) {
+      const r = (liveView && liveView.duels || []).find(x => x.id === id);
+      if (!r) return;
+      if (accept && !(await askConfirm(`Aceitar o desafio de ${r.other_name}? Você põe ${fmtPts(r.stake)} pontos em "${r.my_label}". Se acertar, leva ${fmtPts(r.stake * 2)}.`, 'Aceitar'))) return;
+      try {
+        await api.respondChallenge(id, accept);
+        showToast(accept ? 'Desafio aceito. Valendo!' : 'Desafio recusado. Os pontos voltaram pra quem desafiou.');
+        await refreshWallet();
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showToast(isNetworkError(e) ? 'Sem internet agora.' : m.includes('closed') ? 'Tarde demais: os palpites dessa partida fecharam.' : m.includes('no_points') ? 'Faltam pontos pra aceitar.' : m.includes('already') ? 'Esse desafio já foi respondido.' : 'Não deu certo. Tente de novo.');
+      }
+      if (liveView) { renderLive(); loadMyDuels(); }
+    }
+
+    async function cancelDuel(id) {
+      try { await api.cancelChallenge(id); showToast('Desafio cancelado. Seus pontos voltaram.'); await refreshWallet(); }
+      catch (e) { showToast(isNetworkError(e) ? 'Sem internet agora.' : 'Já foi respondido.'); }
+      if (liveView) { renderLive(); loadMyDuels(); }
+    }
+
     /* ===================================================================
        CHAT (turma e jogo ao vivo)
        =================================================================== */
@@ -3777,12 +4071,32 @@
     }
 
     /* opts: { room, live: { code } | null, canModerate: () => bool, canPost: () => bool } */
+    /* Chat emotes: Babinha stickers travel as ":bb:<pose>:" and show as a picture. */
+    const STICKERS = ['siuu', 'aidentro', 'dancinha', 'champion', 'aura', 'ney', 'messi', 'arrogante', 'carretilha', 'bike', 'chute', 'calculante',
+      'happy', 'wink', 'wave', 'run', 'side', 'coach', 'money', 'shhh', 'rezando', 'tired', 'worried', 'scared', 'red'];
+    const CHAT_EMOJIS = ['⚽', '🥅', '🧤', '🔥', '💪', '👏', '🙌', '😂', '🤣', '😅', '😎', '🤩', '🥳', '😤', '😡', '😭', '😱', '🤯', '🫡', '🤝', '👊', '✌️', '🙏', '👀',
+      '💯', '🏆', '🥇', '⭐', '✨', '⚡', '💥', '🎯', '🚀', '🧱', '🐐', '👑', '🍿', '🤡', '💀', '🫠', '🤌', '🤙', '👍', '👎', '❤️', '💚', '💛', '🟥'];
+    const stickerOf = body => { const m = /^:bb:([a-z]+):$/.exec(String(body || '').trim()); return m && STICKERS.includes(m[1]) ? m[1] : null; };
+    // Only emojis (up to 3): shown big, without the bubble.
+    const bigEmoji = body => { const t = String(body || '').trim(); return t.length <= 16 && /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\u200d|\ufe0f|\s)+$/u.test(t) && !/^[\d#*\s]+$/.test(t) && [...t.replace(/\s/g, '')].filter(c => /\p{Extended_Pictographic}/u.test(c)).length <= 3; };
+    function chatEmotePanel(tab) {
+      return `
+        <div class="seg grid-cols-2 mb-2">
+          <button type="button" onclick="chatEmoteTab(this, 'bb')" class="seg-btn !py-1.5 ${tab === 'bb' ? 'is-selected' : ''}">Babinha</button>
+          <button type="button" onclick="chatEmoteTab(this, 'em')" class="seg-btn !py-1.5 ${tab === 'em' ? 'is-selected' : ''}">Emojis</button>
+        </div>
+        ${tab === 'bb'
+          ? `<div class="grid grid-cols-5 gap-1.5">${STICKERS.map(k => `<button type="button" onclick="chatSendSticker(this, '${k}')" class="aspect-square rounded-xl bg-card border border-ink/[0.07] p-1 active:scale-90 transition" aria-label="Babinha ${k}"><img src="babinha/${k}.webp" alt="" class="w-full h-full object-contain" loading="lazy" /></button>`).join('')}</div>`
+          : `<div class="grid grid-cols-8 gap-1">${CHAT_EMOJIS.map(e => `<button type="button" onclick="chatAddEmoji(this, '${e}')" class="h-10 rounded-xl text-[22px] active:scale-90 transition">${e}</button>`).join('')}</div>`}`;
+    }
+
     function mountChat(container, opts) {
       const msgs = new Map();
       let lastId = 0, stopRT = null, timer = null, open = null;
       container.innerHTML = `
         <div class="chat-list"><p class="text-[13px] text-ink-2 text-center py-6 chat-empty">Carregando...</p></div>
-        ${opts.canPost() ? `<form class="chat-input" onsubmit="event.preventDefault();">
+        ${opts.canPost() ? `<div class="chat-emotes hidden"></div><form class="chat-input" onsubmit="event.preventDefault();">
+          <button type="button" onclick="chatToggleEmotes(this)" class="btn-icon !w-11 !h-11 !rounded-full flex-shrink-0" aria-label="Emotes"><i class="fa-solid fa-face-smile text-[16px]"></i></button>
           <input maxlength="500" class="field !py-2.5 !rounded-full" placeholder="Mensagem" enterkeyhint="send" autocomplete="off" />
           <button class="btn-primary w-11 h-11 flex-shrink-0" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i></button>
         </form>` : `<p class="chat-input text-[13px] text-ink-2 justify-center">${currentUser ? 'Aceite os termos para conversar.' : 'Entre na sua conta para conversar.'}</p>`}`;
@@ -3810,7 +4124,10 @@
               <div class="min-w-0">
                 ${head ? `<p class="chat-meta">${styledName(who.name || '?', who.cosmetics)}</p>` : ''}
                 <div class="flex items-end gap-1 ${me ? 'flex-row-reverse' : ''}">
-                  <div class="chat-bubble ${m.deleted ? 'chat-del' : ''}">${m.deleted ? 'Mensagem apagada' : escapeHtml(m.body)}</div>
+                  ${m.deleted ? '<div class="chat-bubble chat-del">Mensagem apagada</div>'
+                    : stickerOf(m.body) ? `<img src="babinha/${stickerOf(m.body)}.webp" alt="Babinha" class="chat-sticker" />`
+                    : bigEmoji(m.body) ? `<div class="chat-jumbo">${escapeHtml(m.body)}</div>`
+                    : `<div class="chat-bubble">${escapeHtml(m.body)}</div>`}
                   ${m.deleted ? '' : `<button onclick="chatToggle(this, ${m.id})" class="w-6 h-6 text-ink-3 text-[11px] flex-shrink-0" aria-label="Opções"><i class="fa-solid fa-ellipsis"></i></button>`}
                 </div>
                 <p class="text-[10px] text-ink-3 mt-0.5 ${me ? 'text-right' : ''}">${time}</p>
@@ -3836,7 +4153,11 @@
           if (!msgs.size) list.innerHTML = `<p class="text-[13px] text-ink-2 text-center py-6">${isNetworkError(e) ? 'O chat precisa de internet.' : 'Não consegui abrir o chat.'}</p>`;
         }
       };
-      container.__chat = { reload: () => load(true), toggle: id => { open = open === id ? null : id; render(); } };
+      const send = async body => {
+        await api.chatSend(opts.room, body);
+        await load();
+      };
+      container.__chat = { reload: () => load(true), toggle: id => { open = open === id ? null : id; render(); }, send };
 
       if (form) {
         const input = form.querySelector('input');
@@ -3862,6 +4183,30 @@
     }
 
     function chatToggle(btn, id) { const box = btn.closest('.chat-box'); if (box && box.__chat) box.__chat.toggle(id); }
+    function chatToggleEmotes(btn) {
+      const box = btn.closest('.chat-box');
+      const panel = box && box.querySelector('.chat-emotes');
+      if (!panel) return;
+      const show = panel.classList.contains('hidden');
+      if (show && !panel.innerHTML) panel.innerHTML = chatEmotePanel('bb');
+      panel.classList.toggle('hidden', !show);
+    }
+    function chatEmoteTab(btn, tab) { const panel = btn.closest('.chat-emotes'); if (panel) panel.innerHTML = chatEmotePanel(tab); }
+    function chatAddEmoji(btn, e) {
+      const input = btn.closest('.chat-box').querySelector('.chat-input input');
+      if (!input) return;
+      input.value = (input.value + e).slice(0, 500);
+    }
+    async function chatSendSticker(btn, k) {
+      const box = btn.closest('.chat-box');
+      if (!box || !box.__chat) return;
+      box.querySelector('.chat-emotes').classList.add('hidden');
+      try { await box.__chat.send(`:bb:${k}:`); }
+      catch (e) {
+        const m = String((e && e.message) || '');
+        showToast(isNetworkError(e) ? 'Sem internet: o Babinha não foi.' : m.includes('slow_down') ? 'Calma, craque: espera uns segundinhos.' : 'Não consegui mandar.', 'warning');
+      }
+    }
     async function chatAction(btn, kind, id) {
       const box = btn.closest('.chat-box');
       if (kind === 'report') {
@@ -3969,14 +4314,17 @@
     /* ===================================================================
        HELPERS
        =================================================================== */
-    const teamSize = () => FORMAT_SIZES[state.match.gameFormat] || 5;
+    const lineSize = () => Math.min(12, Math.max(1, Number(state.match.lineSize) || 4));
+    const keeperMode = () => KEEPER_MODES[state.settings.keeperMode] ? state.settings.keeperMode : 'time';
+    const teamSize = () => lineSize() + (keeperMode() === 'time' ? 1 : 0);
+    const formatLabel = () => `${lineSize()}v${lineSize()} · ${KEEPER_MODES[keeperMode()]}`;
     // Titles follow the player: artilheiro/artilheira, garçom/garçonete, paredão/paredona.
     const TITLES = { goals: ['Artilheiro', 'Artilheira'], assists: ['Garçom', 'Garçonete'], saves: ['Paredão', 'Paredona'] };
     const titleFor = (k, p) => TITLES[k][p && p.female ? 1 : 0];
-    // Line-only formats (4, 7, 11): goalkeepers are not part of the teams.
-    const fixedKeepers = () => !!FIXED_KEEPER_FORMATS[state.match.gameFormat];
-    const keeperFromQueue = () => fixedKeepers() && state.settings.keeperMode === 'fila';
-    const isFixedKeeper = p => !!(p && p.isGoalkeeper && fixedKeepers() && !keeperFromQueue());
+    // Goalkeepers apart from the teams (fixed or from the line).
+    const fixedKeepers = () => keeperMode() === 'fixo' || keeperMode() === 'fila';
+    const keeperFromQueue = () => keeperMode() === 'fila';
+    const isFixedKeeper = p => !!(p && p.isGoalkeeper && keeperMode() === 'fixo');
     // "Goleiro da fila": the first two waiting go in goal (A, B) and keep their place in line.
     const queueKeepers = () => keeperFromQueue() ? state.queue.slice(0, 2) : [];
     const fixedKeeperList = () => fixedKeepers() && !keeperFromQueue() ? state.players.filter(p => p.present && p.isGoalkeeper).sort((a, b) => (a.arrival || 0) - (b.arrival || 0)) : [];
@@ -4142,9 +4490,81 @@
       badge.classList.toggle('flex', !!m.isRunning);
     }
 
+    /* ===================================================================
+       DIA, HORA E CLIMA (Início)
+       The weather comes from Open-Meteo (free, no account) using the phone's
+       location, only after the person taps to allow it. The rounded position
+       stays on this phone.
+       =================================================================== */
+    const WEATHER_KEY = 'baba_weather_v1';
+    const WMO = [
+      [[0], 'Céu limpo', 'fa-sun', 'fa-moon'], [[1, 2], 'Poucas nuvens', 'fa-cloud-sun', 'fa-cloud-moon'], [[3], 'Nublado', 'fa-cloud', 'fa-cloud'],
+      [[45, 48], 'Neblina', 'fa-smog', 'fa-smog'], [[51, 53, 55, 56, 57], 'Garoa', 'fa-cloud-rain', 'fa-cloud-rain'],
+      [[61, 63, 65, 66, 67], 'Chuva', 'fa-cloud-showers-heavy', 'fa-cloud-showers-heavy'], [[71, 73, 75, 77, 85, 86], 'Neve', 'fa-snowflake', 'fa-snowflake'],
+      [[80, 81, 82], 'Pancadas de chuva', 'fa-cloud-showers-heavy', 'fa-cloud-showers-heavy'], [[95, 96, 99], 'Trovoada', 'fa-cloud-bolt', 'fa-cloud-bolt']
+    ];
+    let weatherBusy = false;
+    const readWeather = () => { try { return JSON.parse(lsGet(WEATHER_KEY) || 'null'); } catch (e) { return null; } };
+    function renderClock() {
+      const now = new Date();
+      const dateTxt = now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+      const el = document.getElementById('home-date');
+      if (el) el.innerText = `${dateTxt.charAt(0).toUpperCase() + dateTxt.slice(1)} · ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    function renderWeather() {
+      const box = document.getElementById('home-weather');
+      if (!box) return;
+      const w = readWeather();
+      if (!w || !w.lat) {
+        box.innerHTML = `<button onclick="askWeather()" class="weather-chip"><i class="fa-solid fa-cloud-sun text-pitch"></i> Ver o clima</button>`;
+        return;
+      }
+      if (w.denied) {
+        box.innerHTML = `<button onclick="askWeather()" class="weather-chip text-ink-2"><i class="fa-solid fa-location-crosshairs"></i> Clima sem localização</button>`;
+        return;
+      }
+      if (w.temp == null) { box.innerHTML = `<span class="weather-chip text-ink-2"><i class="fa-solid fa-spinner fa-spin"></i> Clima</span>`; return; }
+      const row = WMO.find(r => r[0].includes(w.code)) || WMO[2];
+      const rain = w.rain != null && w.rain >= 20 ? ` · <i class="fa-solid fa-umbrella text-[11px]"></i> ${w.rain}%` : '';
+      box.innerHTML = `<button onclick="refreshWeather(true)" class="weather-chip" title="${escapeHtml(row[1])} · atualizado ${new Date(w.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}" aria-label="${escapeHtml(`${Math.round(w.temp)} graus, ${row[1]}`)}"><i class="fa-solid ${w.isDay === 0 ? row[3] : row[2]} text-pitch"></i> ${Math.round(w.temp)}° <span class="font-semibold text-ink-2">${escapeHtml(row[1])}${rain}</span></button>`;
+    }
+    function askWeather() {
+      if (!navigator.geolocation) { showToast('Este celular não informa a localização.', 'warning'); return; }
+      showToast('Pra mostrar o clima daí, o BABA pede sua localização. Ela fica só no celular.');
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = Math.round(pos.coords.latitude * 100) / 100, lon = Math.round(pos.coords.longitude * 100) / 100;
+        lsSet(WEATHER_KEY, JSON.stringify({ lat, lon, at: 0 }));
+        renderWeather();
+        refreshWeather(true);
+      }, () => {
+        lsSet(WEATHER_KEY, JSON.stringify({ lat: 1, denied: true }));
+        renderWeather();
+        showToast('Sem a localização não dá pra ver o clima. Dá pra liberar nas configurações do navegador.', 'warning');
+      }, { maximumAge: 30 * 60000, timeout: 15000 });
+    }
+    async function refreshWeather(force) {
+      const w = readWeather();
+      if (!w || !w.lat || w.denied || weatherBusy) { if (w && w.denied && force) askWeather(); return; }
+      if (!force && w.at && Date.now() - w.at < 20 * 60000) return;
+      if (navigator.onLine === false) return;
+      weatherBusy = true;
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${w.lat}&longitude=${w.lon}&current=temperature_2m,weather_code,is_day&hourly=precipitation_probability&forecast_hours=2&timezone=auto`;
+        const res = await fetch(url);
+        const d = await res.json();
+        if (d && d.current) {
+          const rain = d.hourly && Array.isArray(d.hourly.precipitation_probability) ? Math.max(...d.hourly.precipitation_probability.filter(x => x != null)) : null;
+          lsSet(WEATHER_KEY, JSON.stringify({ lat: w.lat, lon: w.lon, at: Date.now(), temp: d.current.temperature_2m, code: d.current.weather_code, isDay: d.current.is_day, rain: isFinite(rain) ? rain : null }));
+        }
+      } catch (e) {}
+      weatherBusy = false;
+      renderWeather();
+    }
+
     function renderHome() {
-      const dateTxt = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
-      document.getElementById('home-date').innerText = dateTxt.charAt(0).toUpperCase() + dateTxt.slice(1);
+      renderClock();
+      renderWeather();
+      refreshWeather(false);
       document.getElementById('home-hello').innerText = greeting();
       document.getElementById('home-name').innerText = (currentUser ? firstName(currentUser.name) : 'craque') + '.';
 
@@ -4268,6 +4688,8 @@
           <div class="card p-4 grid grid-cols-5 gap-1">
             ${cell(mine.babas, mine.babas === 1 ? 'baba' : 'babas')}${cell(mine.matches, 'jogos')}${cell(mine.goals, 'gols')}${cell(mine.assists, 'assist.')}${cell(mine.wins, 'vitórias')}
           </div>
+          ${mine.live ? '<p class="text-[12px] text-ink-2 mt-2 px-1 flex items-center gap-1.5"><span class="live-dot"></span> Inclui o baba que está rolando agora.</p>'
+            : !mine.babas ? '<p class="text-[12px] text-ink-2 mt-2 px-1">Seus números entram assim que quem organiza marcar seus jogos e gols.</p>' : ''}
         </section>`;
     }
 
@@ -4324,7 +4746,7 @@
       return {
         id: null, name, isGoalkeeper: !!(t && t.keepers.some(k => sameName(k, name))),
         female: !!(t && (t.women || []).some(k => sameName(k, name))), jumped: false,
-        goals: 0, assists: 0, saves: 0, matches: 0, wins: 0,
+        goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, penGoals: 0, penMisses: 0, penSaves: 0,
         present: false, arrival: null, arrivedAt: null, turmaId: turmaId || null
       };
     }
@@ -4894,7 +5316,7 @@
        has none, the first goalkeeper waiting further back is pulled in
        (the last line player taken goes back to the front of the line). */
     function takeFrom(queue, n, teamHasKeeper = false) {
-      const balance = state.settings.keeperBalance && !fixedKeepers();
+      const balance = state.settings.keeperBalance && keeperMode() === 'time';
       const team = [];
       const rest = [];
       let hasKeeper = teamHasKeeper;
@@ -5011,9 +5433,8 @@
       document.getElementById('set-keeper').checked = !!state.settings.keeperBalance;
       document.getElementById('set-order').value = state.settings.queueOrder || 'chegada';
       document.getElementById('set-late').value = String(state.settings.lateAfter || 0);
-      document.getElementById('set-gk-mode').value = state.settings.keeperMode || 'fixo';
-      document.getElementById('set-keeper-row').classList.toggle('hidden', fixedKeepers());
-      document.getElementById('set-gk-mode-row').classList.toggle('hidden', !fixedKeepers());
+      document.getElementById('set-gk-mode').value = keeperMode();
+      document.getElementById('set-keeper-row').classList.toggle('hidden', keeperMode() !== 'time');
 
       const size = teamSize();
       const box = document.getElementById('court-manager');
@@ -5062,12 +5483,16 @@
             <p class="text-[14px] font-bold text-ink">${presentPlayers().length ? `${state.queue.length} na fila, ninguém em quadra` : 'Ninguém chegou ainda'}</p>
             <p class="text-[12px] text-ink-2">${presentPlayers().length ? 'Os times saem na ordem de chegada.' : 'Marque a chegada na aba Lista.'}</p>
             ${presentPlayers().length
-              ? `<button onclick="buildTeams()" class="btn-primary w-full h-12 text-[14px]">Montar times pela ordem de chegada</button>`
+              ? `<button onclick="buildTeams()" class="btn-primary w-full h-12 text-[14px]">Montar times pela ordem de chegada</button>
+                 <button onclick="openManualTeams()" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand-pointer"></i> Escolher os times na mão</button>`
               : `<button onclick="switchTab('ficha')" class="btn-primary w-full h-12 text-[14px]">Abrir lista de chegada</button>`}
           </div>`;
       } else {
         html = teamCard('A') + teamCard('B') + `
-          <button onclick="disbandCourt()" class="w-full py-2.5 text-[12px] font-bold text-ink-2 flex items-center justify-center gap-1.5"><i class="fa-solid fa-rotate-left"></i> Desfazer times e voltar pra fila</button>`;
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="openManualTeams()" class="btn-outline h-10 text-[12px]"><i class="fa-solid fa-hand-pointer"></i> Mexer nos times</button>
+            <button onclick="disbandCourt()" class="btn-soft h-10 text-[12px]"><i class="fa-solid fa-rotate-left"></i> Desfazer times</button>
+          </div>`;
       }
       box.innerHTML = html;
 
@@ -5136,7 +5561,7 @@
       const { side, outId, dest } = subContext;
       const t = state.court[side];
       document.getElementById('modal-sub-title').innerText = `Sai: ${nameOf(outId)}`;
-      document.getElementById('modal-sub-subtitle').innerText = `Time ${t.label} · cansou, machucou ou foi embora`;
+      document.getElementById('modal-sub-subtitle').innerText = `Time ${t.label} · cansou, machucou, foi embora ou troca de time`;
 
       const opts = [
         ['swap', 'Fica no lugar de quem entrar'],
@@ -5158,10 +5583,88 @@
             <i class="fa-solid fa-right-left text-pitch/50 flex-shrink-0"></i>
           </button>`;
       }).join('');
+      const otherSide = side === 'A' ? 'B' : 'A';
+      const other = state.court[otherSide];
+      const swaps = other ? other.ids.map(id => `
+          <button onclick="swapBetweenTeams(${id})" class="pick-btn">
+            <span class="min-w-0">
+              <span class="block truncate">${escapeHtml(nameOf(id))}</span>
+              <span class="block text-[11px] font-semibold text-ink-2">Time ${escapeHtml(other.label)} · troca de time com ${escapeHtml(firstName(nameOf(outId)))}</span>
+            </span>
+            <i class="fa-solid fa-arrows-rotate text-pitch/50 flex-shrink-0"></i>
+          </button>`).join('') : '';
       list.innerHTML = (items || '<p class="text-[12px] text-ink-2 italic pb-1">Ninguém na fila para entrar.</p>') + `
         <button onclick="applySub(null)" class="pick-btn !text-ink-2 !font-semibold">
           <span>Ninguém entra (time fica com um a menos)</span>
-        </button>`;
+        </button>` + (swaps ? `<p class="section-tag">Trocar com o outro time</p>${swaps}` : '');
+    }
+
+    /* Two players switch teams; nobody goes to the line. */
+    function swapBetweenTeams(otherId) {
+      if (!subContext) return;
+      const { side, outId } = subContext;
+      const a = state.court[side], b = state.court[side === 'A' ? 'B' : 'A'];
+      const i = a ? a.ids.indexOf(outId) : -1, j = b ? b.ids.indexOf(otherId) : -1;
+      if (i < 0 || j < 0) return closeSubModal();
+      a.ids[i] = otherId;
+      b.ids[j] = outId;
+      closeSubModal();
+      commit(`${nameOf(outId)} foi pro Time ${b.label} e ${nameOf(otherId)} pro Time ${a.label}.`);
+    }
+
+    /* ---- Montar os times na mão: each present player goes to A, B or the line ---- */
+    let manualPick = null;
+    function openManualTeams() {
+      const present = presentPlayers();
+      if (!present.length) { showToast('Marque quem chegou na Lista primeiro.', 'warning'); switchTab('ficha'); return; }
+      manualPick = new Map();
+      const { A, B } = state.court;
+      present.forEach(p => manualPick.set(p.id, A && A.ids.includes(p.id) ? 'A' : B && B.ids.includes(p.id) ? 'B' : 'Q'));
+      renderManualTeams();
+      document.getElementById('modal-manual').classList.remove('hidden');
+    }
+    function closeManualTeams() { manualPick = null; document.getElementById('modal-manual').classList.add('hidden'); }
+    function setManual(id, where) { if (manualPick) { manualPick.set(id, where); renderManualTeams(); } }
+    function renderManualTeams() {
+      const order = [...(state.court.A ? state.court.A.ids : []), ...(state.court.B ? state.court.B.ids : []), ...state.queue];
+      const ids = [...manualPick.keys()].sort((x, y) => order.indexOf(x) - order.indexOf(y));
+      const count = w => [...manualPick.values()].filter(v => v === w).length;
+      const size = teamSize();
+      document.getElementById('manual-count').innerHTML =
+        `<span class="${count('A') > size ? 'text-warn' : ''}">Time A: ${count('A')}/${size}</span> · <span class="${count('B') > size ? 'text-warn' : ''}">Time B: ${count('B')}/${size}</span> · Fila: ${count('Q')}`;
+      document.getElementById('manual-list').innerHTML = ids.map(id => {
+        const w = manualPick.get(id);
+        const b = (v, label) => `<button onclick="setManual(${id}, '${v}')" class="seg-btn !py-1.5 ${w === v ? 'is-selected' : ''}">${label}</button>`;
+        const p = byId(id);
+        return `
+          <div class="flex items-center gap-2 py-1.5">
+            <span class="min-w-0 flex-1"><span class="block text-[14px] font-bold truncate">${p && p.isGoalkeeper ? '🧤 ' : ''}${escapeHtml(nameOf(id))}</span><span class="block text-[11px] text-ink-2">${p ? p.matches || 0 : 0} jogo${p && p.matches === 1 ? '' : 's'} hoje</span></span>
+            <div class="seg grid-cols-3 w-[150px] flex-shrink-0">${b('A', 'A')}${b('B', 'B')}${b('Q', 'Fila')}</div>
+          </div>`;
+      }).join('');
+    }
+    function saveManualTeams() {
+      if (!manualPick) return;
+      const pickA = [], pickB = [];
+      const order = [...(state.court.A ? state.court.A.ids : []), ...(state.court.B ? state.court.B.ids : []), ...state.queue];
+      [...manualPick.keys()].sort((x, y) => order.indexOf(x) - order.indexOf(y)).forEach(id => {
+        if (manualPick.get(id) === 'A') pickA.push(id);
+        else if (manualPick.get(id) === 'B') pickB.push(id);
+      });
+      if (!pickA.length && !pickB.length) { showToast('Coloque alguém em pelo menos um time.', 'warning'); return; }
+      const prev = [state.court.A, state.court.B].filter(Boolean);
+      // Whoever was on court and now goes to the line keeps the front of the line.
+      const back = order.filter(id => manualPick.get(id) === 'Q' && !state.queue.includes(id));
+      state.queue = [...back, ...state.queue.filter(id => manualPick.get(id) === 'Q')];
+      const make = ids => {
+        if (!ids.length) return null;
+        const same = prev.find(t => idsKey(t.ids) === idsKey(ids));
+        return same ? Object.assign({}, same, { ids }) : { label: ++state.teamSeq, ids, streak: 0 };
+      };
+      state.court = { A: make(pickA), B: make(pickB) };
+      if (state.court.A && state.court.B && state.court.A.label === state.court.B.label) state.court.B.label = ++state.teamSeq;
+      closeManualTeams();
+      commit(state.court.A && state.court.B ? `Times escolhidos: Time ${state.court.A.label} x Time ${state.court.B.label}` : 'Time escolhido.');
     }
 
     function applySub(inId) {
@@ -5220,7 +5723,8 @@
 
       document.getElementById('match-score-a').innerText = state.match.scoreA;
       document.getElementById('match-score-b').innerText = state.match.scoreB;
-      document.getElementById('match-game-format').value = state.match.gameFormat || 'futsal';
+      document.getElementById('match-game-format').value = String(lineSize());
+      document.getElementById('match-gk-mode').value = keeperMode();
       renderFixedKeepers();
       document.getElementById('match-goal-limit-rule').value = state.match.goalLimitRule || '2';
 
@@ -5282,20 +5786,25 @@
       });
     }
 
-    function updateGameFormat(val) {
-      const wasFixed = fixedKeepers();
-      state.match.gameFormat = val;
-      // Fixed goalkeepers leave the teams and the line; back to normal, they rejoin the line.
-      if (wasFixed !== fixedKeepers()) repair();
-      // Before kickoff, the teams on court grow to the new size right away.
+    /* NvN or the keeper mode changed: keepers join/leave the line, teams before kick-off resize. */
+    function applyFormatChange(prefix) {
+      repair();
       let added = 0;
       if (matchNotStarted()) added = topUp('A').length + topUp('B').length;
       const over = ['A', 'B'].some(s => state.court[s] && state.court[s].ids.length > teamSize());
-      let msg = `Formato: ${FORMAT_LABELS[val]}`;
+      let msg = `${prefix}: ${formatLabel()}`;
       if (added) msg += ` · ${added} entraram da fila`;
       else if (over) msg += ' · times em quadra estão maiores, ajuste na aba Times';
       else if (['A', 'B'].some(s => state.court[s] && state.court[s].ids.length < teamSize())) msg += ' · complete os times na aba Times';
       commit(msg);
+    }
+    function updateGameFormat(val) {
+      state.match.lineSize = Math.min(12, Math.max(1, Number(val) || 4));
+      applyFormatChange('Jogo');
+    }
+    function updateKeeperMode(val) {
+      state.settings.keeperMode = KEEPER_MODES[val] ? val : 'time';
+      applyFormatChange('Goleiro');
     }
 
     function updateGoalLimitRule(val) {
@@ -5738,10 +6247,16 @@
 
     let finishing = false;
 
-    async function finishMatchAndNextChallenger(auto) {
+    async function finishMatchAndNextChallenger(auto, pens) {
       if (finishing) return;
       const { A, B } = state.court;
       if (!A || !B) { showToast('Monte os dois times antes de finalizar.', 'warning'); return; }
+      // A draw with "pênaltis" in the rules: the shootout decides, then this runs again with its result.
+      if (!pens && state.match.scoreA === state.match.scoreB && state.settings.drawRule === 'penaltis' && !(state.match.events.length === 0 && playedSeconds() === 0 && !auto)) {
+        pauseMatchTimer();
+        openShootout();
+        return;
+      }
 
       const nothingHappened = state.match.events.length === 0 && playedSeconds() === 0;
       if (!auto && nothingHappened && !(await askConfirm('Finalizar a partida sem nenhum lance registrado?', 'Finalizar'))) return;
@@ -5754,25 +6269,36 @@
         const snapshot = snapshotForUndo();
         const { scoreA, scoreB } = state.match;
 
-        state.matchHistory.unshift({
+        const pen = pens && scoreA === scoreB ? pens : null;
+        state.matchHistory.unshift(Object.assign({
           timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           labelA: A.label, labelB: B.label, scoreA, scoreB,
           namesA: A.ids.map(nameOf), namesB: B.ids.map(nameOf),
           played: playedSeconds(), added: state.match.addedSeconds || 0
-        });
+        }, pen ? { pens: { a: pen.a, b: pen.b } } : {}));
+        if (pen) {
+          // Each kick counts: gol for the kicker, miss for the kicker, a save for the keeper.
+          pen.kicks.forEach(k => {
+            const kicker = byId(k.playerId);
+            if (kicker) { if (k.result === 'gol') kicker.penGoals = (kicker.penGoals || 0) + 1; else kicker.penMisses = (kicker.penMisses || 0) + 1; }
+            const gk = k.result === 'defesa' && byId(k.keeperId);
+            if (gk) gk.penSaves = (gk.penSaves || 0) + 1;
+          });
+        }
         queueLiveSettle(state.matchHistory.length, A, B, scoreA, scoreB, state.match.events);
-        updateStandingsRecord(A, scoreA, scoreB);
-        updateStandingsRecord(B, scoreB, scoreA);
+        updateStandingsRecord(A, scoreA, scoreB, pen ? pen.a > pen.b : null);
+        updateStandingsRecord(B, scoreB, scoreA, pen ? pen.b > pen.a : null);
         [...A.ids, ...B.ids].forEach(id => { const p = byId(id); if (p) p.matches = (p.matches || 0) + 1; });
         [...fixedKeeperList(), ...queueKeepers().map(byId).filter(Boolean)].forEach(p => { p.matches = (p.matches || 0) + 1; });
 
         const leaving = [];
         let stay = null;
         let msg;
-        if (scoreA !== scoreB) {
-          const winner = scoreA > scoreB ? A : B;
+        if (scoreA !== scoreB || pen) {
+          const winner = pen ? (pen.a > pen.b ? A : B) : scoreA > scoreB ? A : B;
           const loser = winner === A ? B : A;
-          const hi = Math.max(scoreA, scoreB), lo = Math.min(scoreA, scoreB);
+          const hi = pen ? `${scoreA}x${scoreB}, pên. ${Math.max(pen.a, pen.b)}` : Math.max(scoreA, scoreB);
+          const lo = pen ? Math.min(pen.a, pen.b) : Math.min(scoreA, scoreB);
           winner.ids.forEach(id => { const p = byId(id); if (p) p.wins = (p.wins || 0) + 1; });
           winner.streak = (winner.streak || 0) + 1;
           leaving.push(loser);
@@ -5817,6 +6343,126 @@
       }
     }
 
+    /* ===================================================================
+       DISPUTA DE PÊNALTIS
+       5 cobranças por time, alternando (Time A começa); depois, alternadas até
+       alguém errar. Acaba sozinha quando um time não alcança mais o outro.
+       =================================================================== */
+    let shootout = null;
+    function goalieOf(side) {
+      const i = side === 'A' ? 0 : 1;
+      if (keeperFromQueue()) return byId(queueKeepers()[i]) || null;
+      if (keeperMode() === 'fixo') { const l = fixedKeeperList(); return l[i] || (l.length === 1 ? l[0] : null); }
+      if (keeperMode() === 'time') { const t = state.court[side]; return t ? t.ids.map(byId).find(p => p && p.isGoalkeeper) || null : null; }
+      return null;
+    }
+    function openShootout() {
+      const { A, B } = state.court;
+      if (!A || !B) return;
+      shootout = { kicks: [], ptr: { A: 0, B: 0 }, pick: null };
+      renderShootout();
+      document.getElementById('modal-pens').classList.remove('hidden');
+    }
+    function closeShootout() { document.getElementById('modal-pens').classList.add('hidden'); shootout = null; }
+    const pensCount = (side, onlyGoals) => shootout.kicks.filter(k => k.side === side && (!onlyGoals || k.result === 'gol')).length;
+    function pensWinner() {
+      const a = pensCount('A'), b = pensCount('B'), ga = pensCount('A', true), gb = pensCount('B', true);
+      if (a <= 5 && b <= 5) {
+        if (ga > gb + (5 - b)) return 'A';
+        if (gb > ga + (5 - a)) return 'B';
+        if (a === 5 && b === 5 && ga !== gb) return ga > gb ? 'A' : 'B';
+        return null;
+      }
+      return a === b && ga !== gb ? (ga > gb ? 'A' : 'B') : null;
+    }
+    const pensSide = () => pensCount('A') > pensCount('B') ? 'B' : 'A';
+    function pensKicker(side) {
+      const t = state.court[side];
+      if (!t || !t.ids.length) return null;
+      if (shootout.pick && t.ids.includes(shootout.pick)) return shootout.pick;
+      return t.ids[shootout.ptr[side] % t.ids.length];
+    }
+    function renderShootout() {
+      if (!shootout) return;
+      const { A, B } = state.court;
+      const win = pensWinner();
+      const dots = side => {
+        const ks = shootout.kicks.filter(k => k.side === side);
+        const n = Math.max(5, ks.length + (win ? 0 : 1));
+        return Array.from({ length: n }, (_, i) => {
+          const k = ks[i];
+          return `<span class="pen-dot ${k ? (k.result === 'gol' ? 'is-goal' : 'is-miss') : ''}" title="${k ? escapeHtml(nameOf(k.playerId)) : ''}">${k ? (k.result === 'gol' ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-xmark"></i>') : ''}</span>`;
+        }).join('');
+      };
+      const row = (side, t) => `
+        <div class="flex items-center gap-3 py-2">
+          <span class="w-20 text-[14px] font-bold truncate">Time ${escapeHtml(t.label)}</span>
+          <span class="flex-1 flex flex-wrap gap-1.5">${dots(side)}</span>
+          <span class="font-serif text-[30px] leading-none text-pitch w-8 text-right">${pensCount(side, true)}</span>
+        </div>`;
+      document.getElementById('pens-board').innerHTML = row('A', A) + `<div class="border-t border-ink/[0.07]"></div>` + row('B', B);
+      const turn = document.getElementById('pens-turn');
+      const done = document.getElementById('pens-done');
+      if (win) {
+        turn.classList.add('hidden');
+        done.classList.remove('hidden');
+        const t = state.court[win];
+        done.innerHTML = `
+          <div class="rounded-2xl bg-butter/60 border border-butter-3 p-4 flex items-center gap-3">
+            <img src="babinha/champion.webp" alt="" class="w-16 h-16 object-contain flex-shrink-0" />
+            <p class="text-[15px] font-bold leading-snug">Time ${escapeHtml(t.label)} venceu nos pênaltis, ${Math.max(pensCount('A', true), pensCount('B', true))} a ${Math.min(pensCount('A', true), pensCount('B', true))}.</p>
+          </div>
+          <button onclick="confirmShootout()" class="btn-primary w-full h-12 text-[15px] mt-3"><i class="fa-solid fa-flag-checkered"></i> Confirmar e finalizar</button>`;
+        return;
+      }
+      turn.classList.remove('hidden');
+      done.classList.add('hidden');
+      const side = pensSide();
+      const t = state.court[side];
+      const kicker = pensKicker(side);
+      const gk = goalieOf(side === 'A' ? 'B' : 'A');
+      const nth = pensCount(side) + 1;
+      document.getElementById('pens-title').innerText = `Cobrança ${nth}${nth > 5 ? ' (alternadas)' : ''} · Time ${t.label}`;
+      document.getElementById('pens-kickers').innerHTML = t.ids.map(id => `<button onclick="pickPenKicker(${id})" class="chip ${id === kicker ? 'is-selected' : ''}">${escapeHtml(nameOf(id))}</button>`).join('');
+      document.getElementById('pens-save').innerHTML = `<i class="fa-solid fa-hand"></i> Defesa${gk ? ` de ${escapeHtml(firstName(gk.name))}` : ''}`;
+      document.getElementById('pens-undo').disabled = !shootout.kicks.length;
+    }
+    function pickPenKicker(id) { if (shootout) { shootout.pick = id; renderShootout(); } }
+    function recordPen(result) {
+      if (!shootout || pensWinner()) return;
+      const side = pensSide();
+      const kicker = pensKicker(side);
+      if (kicker == null) return;
+      const gk = result === 'defesa' ? goalieOf(side === 'A' ? 'B' : 'A') : null;
+      shootout.kicks.push({ side, playerId: kicker, result, keeperId: gk ? gk.id : null });
+      const t = state.court[side];
+      shootout.ptr[side] = (t.ids.indexOf(kicker) + 1) % Math.max(1, t.ids.length);
+      shootout.pick = null;
+      buzz(result === 'gol' ? [30, 40, 30] : 60);
+      renderShootout();
+    }
+    function undoPen() {
+      if (!shootout || !shootout.kicks.length) return;
+      const k = shootout.kicks.pop();
+      const t = state.court[k.side];
+      shootout.ptr[k.side] = Math.max(0, t.ids.indexOf(k.playerId));
+      renderShootout();
+    }
+    function confirmShootout() {
+      const win = shootout && pensWinner();
+      if (!win) return;
+      const pens = { a: pensCount('A', true), b: pensCount('B', true), kicks: shootout.kicks.slice() };
+      closeShootout();
+      finishMatchAndNextChallenger(true, pens);
+    }
+    /* Skip the shootout this time: the usual draw rule (the king leaves). */
+    function skipShootout() {
+      closeShootout();
+      const rule = state.settings.drawRule;
+      state.settings.drawRule = 'king';
+      finishMatchAndNextChallenger(true).finally(() => { state.settings.drawRule = rule; saveState(); });
+    }
+
     async function undoFinish() {
       const snap = state.lastFinish;
       if (!snap) { showToast('Nada para desfazer.', 'warning'); return; }
@@ -5829,7 +6475,7 @@
       commit('Última partida desfeita.');
     }
 
-    function updateStandingsRecord(team, goalsFor, goalsAgainst) {
+    function updateStandingsRecord(team, goalsFor, goalsAgainst, wonPens) {
       const key = String(team.label);
       if (!state.standings[key]) {
         state.standings[key] = { matches: 0, wins: 0, draws: 0, losses: 0, gf: 0, ga: 0, sg: 0, names: [] };
@@ -5840,8 +6486,9 @@
       st.ga += goalsAgainst;
       st.sg = st.gf - st.ga;
       st.names = team.ids.map(nameOf);
-      if (goalsFor > goalsAgainst) st.wins++;
-      else if (goalsFor === goalsAgainst) st.draws++;
+      // A draw decided on penalties counts as a win / loss.
+      if (goalsFor > goalsAgainst || wonPens === true) st.wins++;
+      else if (goalsFor === goalsAgainst && wonPens == null) st.draws++;
       else st.losses++;
     }
 
@@ -5929,7 +6576,7 @@
           <div class="p-3 rounded-2xl bg-sunk/60 text-[13px]">
             <div class="flex items-center justify-between gap-2">
               <span class="text-ink-2 text-[11px] font-bold flex-shrink-0">${escapeHtml(h.timestamp)}${h.played ? `<span class="block font-semibold text-[11px]">${fmtMMSS(h.played)}${h.added ? ` (+${Math.round(h.added / 60)}')` : ''}</span>` : ''}</span>
-              <span class="font-bold text-ink text-right">Time ${h.labelA} <b class="font-serif font-normal text-[22px] leading-none text-pitch mx-1">${h.scoreA} × ${h.scoreB}</b> Time ${h.labelB}</span>
+              <span class="font-bold text-ink text-right">Time ${h.labelA} <b class="font-serif font-normal text-[22px] leading-none text-pitch mx-1">${h.scoreA} × ${h.scoreB}</b> Time ${h.labelB}${h.pens ? `<span class="block text-[11px] font-bold text-ink-2">pênaltis ${h.pens.a} × ${h.pens.b}</span>` : ''}</span>
             </div>
             ${(h.namesA && h.namesA.length) ? `<p class="text-[11px] text-ink-2 mt-1 leading-snug">${escapeHtml(shortNames(h.namesA))} <span class="text-ink-3">vs</span> ${escapeHtml(shortNames(h.namesB))}</p>` : ''}
           </div>`).join('');
@@ -6063,7 +6710,7 @@
        =================================================================== */
     function switchStatsCategory(cat) {
       currentStatsCategory = cat;
-      ['goals', 'assists', 'saves', 'total', 'wins'].forEach(c => {
+      ['goals', 'assists', 'saves', 'total', 'wins', 'pens'].forEach(c => {
         const btn = document.getElementById(`btn-stats-${c}`);
         const on = c === cat;
         btn.classList.toggle('is-selected', on);
@@ -6080,7 +6727,7 @@
       renderStatsView();
     }
 
-    const STAT_KEYS = ['goals', 'assists', 'saves', 'matches', 'wins'];
+    const STAT_KEYS = ['goals', 'assists', 'saves', 'matches', 'wins', 'penGoals', 'penMisses', 'penSaves'];
 
     /* Today's numbers as a compact record (what goes into the history). */
     function daySummary() {
@@ -6106,7 +6753,7 @@
       const map = new Map();
       const add = p => {
         const key = p.name.trim().toLowerCase();
-        const cur = map.get(key) || { name: p.name, goals: 0, assists: 0, saves: 0, matches: 0, wins: 0 };
+        const cur = map.get(key) || Object.assign({ name: p.name }, Object.fromEntries(STAT_KEYS.map(k => [k, 0])));
         STAT_KEYS.forEach(k => { cur[k] += Number(p[k]) || 0; });
         map.set(key, cur);
       };
@@ -6120,6 +6767,7 @@
         goals: { title: 'Artilharia', col: 'Gols', value: p => p.goals || 0 },
         assists: { title: 'Assistências', col: 'Ast.', value: p => p.assists || 0 },
         saves: { title: 'Defesas', col: 'Def.', value: p => p.saves || 0 },
+        pens: { title: 'Pênaltis convertidos', col: 'Pên.', value: p => p.penGoals || 0 },
         total: { title: 'Participações (G+A)', col: 'G+A', value: p => (p.goals || 0) + (p.assists || 0) },
         wins: { title: 'Mais vitórias', col: 'Vit.', value: p => p.wins || 0 }
       };
@@ -6227,7 +6875,7 @@
       const m = state.match;
       state = defaultState();
       Object.assign(state, keep);
-      state.match.gameFormat = m.gameFormat;
+      state.match.lineSize = m.lineSize;
       state.match.goalLimitRule = m.goalLimitRule;
       state.match.initialSeconds = m.initialSeconds;
       state.match.secondsLeft = m.initialSeconds;
@@ -6542,7 +7190,7 @@
       const m = state.match;
       state = defaultState();
       Object.assign(state, keep);
-      ['gameFormat', 'goalLimitRule', 'initialSeconds'].forEach(k => { state.match[k] = m[k]; });
+      ['lineSize', 'goalLimitRule', 'initialSeconds'].forEach(k => { state.match[k] = m[k]; });
       state.match.secondsLeft = m.initialSeconds;
       state.players.forEach(p => Object.assign(p, { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, present: false, arrival: null, arrivedAt: null, jumped: false }));
       syncPool();

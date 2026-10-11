@@ -83,7 +83,7 @@ async def main():
           const mk = (id, name, gk) => Object.assign(newPlayer(name, null), { id, isGoalkeeper: gk, present: true, arrival: id, arrivedAt: Date.now() });
           state.players = [mk(1, 'Goleiro Um', true), ...Array.from({length: 9}, (_, i) => mk(i + 2, 'Linha ' + (i + 1), false)), mk(11, 'Goleiro Dois', true)];
           state.court = { A: null, B: null }; state.queue = state.players.map(p => p.id); state.arrivalSeq = 11;
-          updateGameFormat('futsal4'); buildTeams(); switchTab('placar');
+          updateKeeperMode('fixo'); updateGameFormat(4); buildTeams(); switchTab('placar');
         }""")
         await pg.wait_for_timeout(400)
         res = await pg.evaluate("""() => ({ A: state.court.A.ids.length, B: state.court.B.ids.length,
@@ -95,10 +95,10 @@ async def main():
         await pg.evaluate("finishMatchAndNextChallenger(true)"); await pg.wait_for_timeout(400)
         await check(pg, "byId(1).matches === 1 && byId(11).matches === 1", 'fixed keepers get the match')
         await check(pg, "state.court.A.ids.length === 4 && state.court.B.ids.length === 4 && ![...state.court.A.ids, ...state.court.B.ids].some(id => byId(id).isGoalkeeper)", 'rotation keeps keepers out')
-        await pg.evaluate("updateGameFormat('futsal')"); await pg.wait_for_timeout(200)
+        await pg.evaluate("updateKeeperMode('time')"); await pg.wait_for_timeout(200)
         await check(pg, "[...state.court.A.ids, ...state.court.B.ids, ...state.queue].filter(id => byId(id).isGoalkeeper).length === 2", 'back to normal: keepers rejoin')
         await check(pg, "document.getElementById('fixed-keepers').classList.contains('hidden')", 'fixed line hidden in normal format')
-        await check(pg, "[...document.querySelectorAll('#match-game-format option')].map(o => o.value).join() === 'futsal4,futsal,society7,society,campo11,campo'", 'format options')
+        await check(pg, "[...document.querySelectorAll('#match-game-format option')].map(o => o.value).join() === '1,2,3,4,5,6,7,8,9,10,11,12' && [...document.querySelectorAll('#match-gk-mode option')].map(o => o.value).join() === 'time,fixo,fila,sem'", 'format options')
 
         # ---- 5. a regular account (not a founder) sees no team items and can't get fire
         fake.founders = set()
