@@ -27,7 +27,7 @@ async def main():
         h = await home()
         out['notice_popup'] = await pg.evaluate("!document.getElementById('modal-popup').classList.contains('hidden') && document.getElementById('popup-body').innerText.includes('Manutenção hoje às 23h')")
         out['staff_home'] = ['Painel de suporte' in h, '∞ baba points' in h, 'Manutenção hoje às 23h' in h]
-        await pg.evaluate("localStorage.setItem('baba_notes_seen_v1', '9.5')")
+        await pg.evaluate("localStorage.setItem('baba_notes_seen_v1', APP_VERSION)")
         out['pinged_once_per_day'] = len(fake.pings)
         await pg.click('#popup-ok'); await pg.wait_for_timeout(300)
         await pg.screenshot(path=f'{SHOTS}/v8_home_staff.png')

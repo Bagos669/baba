@@ -27,7 +27,7 @@ async def main():
         out['after_back2'] = [await vis('page-profile'), await vis('page-support'), pg.url, await vis('app-root')]
         await pg.click('#header-profile'); await pg.wait_for_timeout(300)
         await pg.click('#page-profile button[aria-label="Ajuda"]'); await pg.wait_for_timeout(300)
-        await pg.click('text=Rever o tutorial passo a passo'); await pg.wait_for_timeout(600)
+        await pg.click('#tutorial-hub button >> nth=1'); await pg.wait_for_timeout(600)
         out['tour_from_support'] = [await vis('page-profile'), await vis('page-support'), await vis('tour')]
         await pg.evaluate("endTour(false)"); await pg.wait_for_timeout(200)
         await pg.click('#header-profile'); await pg.wait_for_timeout(300)

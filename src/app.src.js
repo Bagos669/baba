@@ -1588,7 +1588,7 @@
        and in the profile, so a new phone picks them up.
        =================================================================== */
     const PREFS_KEY = 'baba_prefs_v1';
-    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false };
+    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false };
     const SYNCED_PREFS = Object.keys(DEFAULT_PREFS);
     let prefs = loadPrefs();
     let prefsPulledFor = null;
@@ -1637,6 +1637,12 @@
         if (serverPrefs[k] === undefined || serverPrefs[k] === prefs[k]) return;
         // Once seen on any phone, the tutorial stays seen.
         if (k === 'tutorialDone' && prefs.tutorialDone) return;
+        if (k === 'tutorialChapters') {
+          const all = new Set([...(Array.isArray(prefs[k]) ? prefs[k] : []), ...(Array.isArray(serverPrefs[k]) ? serverPrefs[k] : [])]);
+          const merged = TUTORIAL.map(c => c.id).filter(id => all.has(id));
+          if (JSON.stringify(merged) !== JSON.stringify(prefs[k])) { prefs[k] = merged; changed = true; }
+          return;
+        }
         prefs[k] = serverPrefs[k];
         changed = true;
       });
@@ -1854,6 +1860,7 @@
        SUPORTE
        =================================================================== */
     const FAQ = [
+      ['Começando', 'Onde revejo o tutorial?', 'Em Perfil → Suporte → <b>Tutorial do Babinha</b>. São 6 capítulos curtos: o básico, as regras, imprevistos, ao vivo, baba points e conta. Dá pra ver em qualquer ordem.'],
       ['Começando', 'Como começo um baba?', 'Escolha a turma em <b>Início → Turmas</b> (ou crie uma), confirme e vá em <b>Lista</b> marcando quem chegou, na ordem. Depois, em <b>Times</b>, toque em Montar times.'],
       ['Começando', 'Preciso de internet na quadra?', 'Não. Tudo fica salvo no celular e vai pra nuvem quando o sinal voltar. O pontinho no seu avatar mostra: verde é sincronizado, amarelo é esperando internet.'],
       ['Começando', 'Como instalo o BABA no celular?', 'No Android, abra o site no Chrome e toque em <b>Adicionar à tela inicial</b>. No iPhone, no Safari, toque em Compartilhar → <b>Adicionar à Tela de Início</b>.'],
@@ -1889,6 +1896,7 @@
     function openSupport() {
       document.getElementById('faq-search').value = '';
       renderFaq('');
+      renderTutorialHub();
       document.getElementById('page-support').classList.remove('hidden');
       document.getElementById('page-support').scrollTop = 0;
       pushPage('page-support');
@@ -1924,65 +1932,179 @@
     }
 
     /* ===================================================================
-       TUTORIAL COM O BABINHA
+       TUTORIAL DO BABINHA (v9.5.1)
+       Six short chapters. The first one ("O básico") runs on the first
+       login; the others live in Suporte → Tutorial and on a home card.
+       A step can spotlight a real part of the app (target) and/or play a
+       small animated scene (demo) for rules that are hard to picture.
        =================================================================== */
-    const TOUR = [
-      { img: 'wave', tab: 'inicio', title: 'E aí, craque! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Bora conhecer o BABA em um minutinho?' },
-      { img: 'happy', tab: 'inicio', target: '#header-profile', title: 'Seu perfil', text: 'Aqui você troca foto e nome, liga o modo escuro, cuida da senha e acha o Suporte.' },
-      { img: 'coach', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'Crie a turma do seu baba ou entre com o convite que a galera mandou. Ligou seu nome? Seus números aparecem aqui.' },
-      { img: 'run', tab: 'ficha', target: '#tab-nav-ficha', title: 'Lista de chegada', text: 'Chegou na quadra? Marque na ordem. Quem chega cedo joga primeiro, simples assim.' },
-      { img: 'ney', tab: 'fila', target: '#tab-nav-fila', title: 'Times e fila', text: 'O BABA monta os times pela chegada e cuida da fila do Rei da Quadra. Cansou ou machucou? Faz a substituição aqui.' },
-      { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo, dê play e, se precisar, +1, +2 ou +3 de acréscimo. Com times em quadra, o botão de expandir vira placar deitado.' },
-      { img: 'siuu', tab: 'placar', target: '#placar-sides', title: 'Gol com assistência', text: 'Toque em Gol, escolha quem fez e quem deu o passe. Defesa do goleiro também entra na conta.' },
-      { img: 'red', tab: 'placar', target: '#btn-finish', title: 'Finalizar partida', text: 'Acabou o jogo? Finalize: vencedor fica, próximo da fila entra. Errou? Calma, tem Desfazer.' },
-      { img: 'aura', tab: 'stats', target: '#tab-nav-stats', title: 'Artilharia e recordação', text: 'Artilheiro ou artilheira, garçom ou garçonete, paredão ou paredona: do dia e de todos os babas. E dá pra gerar o PDF do baba com as fotos da pelada.' },
-      { img: 'champion', tab: 'inicio', title: 'É isso. Bom baba!', text: 'Ficou dúvida? Perfil → Suporte. Lá também dá pra rever este tutorial quando quiser.' }
+    const TUTORIAL = [
+      { id: 'basico', title: 'O básico do baba', img: 'aidentro', desc: 'Da turma ao apito final, do jeito que um baba roda.', steps: [
+        { img: 'wave', tab: 'inicio', title: 'E aí! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Em 9 passos te mostro como um baba roda no BABA, do começo ao fim.' },
+        { img: 'aidentro', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'A turma é o grupo fixo do seu baba: os atletas, quem é goleiro e o histórico de todos os jogos. Crie a sua ou entre pelo link de convite que a galera mandou.' },
+        { img: 'run', tab: 'ficha', target: '#sheet-players-tbody', fallback: '#tab-nav-ficha', title: 'Lista de chegada', text: 'No dia, marque quem chegou, na ordem em que chegou. Essa ordem vira a fila: quem chega primeiro, joga primeiro. Apareceu alguém de fora? Adicione como avulso.' },
+        { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Montar os times', text: 'Em Times, toque em Montar: o BABA pega os primeiros da fila e monta Time 1 x Time 2. O tamanho vem do formato escolhido no Placar (ex.: Futsal, 5 por time).' },
+        { img: 'calculante', tab: 'fila', demo: 'rotacao', title: 'Rei da Quadra: quem perde sai', text: 'Quem ganha fica. Quem perde volta pro fim da fila, um por um, e os primeiros da fila entram. Assim os times vão se misturando a noite toda.' },
+        { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo de jogo e dê play. Precisou? +1, +2 ou +3 de acréscimo. Pode apagar a tela: o relógio continua certo.' },
+        { img: 'siuu', tab: 'placar', target: '#placar-sides', title: 'Gol, passe e defesa', text: 'Toque em Gol no time que marcou, escolha quem fez e quem deu o passe. Defesa do goleiro também conta. Tudo isso vira estatística.' },
+        { img: 'red', tab: 'placar', target: '#btn-finish', title: 'Finalizar a partida', text: 'Acabou? Finalize: o placar vai pro histórico, o vencedor fica e o próximo time entra. Errou alguma coisa? Tem Desfazer.' },
+        { img: 'champion', tab: 'inicio', title: 'Pronto pro primeiro baba!', text: 'Tem mais 5 capítulos curtinhos: regras, imprevistos, ao vivo, baba points e conta. Ficam em Perfil → Suporte → Tutorial, e o Início te lembra.' }
+      ] },
+      { id: 'regras', title: 'Regras do Rei da Quadra', img: 'calculante', desc: 'Formatos, empate, ordem da fila, régua de tempo e goleiros.', steps: [
+        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Formato = tamanho do time', text: 'Futsal 5, Society 8 e Campo 12: o goleiro joga dentro do time. Futsal 4, Society 7 e Campo 11: os times são só de linha, e o goleiro fica à parte.' },
+        { img: 'coach', tab: 'fila', target: '#rules-card', title: 'Empate e vitórias seguidas', text: 'No empate, você escolhe: sai o rei (quem já estava em quadra) ou saem os dois. E dá pra limitar: depois de 2 ou 3 vitórias seguidas, o time sai mesmo ganhando.' },
+        { img: 'arrogante', tab: 'fila', demo: 'menosjogos', title: 'Ordem da fila', text: 'Ordem de chegada é o padrão. Em "Quem jogou menos", a fila se arruma sozinha: quem tem menos jogos no dia vai pra frente.' },
+        { img: 'bike', tab: 'fila', demo: 'regua', title: 'Régua de tempo (atrasados)', text: 'Sem régua, atrasado vai pro fim. Com a régua em 1 h, por exemplo: quem chega depois de 1 h do primeiro jogo entra em 1º na fila; antes disso, vai pro fim.' },
+        { img: 'wink', tab: 'fila', demo: 'goleiro', title: 'Goleiro da fila', text: 'Nos formatos 4, 7 e 11 você escolhe o goleiro. Fixo: quem é goleiro não sai do gol. Da fila: os 2 próximos da fila vão pro gol, um em cada time, e não perdem o lugar.' },
+        { img: 'tired', tab: 'placar', target: '#match-goal-limit-rule', title: 'Fim de jogo por gols', text: 'Além do tempo, a partida pode acabar com 2, 3 ou 5 gols, ou com diferença de 2. Bateu a meta, o BABA finaliza sozinho.' }
+      ] },
+      { id: 'meio', title: 'Imprevistos no meio do baba', img: 'carretilha', desc: 'Ficha, substituição, quem foi embora, atrasados e desfazer.', steps: [
+        { img: 'carretilha', tab: 'fila', target: '#court-manager', title: 'A ficha de cada um', text: 'Toque no nome de quem está no time ou na fila: muda nome, posição, jogador ou jogadora, e corrige gols, passes e defesas do dia, sem tirar ninguém do time.' },
+        { img: 'run', tab: 'fila', target: '#court-manager', title: 'Substituição', text: 'Cansou ou machucou? Toque em Trocar ao lado do nome e escolha quem entra. Quem sai pode voltar pro começo ou pro fim da fila.' },
+        { img: 'worried', tab: 'fila', target: '#queue-card', title: 'Alguém foi embora', text: 'Na fila, toque no x ao lado do nome. Se a pessoa estava em quadra, abra a ficha e toque em Foi embora. Os números do dia continuam valendo.' },
+        { img: 'bike', tab: 'ficha', target: '#tab-nav-ficha', title: 'Chegou atrasado', text: 'Marque a chegada na Lista a qualquer hora. A pessoa entra no fim da fila, ou em 1º se a régua de tempo estiver ligada e já tiver passado o tempo.' },
+        { img: 'ney', tab: 'placar', target: '#btn-court-mode', title: 'Placar deitado', text: 'Com os dois times em quadra, este botão deita o celular com um placar gigante, pra galera ver de longe.' },
+        { img: 'scared', tab: 'placar', target: '#btn-undo', title: 'Desfazer', text: 'Gol marcado errado? Desfaça o último lance. Finalizou sem querer? O aviso de partida finalizada tem Desfazer, e em Stats → Jogos também.' }
+      ] },
+      { id: 'aovivo', title: 'Ao vivo, palpites e chat', img: 'chute', desc: 'Transmitir pelo QR, assistir pelo código, palpitar e conversar.', steps: [
+        { img: 'chute', tab: 'placar', target: '#live-pill', title: 'Transmitir o jogo', text: 'Com internet, toque em Transmitir: aparece um QR code e um código. Quem escanear ou digitar o código acompanha o placar ao vivo, mesmo sem conta.' },
+        { img: 'aidentro', tab: 'inicio', target: '#home-v7', title: 'Assistir pelo código', text: 'Recebeu um código? No Início (ou na tela de entrada do app), toque em "Assistir um jogo ao vivo" e digite.' },
+        { img: 'calculante', tab: 'inicio', title: 'Palpites (só 18+)', text: 'No ao vivo, quem tem conta e 18 anos ou mais palpita com baba points: quem faz gol, quem vence. O multiplicador sai das estatísticas da turma. Pontos não valem dinheiro: é brincadeira.' },
+        { img: 'shhh', tab: 'inicio', title: 'Chat da turma e do jogo', text: 'Cada turma tem chat, e cada jogo ao vivo também. Mensagem ofensiva? Toque no ⋯ e denuncie: com 3 denúncias ela some e o suporte fica sabendo.' }
+      ] },
+      { id: 'pontos', title: 'Baba points e lojinha', img: 'dancinha', desc: 'Bônus do dia, missões da semana, lojinha e exclusivos.', steps: [
+        { img: 'money', tab: 'inicio', target: '#home-v7', title: 'Seus baba points', text: 'Toda conta começa com 1.000 pontos. Ganha mais no bônus do dia, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.' },
+        { img: 'calculante', tab: 'inicio', title: 'Missões da semana', text: 'Na Lojinha: abrir o app 3 dias, jogar um baba, marcar gols, organizar... Cada missão vale pontos. Cumpriu? Toque em Pegar. Renova toda segunda.' },
+        { img: 'dancinha', tab: 'inicio', title: 'Lojinha', text: 'Troque pontos por molduras (do bronze ao diamante), nomes coloridos e brilhos. O que você usa aparece pra galera no chat, no ranking e no ao vivo.' },
+        { img: 'aura', tab: 'inicio', title: 'Itens exclusivos', text: 'Alguns itens não estão à venda: a Aura de Fogo Azul é dos 100 primeiros do BABA. Ficam com o selo Fundador na lojinha.' }
+      ] },
+      { id: 'conta', title: 'Turma, conta e recordações', img: 'messi', desc: 'Convites e cargos, ligar seu nome, Stats, PDF, perfil e suporte.', steps: [
+        { img: 'coach', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Convite e cargos', text: 'Na turma, Convidar gera um link pro grupo. O dono escolhe os adms; adm adiciona e tira atletas, marca goleiro e convida. Só o dono exclui a turma.' },
+        { img: 'wink', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Ligue seu nome à conta', text: 'Abra a turma e toque no seu nome na lista: seus gols e jogos de todos os babas passam a ser seus, e contam nas missões da semana.' },
+        { img: 'messi', tab: 'stats', target: '#tab-nav-stats', title: 'Stats e PDF', text: 'Artilharia, assistências e defesas do dia e de todos os babas. Em Jogos ficam os placares, e dá pra gerar o PDF do baba com as fotos da pelada.' },
+        { img: 'shhh', tab: 'inicio', target: '#header-profile', title: 'Perfil e segurança', text: 'No perfil: foto, modo escuro, texto maior, digital e o código de recuperação. Guarde o código em segredo: é ele que salva sua conta se você esquecer a senha.' },
+        { img: 'rezando', tab: 'inicio', target: '#header-profile', title: 'Deu ruim? Suporte', text: 'Perfil → Suporte tem as dúvidas mais comuns, as notas de atualização e estes capítulos. E sempre tem o contatobabaapp@gmail.com.' }
+      ] }
     ];
+
+    /* Little animated scenes for the rules. Chips move between positions (left %, top px) frame by frame. */
+    const DEMOS = {
+      rotacao: { h: 114,
+        deco: '<span class="dlabel" style="left:2%;top:0">Em quadra</span><span class="dlabel" style="left:62%;top:0">Fila</span><span class="dline" style="left:58%;top:4px;height:108px"></span>' +
+              '<span class="dlabel" style="left:2%;top:50px;letter-spacing:.04em">x</span>',
+        chips: [['a1', 'Ana', 'a'], ['a2', 'Beto', 'a'], ['a3', 'Caio', 'a'], ['b1', 'Duda', 'b'], ['b2', 'Edu', 'b'], ['b3', 'Fê', 'b'], ['q1', 'Gui', 'q'], ['q2', 'Hugo', 'q'], ['q3', 'Ivo', 'q'], ['q4', 'Jô', 'q']],
+        frames: [
+          { cap: 'Time 1 (amarelo) x Time 2 (verde). Deu Time 2.', pos: { a1: [2, 22], a2: [20, 22], a3: [38, 22], b1: [2, 72], b2: [20, 72], b3: [38, 72], q1: [62, 18], q2: [62, 41], q3: [62, 64], q4: [62, 87] } },
+          { cap: 'Time 2 fica. Gui, Hugo e Ivo entram. Ana, Beto e Caio vão pro fim da fila, um por um.', cls: { q1: 'n', q2: 'n', q3: 'n' },
+            pos: { b1: [2, 22], b2: [20, 22], b3: [38, 22], q1: [2, 72], q2: [20, 72], q3: [38, 72], q4: [62, 18], a1: [62, 41], a2: [62, 64], a3: [62, 87] } }
+        ] },
+      menosjogos: { h: 138,
+        deco: '',
+        chips: [['p1', 'Ana · 3 jogos', 'q'], ['p2', 'Bia · 1 jogo', 'q'], ['p3', 'Caio · 2 jogos', 'q'], ['p4', 'Duda · 0 jogo', 'n'], ['p5', 'Edu · 1 jogo', 'q']],
+        frames: [
+          { cap: 'Ordem de chegada: Ana chegou primeiro, então está na frente.', pos: { p1: [6, 4], p2: [6, 30], p3: [6, 56], p4: [6, 82], p5: [6, 108] } },
+          { cap: 'Quem jogou menos: Duda (0 jogo) vai pra frente, Ana (3 jogos) pro fim.', pos: { p4: [6, 4], p2: [6, 30], p5: [6, 56], p3: [6, 82], p1: [6, 108] } }
+        ] },
+      regua: { h: 114,
+        deco: '<span class="druler" style="left:2%;right:2%;top:26px"></span><span class="dtick" style="left:2%;top:20px"></span><span class="dtick" style="left:66%;top:20px"></span>' +
+              '<span class="dlabel" style="left:0;top:0">20:00 · 1º jogo</span><span class="dlabel dlabel-hi" style="left:54%;top:0">21:00 · régua de 1 h</span>' +
+              '<span class="dlabel" style="left:2%;top:68px">Fila</span>',
+        chips: [['q1', 'Gui', 'q'], ['q2', 'Hugo', 'q'], ['q3', 'Ivo', 'q'], ['ana', 'Ana 20:20', 'a'], ['bia', 'Bia 21:10', 'b']],
+        frames: [
+          { cap: 'Ana chegou às 20:20, antes de 1 h do primeiro jogo...', hide: ['bia'], pos: { q1: [2, 88], q2: [21, 88], q3: [40, 88], ana: [22, 40], bia: [74, 40] } },
+          { cap: '...então vai pro fim da fila, como sempre.', hide: ['bia'], pos: { q1: [2, 88], q2: [21, 88], q3: [40, 88], ana: [59, 88], bia: [74, 40] } },
+          { cap: 'Bia chegou às 21:10, depois da régua de 1 h...', pos: { q1: [2, 88], q2: [21, 88], q3: [40, 88], ana: [59, 88], bia: [74, 40] } },
+          { cap: '...e entra em 1º na fila.', pos: { bia: [2, 88], q1: [24, 88], q2: [43, 88], q3: [62, 88], ana: [81, 88] } }
+        ] },
+      goleiro: { h: 118,
+        deco: '<span class="dgoal" style="left:1%;top:14px">GOL</span><span class="dgoal" style="right:1%;top:14px">GOL</span><span class="dlabel" style="left:2%;top:72px">Fila</span>' +
+              '<span class="dlabel" style="left:28%;top:0">Time 1</span><span class="dlabel" style="left:58%;top:0">Time 2</span>',
+        chips: [['a1', 'Ana', 'a'], ['a2', 'Beto', 'a'], ['b1', 'Duda', 'b'], ['b2', 'Edu', 'b'], ['g1', 'Gui', 'q'], ['g2', 'Hugo', 'q'], ['q3', 'Ivo', 'q'], ['q4', 'Jô', 'q'], ['s1', 'vaga do Gui', 'ghost'], ['s2', 'vaga do Hugo', 'ghost']],
+        frames: [
+          { cap: 'Formato "4 + goleiro", goleiro da fila: os 2 primeiros da fila são Gui e Hugo...', hide: ['s1', 's2'], pos: { a1: [27, 24], a2: [27, 52], b1: [57, 24], b2: [57, 52], g1: [2, 92], g2: [30, 92], q3: [60, 92], q4: [77, 92], s1: [2, 92], s2: [30, 92] } },
+          { cap: '...então eles vão pro gol, um de cada lado, e o lugar deles na fila fica guardado.', cls: { g1: 'gk', g2: 'gk' }, pos: { a1: [27, 24], a2: [27, 52], b1: [57, 24], b2: [57, 52], g1: [1, 31], g2: [79, 31], q3: [60, 92], q4: [77, 92], s1: [2, 92], s2: [30, 92] } }
+        ] }
+    };
+
+    let tourChapter = null;   // the chapter being shown
     let tourIndex = -1;
     let tourOnEnd = null;
+    let demoTimer = null;
+    const TOUR_STEPS = () => (tourChapter ? tourChapter.steps : []);
 
-    function startTour(force, onEnd) {
+    function startTour(force, onEnd, chapterId) {
       if (!force && prefs.tutorialDone) { if (onEnd) onEnd(); return; }
       // A first-time user gets the tour; the release notes are for people coming back.
       if (!force) lsSet(NOTES_KEY, APP_VERSION);
+      tourChapter = TUTORIAL.find(c => c.id === (chapterId || 'basico')) || TUTORIAL[0];
       tourOnEnd = onEnd || null;
-      ['modal-database', 'modal-turma-edit', 'modal-account', 'modal-backup', 'modal-export'].forEach(id => {
+      ['modal-database', 'modal-turma-edit', 'modal-account', 'modal-backup', 'modal-export', 'modal-popup'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
       });
       if (!document.getElementById('page-support').classList.contains('hidden')) closeSupport();
       if (!document.getElementById('page-profile').classList.contains('hidden')) closeProfile();
+      if (!document.getElementById('page-shop').classList.contains('hidden')) closeShop();
       tourIndex = 0;
       document.getElementById('toast-container').innerHTML = '';
       document.getElementById('tour').classList.remove('hidden');
-      document.getElementById('tour-dots').innerHTML = TOUR.map(() => '<span class="tour-dot"></span>').join('');
+      document.getElementById('tour-dots').innerHTML = TOUR_STEPS().map(() => '<span class="tour-dot"></span>').join('');
       showTourStep();
       window.addEventListener('resize', placeTour);
     }
+    function startChapter(id) { startTour(true, null, id); }
 
     function tourGo(delta) {
       const next = tourIndex + delta;
       if (next < 0) return;
-      if (next >= TOUR.length) { endTour(false); return; }
+      if (next >= TOUR_STEPS().length) { endTour(false); return; }
       tourIndex = next;
       showTourStep();
     }
 
     function showTourStep() {
-      const step = TOUR[tourIndex];
+      const steps = TOUR_STEPS();
+      const step = steps[tourIndex];
       if (step.tab) switchTab(step.tab);
-      const img = document.getElementById('tour-img');
-      img.src = `babinha/${step.img}.webp`;
-      document.getElementById('tour-step').innerText = `${tourIndex + 1} de ${TOUR.length}`;
+      document.getElementById('tour-img').src = `babinha/${step.img}.webp`;
+      const n = TUTORIAL.indexOf(tourChapter) + 1;
+      document.getElementById('tour-step').innerText = `Capítulo ${n} · ${tourChapter.title} · ${tourIndex + 1} de ${steps.length}`;
       document.getElementById('tour-title').innerText = step.title;
       document.getElementById('tour-text').innerText = step.text;
       document.querySelectorAll('#tour-dots .tour-dot').forEach((d, i) => d.classList.toggle('on', i === tourIndex));
       document.getElementById('tour-back').classList.toggle('invisible', tourIndex === 0);
-      document.getElementById('tour-next').innerText = tourIndex === TOUR.length - 1 ? 'Bora!' : 'Próximo';
+      document.getElementById('tour-next').innerText = tourIndex === steps.length - 1 ? 'Bora!' : 'Próximo';
+      renderDemo(step.demo);
       const el = tourTarget(step);
       if (el && el.closest('main')) el.scrollIntoView({ block: 'center', behavior: prefs.reduceMotion ? 'auto' : 'smooth' });
       setTimeout(placeTour, prefs.reduceMotion ? 30 : 380);
       placeTour();
+    }
+
+    /* Plays a demo scene: every few seconds the chips move to the next frame (and loop). */
+    function renderDemo(name) {
+      clearInterval(demoTimer);
+      demoTimer = null;
+      const box = document.getElementById('tour-demo');
+      const d = name && DEMOS[name];
+      if (!d) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+      box.classList.remove('hidden');
+      box.innerHTML = `<div class="dstage" style="height:${d.h}px">${d.deco}${d.chips.map(([id, t, k]) => `<span class="dchip dchip-${k}" data-id="${id}" data-k="${k}">${escapeHtml(t)}</span>`).join('')}</div>
+        <p class="dcap"></p><div class="dprog">${d.frames.map(() => '<i></i>').join('')}</div>`;
+      let f = 0;
+      const show = () => {
+        const fr = d.frames[f];
+        box.querySelectorAll('.dchip').forEach(c => {
+          const p = fr.pos[c.dataset.id];
+          if (p) { c.style.left = p[0] + '%'; c.style.top = p[1] + 'px'; }
+          c.style.opacity = (fr.hide || []).includes(c.dataset.id) ? '0' : '1';
+          c.className = `dchip dchip-${(fr.cls && fr.cls[c.dataset.id]) || c.dataset.k}`;
+        });
+        box.querySelector('.dcap').innerText = fr.cap;
+        box.querySelectorAll('.dprog i').forEach((b, i) => b.classList.toggle('on', i === f));
+      };
+      show();
+      demoTimer = setInterval(() => { f = (f + 1) % d.frames.length; show(); }, prefs.reduceMotion ? 4200 : 3200);
     }
 
     function tourTarget(step) {
@@ -1997,7 +2119,7 @@
 
     function placeTour() {
       if (tourIndex < 0) return;
-      const step = TOUR[tourIndex];
+      const step = TOUR_STEPS()[tourIndex];
       const hole = document.getElementById('tour-hole');
       const card = document.getElementById('tour-card');
       const el = tourTarget(step);
@@ -2021,13 +2143,72 @@
     function endTour(skipped) {
       document.getElementById('tour').classList.add('hidden');
       window.removeEventListener('resize', placeTour);
+      clearInterval(demoTimer);
+      demoTimer = null;
+      const chapter = tourChapter;
+      // Watched to the end (or skipped at the last step) counts as done.
+      if (chapter && (!skipped || tourIndex === chapter.steps.length - 1)) markChapterDone(chapter.id);
       tourIndex = -1;
+      tourChapter = null;
       switchTab('inicio');
       if (!prefs.tutorialDone) setPref('tutorialDone', true);
-      if (skipped) showToast('Tutorial pulado. Dá pra rever em Perfil → Suporte.');
+      if (skipped) showToast('Tutorial pausado. Os capítulos ficam em Perfil → Suporte → Tutorial.');
+      renderTutorialHub();
+      renderHomeV7();
       const fn = tourOnEnd;
       tourOnEnd = null;
       if (fn) fn();
+    }
+
+    const chaptersDone = () => new Set(Array.isArray(prefs.tutorialChapters) ? prefs.tutorialChapters : []);
+    function markChapterDone(id) {
+      const done = chaptersDone();
+      if (done.has(id)) return;
+      done.add(id);
+      setPref('tutorialChapters', TUTORIAL.map(c => c.id).filter(x => done.has(x)));
+    }
+
+    /* Suporte → Tutorial: one row per chapter, with a check when watched. */
+    function renderTutorialHub() {
+      const box = document.getElementById('tutorial-hub');
+      if (!box) return;
+      const done = chaptersDone();
+      box.innerHTML = TUTORIAL.map((c, i) => `
+        <button onclick="startChapter('${c.id}')" class="menu-row">
+          <img src="babinha/${c.img}.webp" alt="" class="w-12 h-12 object-contain flex-shrink-0" />
+          <span class="flex-1 min-w-0">
+            <span class="block text-[12px] font-bold text-ink-2">Capítulo ${i + 1} · ${c.steps.length} passos</span>
+            <span class="block">${escapeHtml(c.title)}</span>
+            <span class="block text-[12px] font-medium text-ink-2 leading-snug">${escapeHtml(c.desc)}</span>
+          </span>
+          ${done.has(c.id) ? '<span class="w-7 h-7 rounded-full bg-leaf/15 text-leaf flex items-center justify-center flex-shrink-0" aria-label="Visto"><i class="fa-solid fa-check text-[12px]"></i></span>' : '<i class="fa-solid fa-play text-[12px] text-pitch flex-shrink-0"></i>'}
+        </button>`).join('');
+      const n = TUTORIAL.filter(c => done.has(c.id)).length;
+      const sub = document.getElementById('tutorial-progress');
+      if (sub) sub.innerText = `${n} de ${TUTORIAL.length} capítulos vistos`;
+    }
+    function openTutorialHub() {
+      openSupport();
+      setTimeout(() => { const el = document.getElementById('tutorial-section'); if (el) el.scrollIntoView({ block: 'start' }); }, 60);
+    }
+    function hideTutorialCard() { setPref('tutorialCardHidden', true); renderHomeV7(); }
+    /* Home reminder while there are chapters left (until closed). */
+    function tutorialCardHtml() {
+      if (!prefs.tutorialDone || prefs.tutorialCardHidden) return '';
+      const done = chaptersDone();
+      const left = TUTORIAL.filter(c => !done.has(c.id));
+      if (!left.length) return '';
+      const next = left[0];
+      return `
+        <div class="card w-full p-3.5 flex items-center gap-3">
+          <img src="babinha/${next.img}.webp" alt="" class="w-12 h-12 object-contain flex-shrink-0" />
+          <button onclick="startChapter('${next.id}')" class="min-w-0 flex-1 text-left">
+            <span class="block text-[12px] font-bold text-ink-2">Tutorial do Babinha · ${TUTORIAL.length - left.length} de ${TUTORIAL.length}</span>
+            <span class="block text-[15px] font-bold leading-tight">Próximo: ${escapeHtml(next.title)}</span>
+            <span class="block text-[12.5px] text-ink-2">${next.steps.length} passos · menos de 1 minuto</span>
+          </button>
+          <button onclick="hideTutorialCard()" class="btn-icon" aria-label="Esconder o lembrete do tutorial"><i class="fa-solid fa-xmark"></i></button>
+        </div>`;
     }
 
     /* ===================================================================
@@ -2570,9 +2751,15 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '9.5';
+    const APP_VERSION = '9.5.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '9.5.1', date: '11/10/2026', title: 'Tutorial novinho', items: [
+        'O tutorial foi refeito do zero: 6 capítulos curtos com o Babinha, cobrindo o BABA inteiro.',
+        'As regras mais difíceis (rodízio, régua de tempo, goleiro da fila, ordem por jogos) agora têm animação mostrando como funcionam.',
+        'Os capítulos ficam em Perfil → Suporte → Tutorial, com ✓ nos que você já viu, e o Início lembra do próximo.',
+        '10 poses novas do Babinha espalhadas pelo app.'
+      ] },
       { v: '9.5', date: '11/10/2026', title: 'A fila do seu jeito', items: [
         'Dá pra tirar alguém da fila de espera (o "foi embora") direto na aba Times.',
         'Nova opção de ordem da fila: quem jogou menos joga antes.',
@@ -2635,9 +2822,11 @@
       if (seen !== APP_VERSION) {
         lsSet(NOTES_KEY, APP_VERSION);
         // Everything since the last version this phone saw (just the newest on a first look).
-        const since = PATCH_NOTES.filter(n => seen && Number(n.v) > Number(seen));
+        const vnum = v => String(v || '0').split('.').map(Number).concat([0, 0, 0]).slice(0, 3);
+        const newer = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
+        const since = PATCH_NOTES.filter(n => seen && newer(n.v, seen));
         const list = since.length ? since : PATCH_NOTES.slice(0, 1);
-        return showPopup({ img: 'champion', eyebrow: `Novidades · v${APP_VERSION}`, title: PATCH_NOTES[0].title, html: notesHtml(list), ok: 'Bora pro baba' });
+        return showPopup({ img: 'dancinha', eyebrow: `Novidades · v${APP_VERSION}`, title: PATCH_NOTES[0].title, html: notesHtml(list), ok: 'Bora pro baba' });
       }
     }
     function openPatchNotes() {
@@ -3008,7 +3197,7 @@
       box.innerHTML = `
         <div class="flex items-end justify-between gap-3 px-1 mb-2">
           <div><p class="eyebrow">Missões da semana</p><p class="text-[12px] text-ink-2 mt-0.5">${done} de ${missionsCache.length} feitas${end ? ` · renova na segunda` : ''}</p></div>
-          <img src="babinha/coach.webp" alt="" class="w-12 h-12 object-contain -mb-1" />
+          <img src="babinha/calculante.webp" alt="" class="w-12 h-12 object-contain -mb-1" />
         </div>
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
           ${missionsCache.map(m => {
@@ -3735,7 +3924,8 @@
     function renderHomeV7() {
       const box = document.getElementById('home-v7');
       if (!box) return;
-      if (!(v7 === true && cloudOn())) { box.innerHTML = ''; return; }
+      const tut = tutorialCardHtml();
+      if (!(v7 === true && cloudOn())) { box.innerHTML = tut ? `<section class="space-y-2.5">${tut}</section>` : ''; return; }
       const lives = liveListCache.map(l => `
         <button onclick="openLive('${escapeHtml(l.code)}')" class="card w-full p-3.5 flex items-center gap-3 text-left">
           <span class="tile bg-pitch text-butter"><span class="live-dot"></span></span>
@@ -3772,7 +3962,7 @@
           <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">Assistir um jogo ao vivo</span><span class="block text-[12.5px] text-ink-2">Tem o código de um baba? Digite aqui</span></span>
           <i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>
         </button>`;
-      const all = banned + notice + staff + lives + watch + pts;
+      const all = banned + notice + staff + tut + lives + watch + pts;
       box.innerHTML = all ? `<section class="space-y-2.5">${all}</section>` : '';
     }
 
