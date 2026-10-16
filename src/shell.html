@@ -855,6 +855,7 @@
         </div>
 
         <div id="home-events"></div>
+        <div id="home-explore"></div>
         <div id="home-mine"></div>
         <div id="home-v7"></div>
 
@@ -1952,6 +1953,7 @@
         <div id="turma-edit-invite" class="hidden rounded-2xl bg-butter/60 border border-butter-3/60 p-3.5"></div>
         <button id="turma-edit-history" onclick="openHistory(editingTurmaId)" class="hidden w-full menu-row rounded-2xl bg-card border border-ink/10"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0 text-left"><span class="block">Babas anteriores da turma</span><span id="turma-edit-history-sub" class="block text-[12px] font-medium text-ink-2"></span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
         <div id="turma-edit-events" class="hidden rounded-2xl bg-butter/40 border border-butter-3/60 p-3.5"></div>
+        <div id="turma-edit-hub" class="hidden rounded-2xl bg-card border border-ink/10 p-3.5"></div>
         <div id="turma-tabs" class="seg grid-cols-2 hidden">
           <button id="turma-tab-atletas" onclick="turmaTab('atletas')" class="seg-btn is-selected">Atletas</button>
           <button id="turma-tab-pessoas" onclick="turmaTab('pessoas')" class="seg-btn">Pessoas e cargos</button>
@@ -2275,6 +2277,52 @@
         <button onclick="closeRules()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="rules-body" class="space-y-3.5 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
+    </div>
+  </div>
+
+  <!-- Turmas (v11.2) -->
+  <div id="modal-explore" class="overlay hidden z-[62]" onclick="if(event.target===this) closeExplore()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0"><h3 class="title">Explorar turmas</h3><p id="explore-sub" class="hidden text-[13px] text-ink-2"></p></div>
+        <button onclick="closeExplore()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="explore-tabs" class="flex-shrink-0"></div>
+      <div id="explore-list" class="space-y-2 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
+    </div>
+  </div>
+  <div id="modal-thub" class="overlay hidden z-[63]" onclick="if(event.target===this) closeHub()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between gap-2 flex-shrink-0 -mt-1">
+        <h3 id="thub-title" class="title truncate"></h3>
+        <button onclick="closeHub()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="thub-head" class="space-y-2.5 flex-shrink-0"></div>
+      <div id="thub-body" class="space-y-3 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
+    </div>
+  </div>
+  <div id="modal-champ" class="overlay hidden z-[64]" onclick="if(event.target===this) closeChamp()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between gap-2 flex-shrink-0 -mt-1">
+        <h3 id="champ-title" class="title truncate"></h3>
+        <button onclick="closeChamp()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="champ-body" class="space-y-3 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
+    </div>
+  </div>
+  <div id="modal-form" class="overlay hidden z-[70]" onclick="if(event.target===this) closeForm()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] overflow-y-auto overscroll-contain">
+      <div class="grabber"></div>
+      <div class="flex items-start justify-between gap-2 -mt-1">
+        <div class="min-w-0"><h3 id="form-title" class="title"></h3><p id="form-sub" class="hidden text-[13px] text-ink-2 leading-snug"></p></div>
+        <button onclick="closeForm()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="form-body" class="space-y-3"></div>
+      <p id="form-error" class="hidden text-[13px] font-semibold text-danger"></p>
+      <button id="form-ok" onclick="submitForm()" class="btn-primary w-full h-14 text-[15px]">Salvar</button>
     </div>
   </div>
 

@@ -855,3 +855,185 @@ def f_livePush2(self, uid, live_id, code, kind, key, title, body, event_id=None)
         self.pushes.append({'event': event_id, 'kind': kind, 'key': key, 'title': title, 'body': body}); return self.ok({'sent': 1})
     return f_livePush(self, uid, live_id, code, kind, key, title, body)
 Fake.f_livePush = f_livePush2
+
+# ---- v11.2: turmas (privacidade, ranking, troféus, prestígio, desafios, campeonatos)
+def _tminit(self):
+    if not hasattr(self, 'pub'):
+        self.pub = set(); self.tmatches = {}; self.champs = {}; self.trophies = []; self.v112_enabled = True
+    if not self.v112_enabled: raise LookupError()
+Fake._tminit = _tminit
+def _tmreg(fn):
+    def g(self, uid, *a):
+        self._tminit(); return fn(self, uid, *a)
+    g.__name__ = fn.__name__; setattr(Fake, fn.__name__, _wrap(g)); return fn
+def _can_see(self, t, uid): return self.is_member(t, uid) or t in self.pub
+def _tname(self, t): return (self.turmas.get(t) or {}).get('name')
+def _prestige(self, t):
+    n = sum(1 for b in self.babas.values() if b.get('finished') and t in (b.get('turma_ids') or []))
+    pl = sum(1 for m in self.tmatches.values() if m['status'] == 'played' and t in (m['home'], m['away']))
+    score = n * 2 + pl * 3
+    return {'score': score, 'tier': 'prata' if score >= 100 else 'bronze', 'parts': [{'label': 'Babas (6 meses)', 'qty': n, 'pts': n * 2}, {'label': 'Desafios jogados', 'qty': pl, 'pts': pl * 3}]}
+Fake._can_see = _can_see; Fake._tname = _tname; Fake._prestige = _prestige
+def _mjson(self, m):
+    return dict(m, home_name=self._tname(m['home']), away_name=self._tname(m['away']) if m.get('away') else None, home_icon=None, away_icon=None)
+Fake._mjson = _mjson
+@_tmreg
+def f_setPrivacy(self, uid, t, pub):
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    (self.pub.add if pub else self.pub.discard)(t)
+    if not pub:
+        for m in self.tmatches.values():
+            if m['home'] == t and m['status'] in ('open', 'pending'): m['status'] = 'canceled'
+    return self.ok(None)
+@_tmreg
+def f_turmaPrestige(self, uid, t):
+    if not self._can_see(t, uid): return self.err('P0001', 'not_found')
+    return self.ok(dict(self._prestige(t), is_public=t in self.pub))
+@_tmreg
+def f_turmaRanking(self, uid, t, period, metric, lim):
+    if not self._can_see(t, uid): return self.err('P0001', 'not_found')
+    bs = sorted([b for b in self.babas.values() if b.get('finished') and t in (b.get('turma_ids') or [])], key=lambda b: b['played_on'])
+    if period == 'last': bs = bs[-1:]
+    tot = {}
+    for b in bs:
+        for s in self.stats.get(b['id'], []):
+            r = tot.setdefault(s['name'], {'goals': 0, 'assists': 0, 'saves': 0, 'matches': 0, 'wins': 0, 'babas': 0})
+            for k in ('goals', 'assists', 'saves', 'matches', 'wins'): r[k] += s.get(k) or 0
+            r['babas'] += 1
+    val = lambda r: r['goals'] + r['assists'] if metric == 'part' else r[metric]
+    rows = sorted([(n, r) for n, r in tot.items() if val(r) > 0], key=lambda x: (-val(x[1]), x[1]['matches'], x[0]))[:min(max(lim or 10, 1), 26)]
+    return self.ok({'period': period, 'season': '2026-S2', 'label': bs[-1]['played_on'] if bs and period == 'last' else '2026-S2', 'babas': len(bs),
+                    'rows': [{'rank': i + 1, 'player_id': None, 'name': n, 'value': val(r), 'babas': r['babas'], 'matches': r['matches']} for i, (n, r) in enumerate(rows)]})
+@_tmreg
+def f_turmaTrophies(self, uid, t):
+    if not self._can_see(t, uid): return self.err('P0001', 'not_found')
+    return self.ok({'atletas': [x for x in self.trophies if x['turma_id'] == t and x['scope'] == 'atleta'], 'turma': [x for x in self.trophies if x['turma_id'] == t and x['scope'] == 'turma']})
+@_tmreg
+def f_exploreTurmas(self, uid, q, lim):
+    rows = []
+    for t, tr in self.turmas.items():
+        if not (t in self.pub or self.is_member(t, uid)): continue
+        if q and q.lower() not in (tr['name'] or '').lower(): continue
+        rows.append({'id': t, 'name': tr['name'], 'icon': None, 'is_public': t in self.pub, 'member': self.is_member(t, uid), 'members': sum(1 for (tt, u) in self.members if tt == t),
+                     'prestige': self._prestige(t), 'trophies': 0, 'last_baba': None})
+    return self.ok(sorted(rows, key=lambda r: -r['prestige']['score']))
+@_tmreg
+def f_createMatch(self, uid, home, kind, away, starts, place, note):
+    if not self._is_adm(home, uid): return self.err('P0001', 'not_allowed')
+    if home not in self.pub: return self.err('P0001', 'home_private')
+    if kind == 'amistoso_fechado' and (away not in self.pub): return self.err('P0001', 'away_private')
+    mid = str(uuid.uuid4())
+    self.tmatches[mid] = {'id': mid, 'kind': kind, 'home': home, 'away': away if kind == 'amistoso_fechado' else None, 'status': 'pending' if kind == 'amistoso_fechado' else 'open',
+                          'starts_at': starts, 'place': place, 'note': note, 'championship': None, 'home_goals': None, 'away_goals': None, 'result_status': 'none', 'reported_by': None, 'reported_user': None,
+                          'created_at': _dt.datetime.utcnow().isoformat() + str(len(self.tmatches)).zfill(3)}
+    return self.ok(mid)
+@_tmreg
+def f_respondMatch(self, uid, m, accept, as_turma):
+    x = self.tmatches.get(m)
+    if not x: return self.err('P0001', 'not_found')
+    if x['status'] == 'pending':
+        if not self._is_adm(x['away'], uid): return self.err('P0001', 'not_allowed')
+        x['status'] = 'accepted' if accept else 'declined'; return self.ok(x['status'])
+    if x['status'] == 'open':
+        if not as_turma or as_turma == x['home'] or not self._is_adm(as_turma, uid): return self.err('P0001', 'not_allowed')
+        x['away'] = as_turma; x['status'] = 'accepted'; return self.ok('accepted')
+    return self.err('P0001', 'closed')
+@_tmreg
+def f_cancelMatch(self, uid, m):
+    x = self.tmatches.get(m)
+    if not x: return self.err('P0001', 'not_found')
+    x['status'] = 'canceled'; return self.ok(None)
+@_tmreg
+def f_scheduleMatch(self, uid, m, starts, place):
+    x = self.tmatches.get(m)
+    if not x: return self.err('P0001', 'not_found')
+    x['starts_at'] = starts; x['place'] = place; return self.ok(None)
+@_tmreg
+def f_reportResult(self, uid, m, hg, ag):
+    x = self.tmatches.get(m)
+    if not x: return self.err('P0001', 'not_found')
+    side = x['home'] if self._is_adm(x['home'], uid) else x['away']
+    x.update(home_goals=hg, away_goals=ag, result_status='reported', reported_by=side, reported_user=uid); return self.ok(None)
+@_tmreg
+def f_confirmResult(self, uid, m, ok):
+    x = self.tmatches.get(m)
+    if not x or x['result_status'] != 'reported': return self.err('P0001', 'closed')
+    other = x['away'] if x['reported_by'] == x['home'] else x['home']
+    if not self._is_adm(other, uid) or x['reported_user'] == uid: return self.err('P0001', 'not_allowed')
+    if ok:
+        x.update(result_status='confirmed', status='played')
+        if x['championship']: self._champ_progress(x['championship'])
+        return self.ok('confirmed')
+    x.update(result_status='none', home_goals=None, away_goals=None, reported_by=None, reported_user=None); return self.ok('disputed')
+@_tmreg
+def f_turmaMatches(self, uid, t):
+    if not self._can_see(t, uid): return self.err('P0001', 'not_found')
+    return self.ok([self._mjson(m) for m in sorted(self.tmatches.values(), key=lambda m: m['created_at'], reverse=True) if t in (m['home'], m['away']) and m['status'] not in ('declined', 'canceled')])
+@_tmreg
+def f_openMatches(self, uid):
+    return self.ok([dict(self._mjson(m), prestige=self._prestige(m['home']), mine=self.is_member(m['home'], uid)) for m in self.tmatches.values() if m['status'] == 'open' and m['home'] in self.pub])
+def _champ_table(self, c):
+    rows = {t: {'turma': t, 'name': self._tname(t), 'icon': None, 'j': 0, 'v': 0, 'e': 0, 'd': 0, 'gp': 0, 'gc': 0, 'sg': 0, 'pts': 0} for t in self.champs[c]['teams']}
+    for m in self.tmatches.values():
+        if m['championship'] != c or m['status'] != 'played': continue
+        for me, ot, gf, ga in ((m['home'], m['away'], m['home_goals'], m['away_goals']), (m['away'], m['home'], m['away_goals'], m['home_goals'])):
+            r = rows[me]; r['j'] += 1; r['gp'] += gf; r['gc'] += ga; r['sg'] += gf - ga
+            if gf > ga: r['v'] += 1; r['pts'] += 3
+            elif gf == ga: r['e'] += 1; r['pts'] += 1
+            else: r['d'] += 1
+    return sorted(rows.values(), key=lambda r: (-r['pts'], -r['sg'], -r['gp'], r['name']))
+def _champ_progress(self, c):
+    ch = self.champs[c]
+    if ch['status'] != 'andamento' or any(m['championship'] == c and m['status'] not in ('played', 'canceled') for m in self.tmatches.values()): return
+    ch['status'] = 'encerrado'; ch['champion'] = self._champ_table(c)[0]['turma']
+    self.trophies.append({'turma_id': ch['champion'], 'scope': 'turma', 'kind': 'campeonato', 'title': 'Campeão: ' + ch['name'], 'season': '2026-S2', 'ref': c})
+Fake._champ_table = _champ_table; Fake._champ_progress = _champ_progress
+@_tmreg
+def f_createChampionship(self, uid, t, name, size):
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    if t not in self.pub: return self.err('P0001', 'home_private')
+    cid = str(uuid.uuid4()); self.champs[cid] = {'id': cid, 'name': name, 'organizer': t, 'max_teams': size, 'status': 'inscricoes', 'champion': None, 'teams': [t]}
+    return self.ok(cid)
+@_tmreg
+def f_joinChampionship(self, uid, c, t):
+    ch = self.champs.get(c)
+    if not ch: return self.err('P0001', 'not_found')
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    if ch['status'] != 'inscricoes': return self.err('P0001', 'closed')
+    if len(ch['teams']) >= ch['max_teams']: return self.err('P0001', 'full')
+    if t not in ch['teams']: ch['teams'].append(t)
+    return self.ok(None)
+@_tmreg
+def f_leaveChampionship(self, uid, c, t):
+    ch = self.champs.get(c)
+    if ch and t in ch['teams'] and t != ch['organizer']: ch['teams'].remove(t)
+    return self.ok(None)
+@_tmreg
+def f_startChampionship(self, uid, c):
+    ch = self.champs.get(c)
+    if not ch or not self._is_adm(ch['organizer'], uid): return self.err('P0001', 'not_allowed')
+    if len(ch['teams']) < 3: return self.err('P0001', 'few_teams')
+    n = 0
+    for i in range(len(ch['teams'])):
+        for j in range(i + 1, len(ch['teams'])):
+            mid = str(uuid.uuid4()); n += 1
+            self.tmatches[mid] = {'id': mid, 'kind': 'campeonato', 'home': ch['teams'][i], 'away': ch['teams'][j], 'status': 'accepted', 'starts_at': None, 'place': None, 'note': None, 'championship': c,
+                                  'home_goals': None, 'away_goals': None, 'result_status': 'none', 'reported_by': None, 'reported_user': None, 'created_at': _dt.datetime.utcnow().isoformat() + str(len(self.tmatches)).zfill(3)}
+    ch['status'] = 'andamento'; return self.ok(n)
+@_tmreg
+def f_cancelChampionship(self, uid, c):
+    ch = self.champs.get(c)
+    if not ch or not self._is_adm(ch['organizer'], uid): return self.err('P0001', 'not_allowed')
+    ch['status'] = 'cancelado'; return self.ok(None)
+@_tmreg
+def f_listChampionships(self, uid):
+    return self.ok([{'id': c['id'], 'name': c['name'], 'organizer': c['organizer'], 'organizer_name': self._tname(c['organizer']), 'status': c['status'], 'max_teams': c['max_teams'], 'teams': len(c['teams']),
+                     'champion': c['champion'], 'champion_name': self._tname(c['champion']) if c['champion'] else None, 'mine': any(self.is_member(t, uid) for t in c['teams'])}
+                    for c in self.champs.values() if c['status'] != 'cancelado'])
+@_tmreg
+def f_championshipDetail(self, uid, c):
+    ch = self.champs.get(c)
+    if not ch or ch['status'] == 'cancelado': return self.err('P0001', 'not_found')
+    return self.ok({'id': c, 'name': ch['name'], 'status': ch['status'], 'organizer': ch['organizer'], 'max_teams': ch['max_teams'], 'champion': ch['champion'],
+                    'teams': [{'id': t, 'name': self._tname(t), 'icon': None} for t in ch['teams']], 'table': self._champ_table(c) if ch['status'] != 'inscricoes' else [],
+                    'matches': [self._mjson(m) for m in self.tmatches.values() if m['championship'] == c and m['status'] != 'canceled']})
