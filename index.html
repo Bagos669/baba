@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=c6e2ea53c2" />
+  <link rel="stylesheet" href="app.css?v=78b41c4852" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -2146,7 +2146,7 @@
       <label class="block"><span class="label">Turma</span><select id="eve-turma" class="select"></select></label>
       <div class="grid grid-cols-2 gap-2">
         <label class="block min-w-0"><span class="label">Dia</span><input id="eve-date" type="date" class="field" /></label>
-        <label class="block min-w-0"><span class="label">Hora</span><input id="eve-time" type="time" class="field" /></label>
+        <label class="block min-w-0"><span class="label">Hora</span><input id="eve-time" type="text" inputmode="numeric" pattern="[0-9:]*" autocomplete="off" maxlength="5" placeholder="19:30" class="field" oninput="maskTime(this)" /></label>
       </div>
       <label class="block"><span class="label">Onde</span><input id="eve-place" maxlength="120" class="field" placeholder="Ex.: Quadra do Zé, Asa Norte" /></label>
       <label class="block"><span class="label">Vagas (opcional)</span><input id="eve-max" type="number" min="2" max="200" inputmode="numeric" class="field" placeholder="Sem limite" /></label>
@@ -2154,6 +2154,19 @@
       <label class="block"><span class="label">Recado (opcional)</span><textarea id="eve-note" maxlength="280" rows="2" class="field !h-auto py-2.5" placeholder="Ex.: leva colete, rachamos a quadra"></textarea></label>
       <p id="eve-error" class="hidden text-[13px] font-semibold text-danger"></p>
       <button id="eve-save" onclick="saveEventEdit()" class="btn-primary w-full h-14 text-[15px]">Puxar a lista</button>
+    </div>
+  </div>
+  <div id="modal-evname" class="overlay hidden z-[66]" onclick="if(event.target===this) closeEvName()">
+    <div class="sheet-panel space-y-3">
+      <div class="grabber"></div>
+      <div class="flex items-start justify-between gap-2 -mt-1">
+        <div class="min-w-0"><h3 class="title">Pôr um nome na lista</h3><p class="text-[13px] text-ink-2 leading-snug">Se o nome for da turma, ele é ligado ao jogador. Se for de fora, é um convidado.</p></div>
+        <button onclick="closeEvName()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label class="block"><span class="label">Nome</span><input id="evname-name" maxlength="60" autocomplete="off" class="field" placeholder="Ex.: Primo do Caio" oninput="evNameTyped()" onkeydown="if(event.key==='Enter') saveEventName()" /></label>
+      <label id="evname-guest" class="block"><span class="label">Convidado de quem?</span><select id="evname-inviter" class="select"></select></label>
+      <p id="evname-error" class="hidden text-[13px] font-semibold text-danger"></p>
+      <button onclick="saveEventName()" class="btn-primary w-full h-14 text-[15px]">Pôr na lista</button>
     </div>
   </div>
   <div id="modal-paste" class="overlay hidden z-[64]" onclick="if(event.target===this) closePasteList()">
@@ -2219,6 +2232,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=098f314b98"></script>
+  <script src="app.js?v=d90f554e9e"></script>
 </body>
 </html>

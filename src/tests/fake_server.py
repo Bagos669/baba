@@ -753,7 +753,7 @@ def f_updateEvent(self, uid, eid, starts, place, note, mx, status):
     if status: e['status'] = status
     return self.ok(None)
 @_evreg
-def f_rsvpEvent(self, uid, eid, answer, player, name):
+def f_rsvpEvent(self, uid, eid, answer, player, name, inviter=None):
     e = self.events.get(eid)
     if not e or not self.is_member(e['turma_id'], uid): return self.err('P0001', 'not_found')
     if e['status'] != 'open': return self.err('P0001', 'closed')
@@ -771,6 +771,7 @@ def f_rsvpEvent(self, uid, eid, answer, player, name):
     old = self.rsvps.get((eid, key))
     self.rsvps[(eid, key)] = {'player_key': key, 'name': nm, 'turma_player_id': p['id'] if p else None, 'user_id': p.get('user_id') if p else None, 'status': answer,
                               'source': 'adm' if adm and (not p or p.get('user_id') != uid) else 'app', 'outcome': old.get('outcome') if old else None,
+                              'invited_by': (inviter or None) if not p else None,
                               'created_at': old['created_at'] if old else _dt.datetime.utcnow().isoformat()}
     return self.ok(answer)
 @_evreg
@@ -784,9 +785,13 @@ def f_importRsvps(self, uid, eid, rows):
         if not nm: continue
         key = nm.lower(); old = self.rsvps.get((eid, key))
         self.rsvps[(eid, key)] = {'player_key': key, 'name': nm, 'turma_player_id': p['id'] if p else None, 'user_id': p.get('user_id') if p else None,
+                                  'invited_by': (r.get('invited_by') or None) if not p else None,
                                   'status': r.get('status') or 'vou', 'source': 'colado', 'outcome': None, 'created_at': old['created_at'] if old else _dt.datetime.utcnow().isoformat() + str(n).zfill(3)}
         n += 1
     return self.ok(n)
+@_evreg
+def f_relinkMyStats(self, uid):
+    return self.ok(0)
 @_evreg
 def f_closeEvent(self, uid, eid, outcomes):
     e = self.events.get(eid)

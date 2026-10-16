@@ -3,7 +3,7 @@
 
        Model (v4):
        - turmas: saved groups of names, editable, kept across days.
-       - players: today's pool (from the selected turmas + avulsos).
+       - players: today's pool (from the selected turmas + convidados).
          A player is "present" once checked in; `arrival` is the check-in order.
        - court.A / court.B: the two teams on the court ({label, ids, streak}).
        - queue: present players waiting, in order. Losers go to the end.
@@ -323,6 +323,7 @@
     let pushTimer = null;
     let lastPull = 0;
     let myPlayerIds = [];
+    let relinkTried = false;
     let othersOpen = [];         // babas in progress on other organizers' phones (my turmas)
     let schemaV2 = null;         // server has owners/pictures/prefs (null = not checked yet)
     let femaleCol = null;        // server keeps "jogadora" on turma players (v9.5)
@@ -719,6 +720,7 @@
         const turmaRows = mem.filter(m => m.turma).map(m => Object.assign({}, m.turma, { role: m.turma.owner_id && m.turma.owner_id === uid ? 'owner' : m.role }));
         const players = await api.players(turmaRows.map(t => t.id));
         myPlayerIds = players.filter(p => p.user_id === uid).map(p => p.id);
+        if (myPlayerIds.length && !relinkTried) { relinkTried = true; api.relinkMyStats().catch(() => {}); }
 
         const ops = readOutbox();
         const pending = new Set(ops.filter(o => o.type === 'turma_sync').map(o => o.id));
@@ -1219,6 +1221,8 @@
       if (!m) { showToast('Esse nome ainda está sincronizando. Tente em alguns segundos.', 'warning'); return; }
       try {
         await api.claim(m.id);
+        // Old stats saved under this name without the id get tied to the account (needs v11.2 on the server).
+        api.relinkMyStats().then(() => pullCloud(true)).catch(() => {});
         Object.values(t.meta).forEach(x => { if (x.userId === currentUser.id) x.userId = null; });
         m.userId = currentUser.id;
         myPlayerIds = myPlayerIds.filter(id => !Object.values(t.meta).some(x => x.id === id)).concat(m.id);
@@ -1263,8 +1267,14 @@
       if (!linked.size && !myNamesToday.size) return null;
       const tot = { babas: 0 };
       STAT_KEYS.forEach(k => { tot[k] = 0; });
+      // Rows saved without the player's id (the name was linked later, or the player was recreated) still count when
+      // the name is mine in one of that baba's turmas.
+      const known = new Set();
+      const myNameIn = {};
+      state.turmas.forEach(t => Object.entries(t.meta || {}).forEach(([n, m]) => { known.add(m.id); if (m.userId === currentUser.id) myNameIn[t.id] = n; }));
       state.pastDays.forEach(d => {
-        const rows = d.players.filter(p => p.cloudId && linked.has(p.cloudId));
+        const rows = d.players.filter(p => (p.cloudId && linked.has(p.cloudId))
+          || ((!p.cloudId || !known.has(p.cloudId)) && (d.turmaIds || []).some(tid => myNameIn[tid] && myNameIn[tid] === String(p.name).trim().toLowerCase())));
         if (rows.length) tot.babas++;
         rows.forEach(p => STAT_KEYS.forEach(k => { tot[k] += Number(p[k]) || 0; }));
       });
@@ -2033,7 +2043,7 @@
         { img: 'wave', tab: 'inicio', title: 'E aí! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Em 10 passos te mostro como um baba roda no BABA, do começo ao fim.' },
         { img: 'aidentro', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'A turma é o grupo fixo do seu baba: os atletas, quem é goleiro e o histórico de todos os jogos. Crie a sua ou entre pelo link de convite que a galera mandou.' },
         { img: 'coach', tab: 'inicio', target: '#home-events', fallback: '#home-shortcuts', title: 'A lista do próximo baba', text: 'O adm puxa a lista na turma e todo mundo responde Vou, Talvez ou Não vou, até pelo chat. Dá pra colar a lista do WhatsApp e salvar o baba na agenda.' },
-        { img: 'run', tab: 'ficha', target: '#sheet-players-tbody', fallback: '#tab-nav-ficha', title: 'Lista de chegada', text: 'No dia, marque quem chegou, na ordem em que chegou. Essa ordem vira a fila: quem chega primeiro, joga primeiro. Apareceu alguém de fora? Adicione como avulso.' },
+        { img: 'run', tab: 'ficha', target: '#sheet-players-tbody', fallback: '#tab-nav-ficha', title: 'Lista de chegada', text: 'No dia, marque quem chegou, na ordem em que chegou. Essa ordem vira a fila: quem chega primeiro, joga primeiro. Apareceu alguém de fora? Adicione como convidado.' },
         { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Montar os times', text: 'Em Times, toque em Montar: o BABA pega os primeiros da fila e monta Time 1 x Time 2. O tamanho vem do jogo escolhido no Placar (ex.: 4v4 com goleiro do time = 5 por time). Prefere escolher? Dá pra montar na mão.' },
         { img: 'calculante', tab: 'fila', demo: 'rotacao', title: 'Rei da Quadra: quem perde sai', text: 'Quem ganha fica. Quem perde volta pro fim da fila, um por um, e os primeiros da fila entram. Assim os times vão se misturando a noite toda.' },
         { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo de jogo e dê play. Precisou? +1, +2 ou +3 de acréscimo. Pode apagar a tela: o relógio continua certo.' },
@@ -2788,11 +2798,17 @@
       cancelChallenge: id => rpc('cancel_challenge', { challenge: id }),
       myChallenges: live => rpc('my_challenges', { live }),
       throwPipoca: target => rpc('throw_pipoca', { target }),
-      events: ids => q(sb.from('turma_events').select('id, turma_id, created_by, starts_at, place, note, max_players, status, created_at, closed_at, event_rsvps(player_key, name, turma_player_id, user_id, status, source, outcome, created_at)')
-        .in('turma_id', ids).gte('starts_at', new Date(Date.now() - 3 * 864e5).toISOString()).order('starts_at', { ascending: true }).limit(60)),
+      events: async ids => {
+        const run = cols => q(sb.from('turma_events').select(`id, turma_id, created_by, starts_at, place, note, max_players, status, created_at, closed_at, event_rsvps(${cols})`)
+          .in('turma_id', ids).gte('starts_at', new Date(Date.now() - 3 * 864e5).toISOString()).order('starts_at', { ascending: true }).limit(60));
+        const base = 'player_key, name, turma_player_id, user_id, status, source, outcome, created_at';
+        // "invited_by" (convidado de quem) exists once v11.2 ran on the server.
+        try { return await run(base + ', invited_by'); } catch (e) { if (isNetworkError(e)) throw e; return run(base); }
+      },
       createEvent: (t, starts, place, note, max) => rpc('create_event', { t, starts, place, note, max_players: max }),
       updateEvent: (event, starts, place, note, max, status) => rpc('update_event', { event, starts, place, note, max_players: max, new_status: status }),
-      rsvpEvent: (event, answer, player, name) => rpc('rsvp_event', { event, answer, player, player_name: name }),
+      rsvpEvent: (event, answer, player, name, inviter) => rpc('rsvp_event', Object.assign({ event, answer, player, player_name: name }, inviter ? { invited_by: inviter } : {})),
+      relinkMyStats: () => rpc('relink_my_stats'),
       importRsvps: (event, rows) => rpc('import_rsvps', { event, rows }),
       closeEvent: (event, outcomes) => rpc('close_event', { event, outcomes }),
       discipline: t => rpc('turma_discipline', { t }),
@@ -2867,9 +2883,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11';
+    const APP_VERSION = '11.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.1', date: '16/10/2026', title: 'Ajustes da lista e dos convidados', items: [
+        'Ao marcar o baba, a hora agora é digitada no teclado numérico (19:30), sem roda de seleção.',
+        '"Avulso" virou "Convidado" em todo o app.',
+        'Na lista colada, quem não está na turma pode virar convidado, ser adicionado à turma ou ser ignorado.',
+        'Convidado agora diz de quem veio: ao pôr um nome na lista e ao colar a lista, você escolhe quem convidou.',
+        'Corrigido: ao ligar seu nome à conta, os números antigos dessa turma que ficaram soltos passam a aparecer em "Meus números".'
+      ] },
       { v: '11', date: '16/10/2026', title: 'Compromisso: a lista do baba', items: [
         'O adm puxa a lista do próximo baba (dia, hora, local e vagas): a turma recebe aviso no celular, um card no chat e um pop-up ao abrir o app.',
         'Responda Vou, Talvez ou Não vou no Início, no chat ou na lista. Com vagas, quem passar do limite vai pra lista de espera.',
@@ -4693,11 +4716,11 @@
     }
 
     /* ---- Responder ---- */
-    async function answerEvent(id, answer, playerId, name) {
+    async function answerEvent(id, answer, playerId, name, inviter) {
       const e = eventsCache.find(x => x.id === id);
       if (!e) return;
       try {
-        await api.rsvpEvent(id, answer, playerId || null, name || null);
+        await api.rsvpEvent(id, answer, playerId || null, name || null, inviter || null);
         if (!playerId && !name) lsSet('baba_ev_seen_' + id, '1');
         await loadEvents(true);
         if (!playerId && !name) {
@@ -4740,7 +4763,7 @@
         return `
           <div class="flex items-center gap-2 py-2 ${adm && !done && !canceled ? 'cursor-pointer' : ''}" ${adm && !done && !canceled ? `onclick="eventRowMenu('${e.id}', ${escapeHtml(JSON.stringify(r.player_key))})"` : ''}>
             ${i != null ? `<span class="w-6 text-right text-[12px] font-bold text-ink-3 flex-shrink-0">${i + 1}.</span>` : ''}
-            <span class="min-w-0 flex-1 text-[14px] font-semibold truncate">${escapeHtml(r.name)}${me && r.player_key === me.key ? ' <span class="text-ink-3 font-medium">(você)</span>' : ''}</span>
+            <span class="min-w-0 flex-1 text-[14px] font-semibold truncate">${escapeHtml(r.name)}${me && r.player_key === me.key ? ' <span class="text-ink-3 font-medium">(você)</span>' : ''}${r.invited_by ? ` <span class="text-ink-3 font-medium text-[12px]">· convidado de ${escapeHtml(firstName(r.invited_by))}</span>` : ''}</span>
             <span class="flex flex-wrap justify-end gap-1 flex-shrink-0">${tag}${levelTag(e.turma_id, r.player_key, adm)}${src}</span>
           </div>`;
       };
@@ -4798,12 +4821,43 @@
       closeEvMenu();
       await answerEvent(id, answer, playerId, playerId ? null : name);
     }
-    async function addEventName(id) {
-      const name = (prompt('Nome de quem vai (de fora da turma também vale):') || '').trim();
-      if (!name) return;
+    /* Adm adds a name by hand. Someone from outside the turma is a "convidado" and needs to say who invited them. */
+    let evNameFor = null;
+    function addEventName(id) {
       const e = eventsCache.find(x => x.id === id);
-      const m = e && (turmaById(e.turma_id).meta || {})[keyOf(name)];
-      await answerEvent(id, 'vou', m ? m.id : null, m ? null : name.slice(0, 60));
+      if (!e) return;
+      evNameFor = id;
+      document.getElementById('evname-name').value = '';
+      document.getElementById('evname-inviter').innerHTML = inviterOptionsHtml(e.turma_id, '');
+      document.getElementById('evname-guest').classList.remove('hidden');
+      document.getElementById('evname-error').classList.add('hidden');
+      document.getElementById('modal-evname').classList.remove('hidden');
+      setTimeout(() => { const el = document.getElementById('evname-name'); if (el) el.focus(); }, 80);
+    }
+    function closeEvName() { document.getElementById('modal-evname').classList.add('hidden'); evNameFor = null; }
+    /* Members of the turma, to pick who invited a convidado. */
+    function inviterOptionsHtml(turmaId, sel) {
+      const players = (turmaById(turmaId) || {}).players || [];
+      return `<option value="">Escolha quem convidou</option>` + players.slice().sort((a, b) => a.localeCompare(b, 'pt-BR')).map(n => `<option value="${escapeHtml(n)}" ${sel === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('');
+    }
+    function evNameTyped() {
+      const e = eventsCache.find(x => x.id === evNameFor);
+      if (!e) return;
+      const nm = document.getElementById('evname-name').value.trim();
+      const isMember = !!nm && !!(turmaById(e.turma_id).meta || {})[keyOf(nm)];
+      document.getElementById('evname-guest').classList.toggle('hidden', isMember);
+    }
+    async function saveEventName() {
+      const e = eventsCache.find(x => x.id === evNameFor);
+      if (!e) return;
+      const name = document.getElementById('evname-name').value.trim();
+      if (!name) { showErr('evname-error', 'Escreva o nome.'); return; }
+      const m = (turmaById(e.turma_id).meta || {})[keyOf(name)];
+      const inviter = m ? '' : document.getElementById('evname-inviter').value;
+      if (!m && !inviter) { showErr('evname-error', 'Escolha quem convidou essa pessoa.'); return; }
+      const id = evNameFor;
+      closeEvName();
+      await answerEvent(id, 'vou', m ? m.id : null, m ? null : name.slice(0, 60), inviter);
     }
 
     /* ---- Puxar / editar a lista ---- */
@@ -4829,14 +4883,27 @@
       closeEventSheet();
       document.getElementById('modal-event-edit').classList.remove('hidden');
     }
+    /* The hour is typed (a number keyboard), not picked on the phone's wheel: "1930", "19:30" and "19" all work. */
+    function maskTime(el) {
+      const d = el.value.replace(/\D/g, '').slice(0, 4);
+      el.value = d.length > 2 ? d.slice(0, 2) + ':' + d.slice(2) : d;
+    }
+    function parseTimeInput(v) {
+      const d = String(v || '').replace(/\D/g, '');
+      if (!d || d.length > 4) return '';
+      let h, m;
+      if (d.length <= 2) { h = +d; m = 0; } else { h = +d.slice(0, d.length - 2); m = +d.slice(-2); }
+      if (h > 23 || m > 59) return '';
+      return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    }
     function closeEventEdit() { document.getElementById('modal-event-edit').classList.add('hidden'); eventEditing = null; }
     async function saveEventEdit() {
       if (!eventEditing) return;
       const turmaId = document.getElementById('eve-turma').value || eventEditing.turmaId;
-      const date = document.getElementById('eve-date').value, time = document.getElementById('eve-time').value;
+      const date = document.getElementById('eve-date').value, time = parseTimeInput(document.getElementById('eve-time').value);
       // The phone's own time zone: the ISO string carries the offset, so everyone sees it in theirs.
       const starts = date && time ? new Date(`${date}T${time}:00`) : null;
-      if (!starts || isNaN(starts)) { showErr('eve-error', 'Escolha o dia e a hora.'); return; }
+      if (!starts || isNaN(starts)) { showErr('eve-error', time === '' ? 'Digite a hora, por exemplo 19:30.' : 'Escolha o dia e a hora.'); return; }
       if (!eventEditing.id && starts.getTime() < Date.now() - 3600e3) { showErr('eve-error', 'Esse horário já passou.'); return; }
       const place = document.getElementById('eve-place').value.trim();
       const maxRaw = parseInt(document.getElementById('eve-max').value, 10);
@@ -4915,7 +4982,7 @@
       if (!e) return;
       const L = evLines(e);
       const lines = [`⚽ *Baba ${evTurma(e).name}*`, `🗓️ ${evWhen(e, true)}${e.place ? `\n📍 ${e.place}` : ''}`, ''];
-      L.vou.forEach((r, i) => lines.push(`${i + 1}. ${r.name}`));
+      L.vou.forEach((r, i) => lines.push(`${i + 1}. ${r.name}${r.invited_by ? ` (conv. ${firstName(r.invited_by)})` : ''}`));
       if (L.espera.length) { lines.push('', '⏳ Lista de espera'); L.espera.forEach((r, i) => lines.push(`${L.vou.length + i + 1}. ${r.name}`)); }
       if (L.talvez.length) { lines.push('', '🤔 Talvez'); L.talvez.forEach(r => lines.push(`- ${r.name}`)); }
       lines.push('', 'Confirma no app BABA 👉 ' + location.origin + location.pathname);
@@ -5033,23 +5100,26 @@
       pasteState.rows = parsed.map(r => {
         const m = matchTurmaName(r.name, players.filter(p => !used.has(keyOf(p))));
         if (m) used.add(m.key);
-        return { name: r.name, status: r.status, pick: m ? m.key : '__new', sure: !!m && m.s >= 0.95 };
+        return { name: r.name, status: r.status, pick: m ? m.key : '__guest', inviter: '', sure: !!m && m.s >= 0.95 };
       });
       renderPastePreview();
     }
     function renderPastePreview() {
       const e = eventsCache.find(x => x.id === pasteState.eventId);
       const players = (turmaById(e.turma_id) || {}).players || [];
-      const opts = sel => `<option value="__new" ${sel === '__new' ? 'selected' : ''}>➕ Avulso (não é da turma)</option><option value="__skip" ${sel === '__skip' ? 'selected' : ''}>Ignorar esta linha</option>` +
+      const opts = sel => `<option value="__guest" ${sel === '__guest' ? 'selected' : ''}>🎟️ Convidado (de fora da turma)</option><option value="__add" ${sel === '__add' ? 'selected' : ''}>➕ Adicionar à turma</option><option value="__skip" ${sel === '__skip' ? 'selected' : ''}>Ignorar esta linha</option>` +
         players.map(p => `<option value="${escapeHtml(keyOf(p))}" ${sel === keyOf(p) ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('');
-      const matched = pasteState.rows.filter(r => r.pick !== '__new' && r.pick !== '__skip').length;
+      const matched = pasteState.rows.filter(r => !r.pick.startsWith('__')).length;
       document.getElementById('paste-preview').innerHTML = `
         <p class="text-[12.5px] text-ink-2 leading-snug">${pasteState.rows.length} nomes lidos · ${matched} reconhecidos na turma. Confira os que não bateram.</p>
         ${pasteState.rows.map((r, i) => `
-          <div class="rounded-2xl border ${r.pick === '__new' ? 'border-butter-3 bg-butter/30' : r.pick === '__skip' ? 'border-ink/10 opacity-60' : 'border-ink/10 bg-card'} p-2.5 space-y-1.5">
+          <div class="rounded-2xl border ${r.pick === '__guest' || r.pick === '__add' ? 'border-butter-3 bg-butter/30' : r.pick === '__skip' ? 'border-ink/10 opacity-60' : 'border-ink/10 bg-card'} p-2.5 space-y-1.5">
             <div class="flex items-center gap-2"><span class="text-[13.5px] font-bold flex-1 min-w-0 truncate">“${escapeHtml(r.name)}”</span>
               <select onchange="pasteSet(${i}, 'status', this.value)" class="select !h-9 !w-[104px] !text-[12.5px] flex-shrink-0">${['vou', 'talvez', 'nao'].map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''}>${ANSWER_LABEL[s]}</option>`).join('')}</select></div>
             <select onchange="pasteSet(${i}, 'pick', this.value)" class="select !h-9 !text-[12.5px]">${opts(r.pick)}</select>
+            ${r.pick === '__guest' ? `<label class="block"><span class="text-[11.5px] font-bold text-ink-2">Convidado de quem?</span>
+              <select onchange="pasteSet(${i}, 'inviter', this.value)" class="select !h-9 !text-[12.5px] ${r.inviter ? '' : '!border-danger/50'}">${inviterOptionsHtml(e.turma_id, r.inviter)}</select></label>` : ''}
+            ${r.pick === '__add' ? `<p class="text-[11.5px] text-ink-2 leading-snug">“${escapeHtml(r.name)}” entra na turma ${escapeHtml(turmaById(e.turma_id).name)} com esse nome.</p>` : ''}
           </div>`).join('')}`;
       document.getElementById('paste-confirm').classList.remove('hidden');
     }
@@ -5058,8 +5128,25 @@
       const e = eventsCache.find(x => x.id === (pasteState && pasteState.eventId));
       if (!e) return;
       const t = turmaById(e.turma_id);
-      const rows = pasteState.rows.filter(r => r.pick !== '__skip').map(r => {
-        if (r.pick === '__new') return { name: r.name.slice(0, 60), player_id: null, status: r.status };
+      const live = pasteState.rows.filter(r => r.pick !== '__skip');
+      if (live.some(r => r.pick === '__guest' && !r.inviter)) { showToast('Escolha quem convidou cada convidado (ou ignore a linha).', 'warning'); return; }
+      const toAdd = live.filter(r => r.pick === '__add');
+      if (toAdd.length) {
+        if (!t.cloud || !canEditTurma(t)) { showToast('Só o dono ou um adm adiciona gente à turma.', 'warning'); return; }
+        toAdd.forEach(r => {
+          const nm = r.name.trim().slice(0, 40);
+          if (!t.players.some(n => sameName(n, nm))) t.players.push(nm);
+        });
+        cacheState();
+        try { await syncTurmaNow(t.id); } catch (err) { showToast(isNetworkError(err) ? 'Precisa de internet pra adicionar à turma.' : 'Não consegui adicionar à turma. Tente de novo.', 'warning'); return; }
+      }
+      const rows = live.map(r => {
+        if (r.pick === '__guest') return { name: r.name.slice(0, 60), player_id: null, status: r.status, invited_by: r.inviter };
+        if (r.pick === '__add') {
+          const nm = (t.players || []).find(n => sameName(n, r.name.trim().slice(0, 40))) || r.name;
+          const m = (t.meta || {})[keyOf(nm)];
+          return { name: nm, player_id: m ? m.id : null, status: r.status };
+        }
         const m = (t.meta || {})[r.pick];
         return { name: (t.players || []).find(p => keyOf(p) === r.pick) || r.name, player_id: m ? m.id : null, status: r.status };
       });
@@ -6029,7 +6116,7 @@
 
     /* Rebuilds today's pool from the selected turmas, keeping everyone's
        stats and presence. Players no longer in a selected turma stay only
-       if they are avulsos, already here, or already have stats today. */
+       if they are convidados, already here, or already have stats today. */
     function syncPool() {
       const wanted = [];
       const names = new Set();
@@ -6389,7 +6476,7 @@
         html += section('Ainda não chegaram', absent.length);
         html += absent.map(p => {
           const t = turmaById(p.turmaId);
-          return row(p, t ? escapeHtml(t.name) : 'Avulso', false);
+          return row(p, t ? escapeHtml(t.name) : 'Convidado', false);
         }).join('');
       }
       tbody.innerHTML = html;
@@ -6436,7 +6523,7 @@
       document.getElementById('input-new-player-name').value = '';
       document.querySelector('input[name="new-player-pos"][value="linha"]').checked = true;
       document.querySelector('input[name="new-player-sex"][value="m"]').checked = true;
-      document.getElementById('input-new-player-turma').innerHTML = turmaOptionsHtml('Avulso (só hoje)');
+      document.getElementById('input-new-player-turma').innerHTML = turmaOptionsHtml('Convidado (só hoje)');
       document.getElementById('input-new-player-arrived').checked = true;
       document.getElementById('modal-add-player').classList.remove('hidden');
       setTimeout(() => document.getElementById('input-new-player-name').focus(), 150);
@@ -6490,17 +6577,17 @@
       const t = turmaById(p.turmaId);
       const wrap = document.getElementById('player-edit-turma-wrap');
       wrap.classList.toggle('hidden', !!t || !state.selectedTeams.length);
-      document.getElementById('player-edit-turma').innerHTML = turmaOptionsHtml('Não, só hoje (avulso)');
+      document.getElementById('player-edit-turma').innerHTML = turmaOptionsHtml('Não, só hoje (convidado)');
 
       const side = sideOf(id);
       const parts = [];
-      parts.push(t ? `Turma ${escapeHtml(t.name)}` : 'Avulso');
+      parts.push(t ? `Turma ${escapeHtml(t.name)}` : 'Convidado');
       if (p.present) parts.push(side ? `em quadra no Time ${state.court[side].label}` : `${state.queue.indexOf(id) + 1}º na fila`);
       else parts.push('ainda não chegou');
       parts.push(`${p.matches || 0} jogo${p.matches === 1 ? '' : 's'} · ${p.wins || 0} vitória${p.wins === 1 ? '' : 's'}`);
       document.getElementById('player-edit-info').innerHTML = parts.join(' · ');
 
-      // Only avulsos can be deleted here; turma members are removed in the turma editor.
+      // Only convidados can be deleted here; turma members are removed in the turma editor.
       document.getElementById('player-edit-delete').classList.toggle('hidden', !!t);
       document.getElementById('modal-player').classList.remove('hidden');
     }
@@ -7901,7 +7988,7 @@
       state.players.forEach(p => {
         const t = turmaById(p.turmaId);
         csv += [
-          q(p.name), q(t ? t.name : 'Avulso'), q(p.isGoalkeeper ? 'Goleiro' : 'Linha'),
+          q(p.name), q(t ? t.name : 'Convidado'), q(p.isGoalkeeper ? 'Goleiro' : 'Linha'),
           q(p.present ? `${arrivalRank(p.id)}º ${fmtClock(p.arrivedAt)}`.trim() : ''),
           p.goals || 0, p.assists || 0, p.saves || 0, p.matches || 0, p.wins || 0,
           q(p.present ? 'Sim' : 'Nao')
@@ -8431,7 +8518,7 @@
           const name = (cells[ci.name] || '').trim();
           if (!name) return;
           let tName = ci.turma >= 0 ? (cells[ci.turma] || '').trim() : '';
-          if (!tName || /^avulso/i.test(tName)) tName = fallback;
+          if (!tName || /^(avulso|convidado)/i.test(tName)) tName = fallback;
           if (!turmaMap.has(tName)) turmaMap.set(tName, { name: tName, players: [], keepers: [] });
           const t = turmaMap.get(tName);
           if (!t.players.some(n => sameName(n, name))) t.players.push(name);
