@@ -25,6 +25,8 @@ window.__BABA_FAKE_API__ = (() => {
     chatList: m('chatList'), chatSend: m('chatSend'), chatDelete: m('chatDelete'), chatReport: m('chatReport'), liveChat: m('liveChat'), peopleCards: m('peopleCards'),
     myStatus: m('myStatus'), pingActivity: m('pingActivity'), myMissions: m('myMissions'), claimMission: m('claimMission'),
     challengeCandidates: m('challengeCandidates'), createChallenge: m('createChallenge'), respondChallenge: m('respondChallenge'), cancelChallenge: m('cancelChallenge'), myChallenges: m('myChallenges'),
-    throwPipoca: m('throwPipoca'), setNickname: m('setNickname'), savePush: m('savePush'), dropPush: m('dropPush'), pushStatus: m('pushStatus'), livePush: m('livePush')
+    throwPipoca: m('throwPipoca'), setNickname: m('setNickname'), savePush: m('savePush'), dropPush: m('dropPush'), pushStatus: m('pushStatus'), livePush: m('livePush'),
+    events: m('events'), createEvent: m('createEvent'), updateEvent: m('updateEvent'), rsvpEvent: m('rsvpEvent'), importRsvps: m('importRsvps'), closeEvent: m('closeEvent'),
+    discipline: m('discipline'), turmaRules: m('turmaRules'), setRules: m('setRules'), addSanction: m('addSanction'), clearSanction: m('clearSanction'), banPlayer: m('banPlayer'), unbanPlayer: m('unbanPlayer')
   };
 })();

@@ -1,5 +1,5 @@
 // BABA live-push: the organizer's phone calls this when a match starts, a goal or a save happens,
-// or a match ends. It checks the caller owns the live game (srv_push_claim also drops repeats and
+// or a match ends; an adm's phone calls it when a list is pulled or canceled in a turma (v11). It checks the caller owns the live game (srv_push_claim also drops repeats and
 // caps it at 120 an hour), then sends a Web Push to whoever follows that game or is in its turmas.
 // Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -22,7 +22,7 @@ const CORS = {
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
-const KINDS = new Set(["start", "goal", "save", "end"]);
+const KINDS = new Set(["start", "goal", "save", "end", "event", "event_cancel"]);
 const clip = (v: unknown, n: number) => String(v ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 
 Deno.serve(async (req) => {
@@ -34,23 +34,32 @@ Deno.serve(async (req) => {
 
   let b: Record<string, unknown> = {};
   try { b = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
-  const live = clip(b.live_id, 40), kind = clip(b.kind, 10), key = clip(b.key, 80), code = clip(b.code, 12).replace(/[^A-Za-z0-9]/g, "");
+  const kind = clip(b.kind, 14), key = clip(b.key, 80), code = clip(b.code, 12).replace(/[^A-Za-z0-9]/g, "");
   const title = clip(b.title, 80), body = clip(b.body, 160);
-  if (!/^[0-9a-f-]{36}$/.test(live) || !KINDS.has(kind) || !key || !title) return json({ error: "bad_request" }, 400);
+  // A list pulled in a turma (v11) or a live game (v10.1).
+  const event = clip(b.event_id, 40), live = clip(b.live_id, 40);
+  const isEvent = kind.startsWith("event");
+  const id = isEvent ? event : live;
+  if (!/^[0-9a-f-]{36}$/.test(id) || !KINDS.has(kind) || !key || !title) return json({ error: "bad_request" }, 400);
 
-  const { data: claim, error: ce } = await admin.rpc("srv_push_claim", { live, caller: who.user.id, push_key: key });
+  const { data: claim, error: ce } = isEvent
+    ? await admin.rpc("srv_event_claim", { event, caller: who.user.id, push_key: key })
+    : await admin.rpc("srv_push_claim", { live, caller: who.user.id, push_key: key });
   if (ce) return json({ error: "server" }, 500);
   if (claim !== "ok") return json({ sent: 0, reason: claim });
 
-  const { data: targets, error: te } = await admin.rpc("srv_push_targets", { live });
+  const { data: targets, error: te } = isEvent
+    ? await admin.rpc("srv_event_targets", { event, caller: who.user.id })
+    : await admin.rpc("srv_push_targets", { live });
   if (te) return json({ error: "server" }, 500);
-  const payload = JSON.stringify({ title, body, kind, tag: `baba-${code}-${kind === "end" ? "end" : key}`, url: code ? `./#ao-vivo=${code}` : "./" });
+  const url = isEvent ? `./#lista=${event}` : code ? `./#ao-vivo=${code}` : "./";
+  const payload = JSON.stringify({ title, body, kind, tag: isEvent ? `baba-lista-${event}` : `baba-${code}-${kind === "end" ? "end" : key}`, url });
   const gone: string[] = [];
   let sent = 0;
   await Promise.allSettled((targets || []).map(async (t: { endpoint: string; p256dh: string; auth: string }) => {
     try {
       await webpush.sendNotification({ endpoint: t.endpoint, keys: { p256dh: t.p256dh, auth: t.auth } }, payload,
-        { TTL: kind === "end" ? 3600 : 600, urgency: "high" });
+        { TTL: kind === "end" || isEvent ? 21600 : 600, urgency: "high" });
       sent++;
     } catch (e) {
       const s = (e as { statusCode?: number }).statusCode;

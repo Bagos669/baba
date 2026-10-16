@@ -704,3 +704,149 @@ def f_livePush(self, uid, live_id, code, kind, key, title, body):
     self.pushes.append({'live': live_id, 'kind': kind, 'key': key, 'title': title, 'body': body})
     return self.ok({'sent': 1})
 Fake.f_savePush = f_savePush; Fake.f_dropPush = f_dropPush; Fake.f_pushStatus = f_pushStatus; Fake.f_livePush = f_livePush
+
+# ---- v11: compromisso
+LEVELS = ['ok', 'aviso', 'prioridade', 'bloqueio', 'banimento']
+def _evinit(self):
+    if not hasattr(self, 'events'):
+        self.events = {}; self.rsvps = {}; self.rules = {}; self.sanctions = []; self.tbans = {}; self.v11_enabled = True
+    if not self.v11_enabled: raise LookupError()
+Fake._evinit = _evinit
+def _is_adm(self, t, u): return self.members.get((t, u)) == 'admin' or (self.turmas.get(t) or {}).get('owner_id') == u
+def _level(self, t, key):
+    r = self.rules.get(t, {'mode': 'auto', 'aviso': 1, 'prioridade': 2, 'bloqueio': 3, 'banimento': 4, 'janela_dias': 60})
+    lv = 0
+    if r['mode'] == 'auto':
+        misses = sum(1 for (eid, k), v in self.rsvps.items() if k == key and v.get('outcome') == 'miou' and self.events[eid]['turma_id'] == t)
+        lv = 4 if misses >= r['banimento'] else 3 if misses >= r['bloqueio'] else 2 if misses >= r['prioridade'] else 1 if misses >= r['aviso'] else 0
+    if r['mode'] != 'off':
+        for s in self.sanctions:
+            if s['turma_id'] == t and s['player_key'] == key and not s.get('cleared'): lv = max(lv, LEVELS.index(s['kind']))
+    return LEVELS[lv]
+Fake._is_adm = _is_adm; Fake._level = _level
+def _evreg(fn):
+    def g(self, uid, *a):
+        self._evinit(); return fn(self, uid, *a)
+    g.__name__ = fn.__name__; setattr(Fake, fn.__name__, _wrap(g)); return fn
+def _evrow(self, e):
+    return dict(e, event_rsvps=[dict(v) for (eid, k), v in self.rsvps.items() if eid == e['id']])
+@_evreg
+def f_events(self, uid, ids):
+    return self.ok([self._evrow(e) for e in sorted(self.events.values(), key=lambda e: e['starts_at']) if e['turma_id'] in ids and self.is_member(e['turma_id'], uid)])
+Fake._evrow = _evrow
+@_evreg
+def f_createEvent(self, uid, t, starts, place, note, mx):
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    eid = str(uuid.uuid4())
+    self.events[eid] = {'id': eid, 'turma_id': t, 'created_by': uid, 'starts_at': starts, 'place': place or None, 'note': note or None, 'max_players': mx, 'status': 'open', 'created_at': _dt.datetime.utcnow().isoformat(), 'closed_at': None}
+    self.chat.append({'id': len(self.chat) + 1, 'room': 'turma:' + t, 'user_id': uid, 'body': ':ev:' + eid + ':', 'deleted': False, 'created_at': _dt.datetime.now().isoformat()})
+    return self.ok(eid)
+@_evreg
+def f_updateEvent(self, uid, eid, starts, place, note, mx, status):
+    e = self.events.get(eid)
+    if not e or not self._is_adm(e['turma_id'], uid): return self.err('P0001', 'not_allowed')
+    if starts: e['starts_at'] = starts
+    if place is not None: e['place'] = place or None
+    if note is not None: e['note'] = note or None
+    if mx == 0: e['max_players'] = None
+    elif mx: e['max_players'] = mx
+    if status: e['status'] = status
+    return self.ok(None)
+@_evreg
+def f_rsvpEvent(self, uid, eid, answer, player, name):
+    e = self.events.get(eid)
+    if not e or not self.is_member(e['turma_id'], uid): return self.err('P0001', 'not_found')
+    if e['status'] != 'open': return self.err('P0001', 'closed')
+    adm = self._is_adm(e['turma_id'], uid)
+    p = None
+    if player is None and name is None:
+        p = next((x for x in self.players.values() if x['turma_id'] == e['turma_id'] and x.get('user_id') == uid), None)
+        if not p: return self.err('P0001', 'no_player')
+    elif not adm: return self.err('P0001', 'not_allowed')
+    elif player: p = self.players.get(player)
+    nm = p['name'] if p else name
+    key = nm.strip().lower()
+    if answer == 'tirar': self.rsvps.pop((eid, key), None); return self.ok('tirar')
+    if answer == 'vou' and not adm and self._level(e['turma_id'], key) in ('bloqueio', 'banimento'): return self.err('P0001', 'blocked')
+    old = self.rsvps.get((eid, key))
+    self.rsvps[(eid, key)] = {'player_key': key, 'name': nm, 'turma_player_id': p['id'] if p else None, 'user_id': p.get('user_id') if p else None, 'status': answer,
+                              'source': 'adm' if adm and (not p or p.get('user_id') != uid) else 'app', 'outcome': old.get('outcome') if old else None,
+                              'created_at': old['created_at'] if old else _dt.datetime.utcnow().isoformat()}
+    return self.ok(answer)
+@_evreg
+def f_importRsvps(self, uid, eid, rows):
+    e = self.events.get(eid)
+    if not e or not self._is_adm(e['turma_id'], uid): return self.err('P0001', 'not_allowed')
+    n = 0
+    for r in rows:
+        p = self.players.get(r.get('player_id')) if r.get('player_id') else None
+        nm = p['name'] if p else (r.get('name') or '').strip()
+        if not nm: continue
+        key = nm.lower(); old = self.rsvps.get((eid, key))
+        self.rsvps[(eid, key)] = {'player_key': key, 'name': nm, 'turma_player_id': p['id'] if p else None, 'user_id': p.get('user_id') if p else None,
+                                  'status': r.get('status') or 'vou', 'source': 'colado', 'outcome': None, 'created_at': old['created_at'] if old else _dt.datetime.utcnow().isoformat() + str(n).zfill(3)}
+        n += 1
+    return self.ok(n)
+@_evreg
+def f_closeEvent(self, uid, eid, outcomes):
+    e = self.events.get(eid)
+    if not e or not self._is_adm(e['turma_id'], uid): return self.err('P0001', 'not_allowed')
+    keys = [k for (x, k) in self.rsvps if x == eid]
+    before = {k: self._level(e['turma_id'], k) for k in keys}
+    for o in outcomes:
+        r = self.rsvps.get((eid, o['key'].strip().lower()))
+        if r: r['outcome'] = o.get('outcome')
+    e['status'] = 'done'
+    out = []
+    for k in keys:
+        lv = self._level(e['turma_id'], k)
+        if LEVELS.index(lv) > LEVELS.index(before[k]): out.append({'player_key': k, 'name': self.rsvps[(eid, k)]['name'], 'before_level': before[k], 'level': lv})
+    return self.ok(out)
+@_evreg
+def f_discipline(self, uid, t):
+    if not self.is_member(t, uid): return self.err('P0001', 'not_member')
+    adm = self._is_adm(t, uid)
+    keys = {p['name'].strip().lower(): p['name'] for p in self.players.values() if p['turma_id'] == t}
+    for (eid, k), v in self.rsvps.items():
+        if self.events[eid]['turma_id'] == t: keys.setdefault(k, v['name'])
+    rows = []
+    for k, n in keys.items():
+        cnt = lambda o: sum(1 for (eid, kk), v in self.rsvps.items() if kk == k and v.get('outcome') == o and self.events[eid]['turma_id'] == t)
+        rows.append({'player_key': k, 'name': n, 'level': self._level(t, k), 'misses': cnt('miou') if adm else None, 'kept': cnt('cumpriu') if adm else None,
+                     'justified': cnt('justificado') if adm else None,
+                     'sanctions': [{'id': s['id'], 'kind': s['kind'], 'reason': s['reason'], 'until': None} for s in self.sanctions if s['turma_id'] == t and s['player_key'] == k and not s.get('cleared')] if adm else None})
+    return self.ok(rows)
+@_evreg
+def f_turmaRules(self, uid, t):
+    return self.ok(self.rules.get(t))
+@_evreg
+def f_setRules(self, uid, t, mode, aviso, prioridade, bloqueio, banimento, janela):
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    self.rules[t] = {'mode': mode, 'aviso': aviso, 'prioridade': prioridade, 'bloqueio': bloqueio, 'banimento': banimento, 'janela_dias': janela}; return self.ok(None)
+@_evreg
+def f_addSanction(self, uid, t, key, name, kind, reason, days):
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    self.sanctions.append({'id': len(self.sanctions) + 1, 'turma_id': t, 'player_key': key.lower(), 'name': name, 'kind': kind, 'reason': reason}); return self.ok(len(self.sanctions))
+@_evreg
+def f_clearSanction(self, uid, sid):
+    s = next((x for x in self.sanctions if x['id'] == sid), None)
+    if s: s['cleared'] = True
+    return self.ok(None)
+@_evreg
+def f_banPlayer(self, uid, t, key, reason):
+    if not self._is_adm(t, uid): return self.err('P0001', 'not_allowed')
+    self.sanctions.append({'id': len(self.sanctions) + 1, 'turma_id': t, 'player_key': key, 'name': key, 'kind': 'banimento', 'reason': reason})
+    p = next((x for x in self.players.values() if x['turma_id'] == t and x['name'].strip().lower() == key), None)
+    if p and p.get('user_id'):
+        self.tbans[(t, p['user_id'])] = True; self.members.pop((t, p['user_id']), None); p['user_id'] = None; return self.ok('banned_account')
+    return self.ok('banned_name')
+@_evreg
+def f_unbanPlayer(self, uid, t, key): return self.ok(None)
+def f_livePush2(self, uid, live_id, code, kind, key, title, body, event_id=None):
+    if event_id:
+        self._pushinit(); self._evinit()
+        e = self.events.get(event_id)
+        if not e or not self._is_adm(e['turma_id'], uid): return self.ok({'sent': 0, 'reason': 'not_allowed'})
+        self.pushes.append({'event': event_id, 'kind': kind, 'key': key, 'title': title, 'body': body}); return self.ok({'sent': 1})
+    return f_livePush(self, uid, live_id, code, kind, key, title, body)
+Fake.f_livePush = f_livePush2

@@ -784,6 +784,7 @@
         if (editingTurmaId) renderTurmaEditor();
         setSync(readOutbox().length ? 'syncing' : 'ok');
         flushOutbox();
+        loadEvents(true).then(openPendingList);
       } catch (e) {
         setSync(isNetworkError(e) ? 'offline' : 'error');
         if (!isNetworkError(e)) console.warn('BABA pull failed', e);
@@ -820,6 +821,8 @@
       navigator.serviceWorker.addEventListener('message', e => {
         const d = e.data || {};
         if (d.type !== 'open') return;
+        const l = String(d.url || '').match(/lista=([0-9a-f-]{36})/);
+        if (l && currentUser) { openEventSheet(l[1]); return; }
         const m = String(d.url || '').match(/ao-vivo=([A-Za-z0-9]{4,12})/);
         if (m && currentUser !== undefined) openLive(m[1].toUpperCase());
       });
@@ -1941,6 +1944,10 @@
       ['Na quadra', 'Errei um lance, e agora?', 'Use <b>Desfazer</b> nos lances da partida. Se já finalizou a partida, em Stats → Times e jogos tem "Desfazer última".'],
       ['Na quadra', 'Alguém se machucou. Dá pra trocar?', 'Sim. Em Times, toque no jogador em quadra e escolha quem entra. Quem sai pode ir pro começo ou fim da fila, ou sair do baba.'],
       ['Na quadra', 'Como deixo o placar em tela cheia?', 'No Placar, com os times em quadra, toque no botão de expandir ao lado do relógio. O celular vira um placar deitado pra galera ver.'],
+      ['Compromisso', 'Como puxo a lista do próximo baba?', 'Dono ou adm: abra a turma e toque em <b>Puxar lista</b>. Escolha dia, hora, local e, se quiser, o número de vagas. A turma recebe o aviso no celular, um card no chat e um pop-up ao abrir o app.'],
+      ['Compromisso', 'Dá pra usar a lista do WhatsApp?', 'Sim. Na lista, toque em <b>Colar lista</b> e cole o texto do grupo. O BABA lê os nomes (com número, emoji, "Não vão:", "Talvez:") e acha quem é da turma, mesmo com apelido ou sem acento. Os que não bateram você confere antes de salvar.'],
+      ['Compromisso', 'O que acontece com quem miou?', 'No fim do dia o adm fecha a presença: cumpriu, miou ou justificou. Com a penalidade automática, as faltas viram aviso, depois baixa prioridade (entra na lista depois dos outros) e bloqueio (não confirma sozinho). Quando chega no limite de banir, o BABA só sugere: quem decide é o adm. Os números ficam em <b>Regras de presença</b>, dentro da turma.'],
+      ['Compromisso', 'Como salvo o baba na agenda?', 'Na lista, toque em <b>Salvar na agenda</b> (abre no Calendário do iPhone, do Android ou no Outlook) ou em <b>Google Agenda</b>. O horário vai certinho pro fuso do seu celular, com lembrete 2 h antes.'],
       ['Na quadra', 'Como escolho o tamanho do jogo?', 'No Placar, em <b>Jogo (na linha)</b>, de <b>1v1 a 12v12</b>. Conta só quem joga na linha; o goleiro é escolhido ao lado.'],
       ['Na quadra', 'Como funciona o goleiro?', 'No Placar (ou em Times → Regras), em <b>Goleiro</b>: <b>do time</b> (quem tem GOL marcado entra junto com o time; num 4v4 o time tem 5), <b>fixo</b> (os goleiros ficam no gol a noite toda e não entram na fila), <b>da fila</b> (os dois próximos da fila vão pro gol e não perdem o lugar, como na planilha) ou <b>sem goleiro</b>.'],
       ['Na quadra', 'Dá pra decidir o empate nos pênaltis?', 'Sim: Times → Regras → Empate → <b>Pênaltis decidem</b>. No empate abre a disputa: 5 cobranças pra cada lado, depois alternadas. Marque gol, defesa ou fora. Gols e defesas nas cobranças contam no Stats, em <b>Pênaltis</b>; o placar do jogo fica empatado.'],
@@ -2023,8 +2030,9 @@
        =================================================================== */
     const TUTORIAL = [
       { id: 'basico', title: 'O básico do baba', img: 'aidentro', desc: 'Da turma ao apito final, do jeito que um baba roda.', steps: [
-        { img: 'wave', tab: 'inicio', title: 'E aí! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Em 9 passos te mostro como um baba roda no BABA, do começo ao fim.' },
+        { img: 'wave', tab: 'inicio', title: 'E aí! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Em 10 passos te mostro como um baba roda no BABA, do começo ao fim.' },
         { img: 'aidentro', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'A turma é o grupo fixo do seu baba: os atletas, quem é goleiro e o histórico de todos os jogos. Crie a sua ou entre pelo link de convite que a galera mandou.' },
+        { img: 'coach', tab: 'inicio', target: '#home-events', fallback: '#home-shortcuts', title: 'A lista do próximo baba', text: 'O adm puxa a lista na turma e todo mundo responde Vou, Talvez ou Não vou, até pelo chat. Dá pra colar a lista do WhatsApp e salvar o baba na agenda.' },
         { img: 'run', tab: 'ficha', target: '#sheet-players-tbody', fallback: '#tab-nav-ficha', title: 'Lista de chegada', text: 'No dia, marque quem chegou, na ordem em que chegou. Essa ordem vira a fila: quem chega primeiro, joga primeiro. Apareceu alguém de fora? Adicione como avulso.' },
         { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Montar os times', text: 'Em Times, toque em Montar: o BABA pega os primeiros da fila e monta Time 1 x Time 2. O tamanho vem do jogo escolhido no Placar (ex.: 4v4 com goleiro do time = 5 por time). Prefere escolher? Dá pra montar na mão.' },
         { img: 'calculante', tab: 'fila', demo: 'rotacao', title: 'Rei da Quadra: quem perde sai', text: 'Quem ganha fica. Quem perde volta pro fim da fila, um por um, e os primeiros da fila entram. Assim os times vão se misturando a noite toda.' },
@@ -2780,6 +2788,20 @@
       cancelChallenge: id => rpc('cancel_challenge', { challenge: id }),
       myChallenges: live => rpc('my_challenges', { live }),
       throwPipoca: target => rpc('throw_pipoca', { target }),
+      events: ids => q(sb.from('turma_events').select('id, turma_id, created_by, starts_at, place, note, max_players, status, created_at, closed_at, event_rsvps(player_key, name, turma_player_id, user_id, status, source, outcome, created_at)')
+        .in('turma_id', ids).gte('starts_at', new Date(Date.now() - 3 * 864e5).toISOString()).order('starts_at', { ascending: true }).limit(60)),
+      createEvent: (t, starts, place, note, max) => rpc('create_event', { t, starts, place, note, max_players: max }),
+      updateEvent: (event, starts, place, note, max, status) => rpc('update_event', { event, starts, place, note, max_players: max, new_status: status }),
+      rsvpEvent: (event, answer, player, name) => rpc('rsvp_event', { event, answer, player, player_name: name }),
+      importRsvps: (event, rows) => rpc('import_rsvps', { event, rows }),
+      closeEvent: (event, outcomes) => rpc('close_event', { event, outcomes }),
+      discipline: t => rpc('turma_discipline', { t }),
+      turmaRules: async t => ((await q(sb.from('turma_rules').select('mode, aviso, prioridade, bloqueio, banimento, janela_dias').eq('turma_id', t).limit(1))) || [])[0] || null,
+      setRules: (t, mode, aviso, prioridade, bloqueio, banimento, janela) => rpc('set_turma_rules', { t, mode, aviso, prioridade, bloqueio, banimento, janela_dias: janela }),
+      addSanction: (t, key, name, kind, reason, days) => rpc('add_sanction', { t, key, player_name: name, kind, reason, days }),
+      clearSanction: id => rpc('clear_sanction', { sanction: id }),
+      banPlayer: (t, key, reason) => rpc('ban_player', { t, key, reason }),
+      unbanPlayer: (t, key) => rpc('unban_player', { t, key }),
       setNickname: nick => rpc('set_nickname', { nick }),
       savePush: (ep, p256dh, auth, liveCode, turma) => rpc('save_push', { ep, p256dh_key: p256dh, auth_key: auth, live_code: liveCode, turma }),
       dropPush: (ep, liveCode, turma) => rpc('drop_push', { ep, live_code: liveCode, turma }),
@@ -2845,9 +2867,17 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '10.2';
+    const APP_VERSION = '11';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11', date: '16/10/2026', title: 'Compromisso: a lista do baba', items: [
+        'O adm puxa a lista do próximo baba (dia, hora, local e vagas): a turma recebe aviso no celular, um card no chat e um pop-up ao abrir o app.',
+        'Responda Vou, Talvez ou Não vou no Início, no chat ou na lista. Com vagas, quem passar do limite vai pra lista de espera.',
+        'Salve o baba na agenda do celular ou no Google Agenda com um toque.',
+        'O adm cola a lista do grupo do WhatsApp e o BABA reconhece os nomes da turma, mesmo escritos diferente.',
+        'Na Lista de chegada aparece quem marcou que vem; no fim, o adm fecha a presença: cumpriu, miou ou justificou.',
+        'Regras de presença por turma: aviso, baixa prioridade e bloqueio automáticos por faltas (ou só manuais), e banir só com decisão do adm.'
+      ] },
       { v: '10.2', date: '11/10/2026', title: 'Histórico pra turma toda', items: [
         'Babas anteriores agora têm lugar próprio: Perfil → Babas anteriores, dentro da turma e no Stats → Todos os babas.',
         'Dono, adm ou membro: todo mundo da turma abre cada baba encerrado e vê os destaques e os números de cada atleta.',
@@ -2969,6 +2999,8 @@
           ${notesHtml(older, true)}` : '');
         return showPopup({ img: 'dancinha', eyebrow: `Novidades · v${APP_VERSION}`, title: PATCH_NOTES[0].title, html, ok: 'Bora pro baba' });
       }
+      const list = pendingListPopup();
+      if (list) return showPopup(list);
     }
     function openPatchNotes() {
       showPopup({ img: 'champion', eyebrow: 'Notas de atualização', title: 'O que mudou no BABA', html: notesHtml(PATCH_NOTES), ok: 'Fechar' });
@@ -4072,11 +4104,21 @@
     let liveView = null;   // { code, data, timers, chat, mine, rankingAt }
 
     function readLiveFromUrl() {
+      const l = (location.hash + '&' + location.search).match(/lista=([0-9a-f-]{36})/);
+      if (l) {
+        try { sessionStorage.setItem('baba_pending_list', l[1]); } catch (e) {}
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      }
       const m = (location.hash + '&' + location.search).match(/ao-vivo=([A-Za-z0-9]{4,12})/);
       if (m) {
         try { sessionStorage.setItem('baba_pending_live', m[1].toUpperCase()); } catch (e) {}
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
+    }
+    function openPendingList() {
+      let id = null;
+      try { id = sessionStorage.getItem('baba_pending_list'); sessionStorage.removeItem('baba_pending_list'); } catch (e) {}
+      if (id && currentUser) openEventSheet(id);
     }
     function takePendingLive() {
       let code = null;
@@ -4515,6 +4557,783 @@
     }
 
     /* ===================================================================
+       COMPROMISSO (v11)
+       An adm "puxa a lista" for a day and a place; members answer Vou /
+       Talvez / Não (in the app, the chat card or the pop-up), lists pasted
+       from the group chat are matched to the turma's names, the arrival
+       list shows who "marcou que vem", and at the end the adm closes the
+       list: cumpriu x miou. Misses lead to warnings, lower priority and a
+       block (automatic, if the turma wants), and a ban suggestion that only
+       an adm can carry out. Rules and levels live on the server.
+       =================================================================== */
+    let eventsCache = [];          // upcoming and recent lists of my turmas, each with its rsvps
+    let eventsOff = null;          // true = server without v11
+    let eventsAt = 0;
+    const disciplineCache = new Map();   // turmaId -> { at, rows: Map(key -> row) }
+    const LEVEL_LABEL = { aviso: 'Aviso', prioridade: 'Baixa prioridade', bloqueio: 'Bloqueado', banimento: 'Banimento sugerido' };
+    const LEVEL_CLS = { aviso: 'bg-butter text-pitch', prioridade: 'bg-warn/15 text-warn', bloqueio: 'bg-danger/10 text-danger', banimento: 'bg-danger text-white' };
+    const ANSWER_LABEL = { vou: 'Vou', talvez: 'Talvez', nao: 'Não vou' };
+    const OUTCOME_LABEL = { cumpriu: 'Compromisso cumprido', miou: 'Miou', justificado: 'Justificou' };
+    const keyOf = n => String(n || '').trim().toLowerCase();
+    const isMissingTable = e => !!e && (e.code === '42P01' || e.code === 'PGRST205' || /could not find the table|does not exist/i.test(String(e.message || '')));
+
+    function evWhen(e, long) {
+      const d = new Date(e.starts_at);
+      const day = d.toLocaleDateString('pt-BR', long ? { weekday: 'long', day: 'numeric', month: 'long' } : { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '');
+      const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const today = new Date(); const tm = new Date(Date.now() + 864e5);
+      const same = (a, b) => a.toDateString() === b.toDateString();
+      const label = same(d, today) ? 'Hoje' : same(d, tm) ? 'Amanhã' : day.charAt(0).toUpperCase() + day.slice(1);
+      return `${label} · ${time}`;
+    }
+    const evTurma = e => turmaById(e.turma_id) || { name: 'Turma' };
+    const evAdmin = e => canEditTurma(turmaById(e.turma_id));
+    const evUpcoming = e => e.status === 'open' && new Date(e.starts_at).getTime() > Date.now() - 4 * 3600e3;
+    function myPlayerIn(turmaId) {
+      const t = turmaById(turmaId);
+      if (!t || !currentUser) return null;
+      const hit = Object.entries(t.meta || {}).find(([, m]) => m && m.userId === currentUser.id);
+      return hit ? { key: hit[0], id: hit[1].id, name: (t.players || []).find(n => keyOf(n) === hit[0]) || hit[0] } : null;
+    }
+    const rsvpOf = (e, key) => (e.event_rsvps || []).find(r => r.player_key === key) || null;
+    function levelOf(turmaId, key) {
+      const d = disciplineCache.get(turmaId);
+      const r = d && d.rows.get(key);
+      return r && r.level && r.level !== 'ok' ? r.level : null;
+    }
+    function levelTag(turmaId, key, adm) {
+      let l = levelOf(turmaId, key);
+      if (!l) return '';
+      if (l === 'banimento' && !adm) l = 'bloqueio';   // only adms see the ban suggestion
+      return `<span class="ev-tag ${LEVEL_CLS[l]}">${LEVEL_LABEL[l]}</span>`;
+    }
+
+    /* Who is in, in order: answered first, but anyone with low priority (or worse) goes after; past the max, waiting list. */
+    function evLines(e) {
+      const rows = e.event_rsvps || [];
+      const rank = r => { const l = levelOf(e.turma_id, r.player_key); return l && ['prioridade', 'bloqueio', 'banimento'].includes(l) ? 1 : 0; };
+      const vou = rows.filter(r => r.status === 'vou').sort((a, b) => rank(a) - rank(b) || String(a.created_at).localeCompare(String(b.created_at)));
+      const max = e.max_players || 0;
+      return {
+        vou: max ? vou.slice(0, max) : vou, espera: max ? vou.slice(max) : [],
+        talvez: rows.filter(r => r.status === 'talvez'), nao: rows.filter(r => r.status === 'nao'),
+        semResposta: ((turmaById(e.turma_id) || {}).players || []).filter(n => !rsvpOf(e, keyOf(n)))
+      };
+    }
+
+    async function loadEvents(force) {
+      if (!cloudOn() || v7 !== true || eventsOff === true || !api.events) return;
+      if (!force && Date.now() - eventsAt < 25000) return;
+      eventsAt = Date.now();
+      const ids = state.turmas.filter(t => t.cloud).map(t => t.id);
+      if (!ids.length) { eventsCache = []; renderEventsEverywhere(); return; }
+      try {
+        eventsCache = (await api.events(ids)) || [];
+        eventsOff = false;
+      } catch (e) {
+        if (isMissingTable(e) || isMissingFn(e)) eventsOff = true;
+        return;
+      }
+      const turmasWithLists = [...new Set(eventsCache.map(e => e.turma_id))];
+      await Promise.all([...turmasWithLists.map(t => loadDiscipline(t)), ensurePeople(eventsCache.map(e => e.created_by).filter(Boolean))]);
+      renderEventsEverywhere();
+      maybePopups();
+    }
+    async function loadDiscipline(turmaId, force) {
+      const c = disciplineCache.get(turmaId);
+      if (!force && c && Date.now() - c.at < 60000) return c;
+      try {
+        const rows = (await api.discipline(turmaId)) || [];
+        const d = { at: Date.now(), rows: new Map(rows.map(r => [r.player_key, r])) };
+        disciplineCache.set(turmaId, d);
+        return d;
+      } catch (e) { return c || null; }
+    }
+    function renderEventsEverywhere() {
+      renderHomeEvents();
+      if (document.getElementById('modal-event') && !document.getElementById('modal-event').classList.contains('hidden')) renderEventSheet();
+      if (editingTurmaId) renderTurmaEvents();
+      if (typeof renderSheetTable === 'function' && state.players.length) renderSheetTable();
+      document.querySelectorAll('.chat-box').forEach(b => { if (b.__chat && b.__chat.repaint) b.__chat.repaint(); });
+    }
+
+    /* ---- Início: próximos babas ---- */
+    function renderHomeEvents() {
+      const box = document.getElementById('home-events');
+      if (!box) return;
+      const list = eventsCache.filter(evUpcoming).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).slice(0, 3);
+      if (!list.length) { box.innerHTML = ''; return; }
+      box.innerHTML = `
+        <section>
+          <p class="eyebrow">Compromisso</p>
+          <h2 class="title mt-0.5 mb-3">Próximos babas</h2>
+          <div class="space-y-2.5">${list.map(eventCardHtml).join('')}</div>
+        </section>`;
+    }
+    function eventCardHtml(e) {
+      const me = myPlayerIn(e.turma_id);
+      const mine = me ? rsvpOf(e, me.key) : null;
+      const lines = evLines(e);
+      const count = `${lines.vou.length}${e.max_players ? `/${e.max_players}` : ''} vão${lines.talvez.length ? ` · ${lines.talvez.length} talvez` : ''}${lines.espera.length ? ` · ${lines.espera.length} na espera` : ''}`;
+      const btn = (a, label) => `<button onclick="event.stopPropagation(); answerEvent('${e.id}', '${a}')" class="ev-ans ${mine && mine.status === a ? 'is-on ev-' + a : ''}">${label}</button>`;
+      return `
+        <div class="card p-3.5 cursor-pointer active:scale-[0.99] transition" onclick="openEventSheet('${e.id}')">
+          <div class="flex items-start gap-3">
+            <span class="tile bg-butter text-pitch flex-shrink-0"><i class="fa-solid fa-clipboard-list"></i></span>
+            <div class="min-w-0 flex-1">
+              <p class="text-[15px] font-extrabold leading-tight truncate">${escapeHtml(evWhen(e))}</p>
+              <p class="text-[12.5px] text-ink-2 truncate">${escapeHtml(evTurma(e).name)}${e.place ? ` · ${escapeHtml(e.place)}` : ''}</p>
+              <p class="text-[12.5px] font-bold text-pitch mt-0.5">${count}</p>
+            </div>
+            <i class="fa-solid fa-chevron-right text-[12px] text-ink-3 mt-1"></i>
+          </div>
+          ${me ? `<div class="grid grid-cols-3 gap-1.5 mt-3">${btn('vou', 'Vou')}${btn('talvez', 'Talvez')}${btn('nao', 'Não vou')}</div>`
+            : `<p class="text-[12px] text-ink-2 mt-2.5 leading-snug">Pra responder, ligue seu nome na turma (abra a turma e toque no seu nome).</p>`}
+        </div>`;
+    }
+
+    /* ---- Responder ---- */
+    async function answerEvent(id, answer, playerId, name) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      try {
+        await api.rsvpEvent(id, answer, playerId || null, name || null);
+        if (!playerId && !name) lsSet('baba_ev_seen_' + id, '1');
+        await loadEvents(true);
+        if (!playerId && !name) {
+          if (answer === 'vou') showToast('Confirmado! Quer salvar na agenda?', 'success', { label: 'Agenda', fn: () => openEventSheet(id, true) });
+          else showToast(answer === 'talvez' ? 'Marcado como talvez.' : 'Beleza, avisado que não vai.');
+        }
+      } catch (err) {
+        const m = String((err && err.message) || '');
+        showToast(isNetworkError(err) ? 'Precisa de internet pra responder a lista.' : m.includes('blocked') ? 'Você está bloqueado na lista por faltas. Fale com o adm da turma.'
+          : m.includes('no_player') ? 'Ligue seu nome na turma primeiro: abra a turma e toque no seu nome.' : m.includes('closed') ? 'Essa lista já fechou.' : 'Não deu certo. Tente de novo.', 'warning');
+      }
+    }
+
+    /* ---- A lista (folha do compromisso) ---- */
+    let eventOpen = null;
+    async function openEventSheet(id, calendar) {
+      eventOpen = id;
+      let e = eventsCache.find(x => x.id === id);
+      if (!e) { await loadEvents(true); e = eventsCache.find(x => x.id === id); }
+      if (!e) { showToast('Essa lista não está mais disponível.', 'warning'); return; }
+      lsSet('baba_ev_seen_' + id, '1');
+      renderEventSheet(calendar);
+      document.getElementById('modal-event').classList.remove('hidden');
+      loadDiscipline(e.turma_id, true).then(() => { if (eventOpen === id) renderEventSheet(); });
+    }
+    function closeEventSheet() { document.getElementById('modal-event').classList.add('hidden'); eventOpen = null; }
+    function renderEventSheet(calendar) {
+      const e = eventsCache.find(x => x.id === eventOpen);
+      if (!e) return;
+      const adm = evAdmin(e);
+      const me = myPlayerIn(e.turma_id);
+      const mine = me ? rsvpOf(e, me.key) : null;
+      const L = evLines(e);
+      const done = e.status === 'done', canceled = e.status === 'canceled';
+      document.getElementById('ev-title').innerText = evWhen(e, true);
+      document.getElementById('ev-sub').innerText = [evTurma(e).name, e.place].filter(Boolean).join(' · ');
+      const row = (r, i) => {
+        const tag = done && r.outcome ? `<span class="ev-tag ${r.outcome === 'miou' ? 'bg-danger/10 text-danger' : r.outcome === 'cumpriu' ? 'bg-leaf/10 text-leaf' : 'bg-sunk text-ink-2'}">${OUTCOME_LABEL[r.outcome]}</span>` : '';
+        const src = r.source === 'colado' ? '<span class="ev-tag bg-sunk text-ink-2">lista colada</span>' : '';
+        return `
+          <div class="flex items-center gap-2 py-2 ${adm && !done && !canceled ? 'cursor-pointer' : ''}" ${adm && !done && !canceled ? `onclick="eventRowMenu('${e.id}', ${escapeHtml(JSON.stringify(r.player_key))})"` : ''}>
+            ${i != null ? `<span class="w-6 text-right text-[12px] font-bold text-ink-3 flex-shrink-0">${i + 1}.</span>` : ''}
+            <span class="min-w-0 flex-1 text-[14px] font-semibold truncate">${escapeHtml(r.name)}${me && r.player_key === me.key ? ' <span class="text-ink-3 font-medium">(você)</span>' : ''}</span>
+            <span class="flex flex-wrap justify-end gap-1 flex-shrink-0">${tag}${levelTag(e.turma_id, r.player_key, adm)}${src}</span>
+          </div>`;
+      };
+      const block = (title, arr, numbered, start = 0) => arr.length ? `
+        <div><p class="section-tag">${title}${title.includes('/') ? '' : ` · ${arr.length}`}</p><div class="divide-y divide-ink/[0.07]">${arr.map((r, i) => row(r, numbered ? start + i : null)).join('')}</div></div>` : '';
+      const ans = a => `<button onclick="answerEvent('${e.id}', '${a}')" class="ev-ans h-11 ${mine && mine.status === a ? 'is-on ev-' + a : ''}">${ANSWER_LABEL[a]}</button>`;
+      const lvl = me ? levelOf(e.turma_id, me.key) : null;
+      document.getElementById('ev-body').innerHTML = `
+        ${canceled ? '<p class="rounded-2xl bg-danger/10 text-danger text-[13.5px] font-bold p-3">Essa lista foi cancelada.</p>' : ''}
+        ${done ? '<p class="rounded-2xl bg-leaf/10 text-leaf text-[13.5px] font-bold p-3"><i class="fa-solid fa-flag-checkered"></i> Presença fechada pelo adm.</p>' : ''}
+        ${e.note ? `<p class="text-[13.5px] text-ink-2 leading-snug">${escapeHtml(e.note)}</p>` : ''}
+        ${!done && !canceled ? (me ? `<div><p class="label">E aí, ${escapeHtml(firstName(me.name))}?</p><div class="grid grid-cols-3 gap-1.5">${ans('vou')}${ans('talvez')}${ans('nao')}</div>
+            ${lvl ? `<p class="text-[12.5px] mt-2 leading-snug ${lvl === 'aviso' ? 'text-ink-2' : 'text-danger'}">${lvl === 'aviso' ? 'Aviso: você tem falta registrada. Mais uma e sua prioridade na lista cai.' : lvl === 'prioridade' ? 'Por faltas, você entra depois de quem confirmou sem faltas.' : 'Por faltas, você não pode confirmar sozinho. Fale com o adm.'}</p>` : ''}</div>`
+          : '<p class="text-[13px] text-ink-2">Pra responder, ligue seu nome na turma (abra a turma e toque no seu nome).</p>') : ''}
+        <div class="grid grid-cols-2 gap-2 ${calendar ? 'ev-flash' : ''}">
+          <button onclick="downloadEventIcs('${e.id}')" class="btn-outline h-11 text-[13px]"><i class="fa-solid fa-calendar-plus"></i> Salvar na agenda</button>
+          <a href="${googleCalUrl(e)}" target="_blank" rel="noopener" class="btn-outline h-11 text-[13px] flex items-center justify-center gap-1.5"><i class="fa-solid fa-calendar-days"></i> Google Agenda</a>
+        </div>
+        ${block(e.max_players ? `Vão (${L.vou.length}/${e.max_players})` : 'Vão', L.vou, true)}
+        ${block('Lista de espera', L.espera, true, L.vou.length)}
+        ${block('Talvez', L.talvez, false)}
+        ${block('Não vão', L.nao, false)}
+        ${!done && L.semResposta.length ? `<div><p class="section-tag">Ainda não responderam · ${L.semResposta.length}</p><p class="text-[13px] text-ink-2 leading-relaxed">${L.semResposta.map(n => adm && !canceled ? `<button onclick="eventRowMenu('${e.id}', ${escapeHtml(JSON.stringify(keyOf(n)))})" class="underline decoration-ink/20 underline-offset-2">${escapeHtml(n)}</button>` : escapeHtml(n)).join(', ')}</p></div>` : ''}
+        <button onclick="shareEventText('${e.id}')" class="btn-soft w-full h-11 text-[13px]"><i class="fa-solid fa-share-nodes"></i> Mandar a lista no grupo</button>
+        ${adm && !canceled ? `<div class="card-flat p-3 space-y-2">
+          <p class="text-[12px] font-extrabold uppercase tracking-wider text-ink-2">Adm</p>
+          ${!done ? `<div class="grid grid-cols-2 gap-2">
+            <button onclick="openPasteList('${e.id}')" class="btn-outline h-11 text-[13px]"><i class="fa-solid fa-paste"></i> Colar lista</button>
+            <button onclick="addEventName('${e.id}')" class="btn-outline h-11 text-[13px]"><i class="fa-solid fa-user-plus"></i> Pôr um nome</button>
+            <button onclick="openEventEdit('${e.turma_id}', '${e.id}')" class="btn-outline h-11 text-[13px]"><i class="fa-solid fa-pen"></i> Editar</button>
+            <button onclick="cancelEvent('${e.id}')" class="btn-outline h-11 text-[13px] !text-danger"><i class="fa-solid fa-ban"></i> Cancelar</button>
+          </div>` : ''}
+          <button onclick="openCloseEvent('${e.id}')" class="btn-primary w-full h-12 text-[14px]"><i class="fa-solid fa-clipboard-check"></i> ${done ? 'Corrigir presença' : 'Fechar presença (cumpriu x miou)'}</button>
+          <button onclick="openRules('${e.turma_id}')" class="w-full text-[12.5px] font-bold text-pitch py-1">Regras de presença e penalidades</button>
+        </div>` : ''}`;
+    }
+
+    async function eventRowMenu(id, key) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      const t = turmaById(e.turma_id);
+      const r = rsvpOf(e, key);
+      const name = r ? r.name : ((t.players || []).find(n => keyOf(n) === key) || key);
+      const m = (t.meta || {})[key];
+      const row = (fn, ic, label) => `<button onclick="${fn}" class="menu-row rounded-2xl"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid ${ic}"></i></span><span class="flex-1">${label}</span></button>`;
+      const args = a => `eventSetFor('${id}', '${a}', ${m ? `'${m.id}'` : 'null'}, ${escapeHtml(JSON.stringify(name))})`;
+      document.getElementById('evmenu-title').innerText = name;
+      document.getElementById('evmenu-body').innerHTML = `<div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+        ${row(args('vou'), 'fa-check', 'Vai')}${row(args('talvez'), 'fa-question', 'Talvez')}${row(args('nao'), 'fa-xmark', 'Não vai')}
+        ${r ? row(args('tirar'), 'fa-eraser', 'Tirar da lista') : ''}</div>`;
+      document.getElementById('modal-evmenu').classList.remove('hidden');
+    }
+    function closeEvMenu() { document.getElementById('modal-evmenu').classList.add('hidden'); }
+    async function eventSetFor(id, answer, playerId, name) {
+      closeEvMenu();
+      await answerEvent(id, answer, playerId, playerId ? null : name);
+    }
+    async function addEventName(id) {
+      const name = (prompt('Nome de quem vai (de fora da turma também vale):') || '').trim();
+      if (!name) return;
+      const e = eventsCache.find(x => x.id === id);
+      const m = e && (turmaById(e.turma_id).meta || {})[keyOf(name)];
+      await answerEvent(id, 'vou', m ? m.id : null, m ? null : name.slice(0, 60));
+    }
+
+    /* ---- Puxar / editar a lista ---- */
+    let eventEditing = null;   // { turmaId, id }
+    function openEventEdit(turmaId, id) {
+      const admTurmas = state.turmas.filter(t => t.cloud && canEditTurma(t));
+      if (!admTurmas.length) { showToast('Só o dono ou um adm da turma puxa a lista.', 'warning'); return; }
+      const t = turmaById(turmaId) && canEditTurma(turmaById(turmaId)) ? turmaById(turmaId) : admTurmas[0];
+      eventEditing = { turmaId: t.id, id: id || null };
+      const e = id ? eventsCache.find(x => x.id === id) : null;
+      const pad = n => String(n).padStart(2, '0');
+      const d = e ? new Date(e.starts_at) : (() => { const x = new Date(); x.setDate(x.getDate() + 1); x.setHours(19, 0, 0, 0); return x; })();
+      document.getElementById('eve-turma').innerHTML = admTurmas.map(x => `<option value="${x.id}" ${x.id === t.id ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
+      document.getElementById('eve-turma').disabled = !!id;
+      document.getElementById('eve-date').value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      document.getElementById('eve-time').value = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      document.getElementById('eve-place').value = e ? e.place || '' : (lsGet('baba_last_place_' + t.id) || '');
+      document.getElementById('eve-max').value = e && e.max_players ? e.max_players : '';
+      document.getElementById('eve-note').value = e ? e.note || '' : '';
+      document.getElementById('eve-title').innerText = id ? 'Editar a lista' : 'Puxar a lista';
+      document.getElementById('eve-save').innerText = id ? 'Salvar' : 'Puxar a lista e avisar a turma';
+      document.getElementById('eve-error').classList.add('hidden');
+      closeEventSheet();
+      document.getElementById('modal-event-edit').classList.remove('hidden');
+    }
+    function closeEventEdit() { document.getElementById('modal-event-edit').classList.add('hidden'); eventEditing = null; }
+    async function saveEventEdit() {
+      if (!eventEditing) return;
+      const turmaId = document.getElementById('eve-turma').value || eventEditing.turmaId;
+      const date = document.getElementById('eve-date').value, time = document.getElementById('eve-time').value;
+      // The phone's own time zone: the ISO string carries the offset, so everyone sees it in theirs.
+      const starts = date && time ? new Date(`${date}T${time}:00`) : null;
+      if (!starts || isNaN(starts)) { showErr('eve-error', 'Escolha o dia e a hora.'); return; }
+      if (!eventEditing.id && starts.getTime() < Date.now() - 3600e3) { showErr('eve-error', 'Esse horário já passou.'); return; }
+      const place = document.getElementById('eve-place').value.trim();
+      const maxRaw = parseInt(document.getElementById('eve-max').value, 10);
+      const max = Number.isFinite(maxRaw) && maxRaw >= 2 ? Math.min(200, maxRaw) : null;
+      const note = document.getElementById('eve-note').value.trim();
+      const btn = document.getElementById('eve-save');
+      setBusy(btn, true, 'Salvando...');
+      try {
+        if (eventEditing.id) {
+          await api.updateEvent(eventEditing.id, starts.toISOString(), place, note, max || 0, null);
+          const id = eventEditing.id;
+          closeEventEdit();
+          await loadEvents(true);
+          openEventSheet(id);
+          showToast('Lista atualizada.');
+        } else {
+          const id = await api.createEvent(turmaId, starts.toISOString(), place, note, max);
+          if (place) lsSet('baba_last_place_' + turmaId, place);
+          closeEventEdit();
+          const ev = { id, turma_id: turmaId, starts_at: starts.toISOString(), place };
+          eventPush(ev, 'event', `📋 ${firstName(currentUser.name)} puxou a lista pra ${evWhen(ev).toLowerCase()}! Bora?`, `${(turmaById(turmaId) || {}).name || ''}${place ? ' · ' + place : ''}`);
+          await loadEvents(true);
+          openEventSheet(id);
+          showToast('Lista puxada! A turma recebeu o aviso e o card no chat.');
+        }
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showErr('eve-error', isNetworkError(e) ? 'Precisa de internet.' : m.includes('not_allowed') ? 'Só o dono ou um adm da turma puxa a lista.' : m.includes('limit') ? 'Essa turma já tem listas abertas demais. Feche ou cancele uma.'
+          : m.includes('bad_date') ? 'Data fora do prazo (até 120 dias pra frente).' : (isMissingFn(e) || isMissingTable(e)) ? 'A lista chega quando o servidor for atualizado.' : 'Não deu certo. Tente de novo.');
+      } finally { if (document.body.contains(btn)) setBusy(btn, false); }
+    }
+    async function cancelEvent(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e || !(await askConfirm(`Cancelar a lista de ${evWhen(e).toLowerCase()}? Quem confirmou é avisado.`, 'Cancelar lista'))) return;
+      try {
+        await api.updateEvent(id, null, null, null, null, 'canceled');
+        eventPush(e, 'event_cancel', `❌ Cancelado: baba de ${evWhen(e).toLowerCase()}`, `${evTurma(e).name}${e.place ? ' · ' + e.place : ''}`);
+        await loadEvents(true);
+        showToast('Lista cancelada.');
+      } catch (err) { showToast(isNetworkError(err) ? 'Precisa de internet.' : 'Não deu certo agora.', 'warning'); }
+    }
+    function eventPush(e, kind, title, body) {
+      (async () => {
+        try {
+          if (window.__BABA_FAKE_API__ && window.__BABA_FAKE_API__.livePush) { await api.livePush(null, null, kind, `${kind}-${e.id}`, title, body, e.id); return; }
+          const session = await api.getSession();
+          if (!session) return;
+          await fetch(LIVE_PUSH_FN, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: 'Bearer ' + session.access_token },
+            body: JSON.stringify({ event_id: e.id, kind, key: `${kind}-${e.id}`, title, body }) });
+        } catch (err) {}
+      })();
+    }
+
+    /* ---- Agenda do celular: um .ics (iPhone, Android, Outlook) ou o link do Google Agenda ---- */
+    const icsDate = d => new Date(d).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const icsEsc = s => String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, m => '\\' + m);
+    function eventEnd(e) { return new Date(new Date(e.starts_at).getTime() + 2 * 3600e3); }
+    function downloadEventIcs(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      const title = `Baba · ${evTurma(e).name}`;
+      const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//BABA//Compromisso//PT', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+        `UID:${e.id}@baba`, `DTSTAMP:${icsDate(Date.now())}`, `DTSTART:${icsDate(e.starts_at)}`, `DTEND:${icsDate(eventEnd(e))}`,
+        `SUMMARY:${icsEsc(title)}`, e.place ? `LOCATION:${icsEsc(e.place)}` : '', `DESCRIPTION:${icsEsc((e.note ? e.note + '\n' : '') + 'Lista no app BABA')}`,
+        'BEGIN:VALARM', 'TRIGGER:-PT2H', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(title)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
+      offerFile(`baba-${new Date(e.starts_at).toISOString().slice(0, 10)}.ics`, new Blob([ics], { type: 'text/calendar' }), 'Abra o arquivo pra salvar na agenda.');
+    }
+    function googleCalUrl(e) {
+      const p = new URLSearchParams({ action: 'TEMPLATE', text: `Baba · ${evTurma(e).name}`, dates: `${icsDate(e.starts_at)}/${icsDate(eventEnd(e))}`, details: (e.note ? e.note + '\n' : '') + 'Lista no app BABA', location: e.place || '' });
+      return 'https://calendar.google.com/calendar/render?' + p.toString();
+    }
+
+    /* ---- Mandar a lista no grupo (texto pronto) ---- */
+    function shareEventText(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      const L = evLines(e);
+      const lines = [`⚽ *Baba ${evTurma(e).name}*`, `🗓️ ${evWhen(e, true)}${e.place ? `\n📍 ${e.place}` : ''}`, ''];
+      L.vou.forEach((r, i) => lines.push(`${i + 1}. ${r.name}`));
+      if (L.espera.length) { lines.push('', '⏳ Lista de espera'); L.espera.forEach((r, i) => lines.push(`${L.vou.length + i + 1}. ${r.name}`)); }
+      if (L.talvez.length) { lines.push('', '🤔 Talvez'); L.talvez.forEach(r => lines.push(`- ${r.name}`)); }
+      lines.push('', 'Confirma no app BABA 👉 ' + location.origin + location.pathname);
+      const text = lines.join('\n');
+      if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
+      copyText(text, null, 'Lista copiada. Cola no grupo!');
+    }
+
+    /* ---- Colar lista do grupo ---- */
+    const normName = s => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    function levenshtein(a, b) {
+      if (a === b) return 0;
+      const v = Array.from({ length: b.length + 1 }, (_, i) => i);
+      for (let i = 1; i <= a.length; i++) {
+        let prev = v[0]; v[0] = i;
+        for (let j = 1; j <= b.length; j++) { const cur = v[j]; v[j] = Math.min(v[j] + 1, v[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+      }
+      return v[b.length];
+    }
+    /* Reads a list pasted from the group chat. Handles numbering (1-, 01., 1) ), bullets and emojis,
+       sections ("Não vão", "Talvez", "Lista de espera"), notes after the name ("Zé - pago", "Beto (gol)"),
+       and skips header lines (date, place, price, Pix, links). Falls back to commas if there are no lines. */
+    function parsePastedList(text) {
+      const out = [], seen = new Set();
+      let section = 'vou';
+      const HEAD_NAO = /^(nao (vao|vou|vai|podem)|fora|ausentes?|desfalques?|baixas?|nao confirmados?)\b/;
+      const HEAD_TALVEZ = /^(talvez|duvidas?|a confirmar|incertos?)\b/;
+      const HEAD_VOU = /^(confirmados?|lista|vao|presentes?|jogadores|linha|goleiros?|lista de espera|espera|reservas?|suplentes?)\b/;
+      const SKIP = /(r\$|\bpix\b|https?:|www\.|\bvalor\b|\bhorario\b|\bendereco\b|\blocal\b|\bquadra\b|\bcampo\b|\bdia\b|\bdata\b|\bhoras?\b|\bobs\b|\d{1,2}[\/:h]\d{2})/;
+      const add = (raw, st, marked) => {
+        let s = raw.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu, ' ');
+        s = s.replace(/^\s*(?:\d{1,3}\s*[-–.)º°:ª]+|\d{1,3}\s+(?=\D)|[-*•·▪>]+)\s*/u, '');
+        let status = st;
+        const n0 = normName(s);
+        if (/\b(nao vai|nao vou|desisti|saiu)\b/.test(n0) || /\(\s*fora\s*\)/i.test(s)) status = 'nao';
+        else if (/\b(talvez|duvida)\b/.test(n0) || /\?\s*$/.test(s)) status = 'talvez';
+        s = s.replace(/\((?:[^)]*)\)/g, ' ').replace(/\s[-–—|:]\s.*$/, ' ').replace(/\b(talvez|nao vai|nao vou|confirmado|ok|pago|pix|gol|goleiro|gk)\b/gi, ' ').replace(/[?!.,;]+$/, '');
+        s = s.replace(/\s+/g, ' ').trim();
+        const n = normName(s);
+        if (!n || n.length < 2 || s.length > 40 || /^\d+$/.test(n)) return;
+        if (!marked && n.split(' ').length > 4) return;
+        if (seen.has(n)) return;
+        seen.add(n);
+        out.push({ name: s, status });
+      };
+      const lines = String(text || '').split(/\r?\n/);
+      lines.forEach(line => {
+        const raw = line.trim();
+        if (!raw) return;
+        const plain = normName(raw.replace(/[\p{Extended_Pictographic}\u{FE0F}]/gu, ''));
+        // Numbers and bullets mark a list line; a leading emoji only does if the line isn't a header (date, place, price...).
+        const numbered = /^\s*(?:\d{1,3}\s*[-–.)º°:ª]|[-*•·▪>]|\d\uFE0F?\u20E3)/u.test(raw);
+        const emojiLed = !numbered && /^\s*[\p{Extended_Pictographic}]/u.test(raw);
+        if (emojiLed && (SKIP.test(plain) || /^(baba|pelada|fut|futebol|bora|galera)\b/.test(plain))) return;
+        const marked = numbered || emojiLed;
+        if (!numbered && (raw.match(/,/g) || []).length >= 2) { raw.split(/[,;]/).forEach(x => add(x, section, true)); return; }
+        const header = !marked && (/:\s*$/.test(raw) || plain.split(' ').length <= 4);
+        if (header && HEAD_NAO.test(plain)) { section = 'nao'; return; }
+        if (header && HEAD_TALVEZ.test(plain)) { section = 'talvez'; return; }
+        if (header && HEAD_VOU.test(plain) && (/:\s*$/.test(raw) || plain.split(' ').length <= 3)) { section = 'vou'; return; }
+        if (!marked && (SKIP.test(plain) || /^(baba|pelada|fut|futebol|bora|galera)\b/.test(plain))) return;
+        if (!marked && /:\s*$/.test(raw)) return;
+        if (/❌/.test(raw)) return add(raw, 'nao', true);
+        add(raw, section, marked);
+      });
+      if (!out.length && /[,;]/.test(text || '')) String(text).split(/[,;]/).forEach(p => add(p, 'vou', true));
+      return out;
+    }
+    /* Best player of the turma for a pasted name. Exact > nickname in quotes > first name (if only one
+       has it) > close spelling. Returns { key, score } or null when unsure. */
+    function matchTurmaName(name, players) {
+      const n = normName(name);
+      if (!n) return null;
+      const scored = players.map(p => {
+        const pn = normName(p);
+        let s = 0;
+        if (pn === n) s = 1;
+        else {
+          const nick = (String(p).match(/["“”']([^"“”']+)["“”']/) || [])[1];
+          if (nick && normName(nick) === n) s = 0.97;
+          const words = pn.split(' ');
+          if (!s && words.join(' ').startsWith(n + ' ') && n.length >= 3) s = 0.86;
+          if (!s && n.includes(' ') && pn.includes(n)) s = 0.88;
+          const dist = levenshtein(n, pn);
+          const ratio = 1 - dist / Math.max(n.length, pn.length);
+          if (ratio >= 0.8) s = Math.max(s, ratio * 0.95);
+          if (!s && words[0] === n.split(' ')[0] && n.split(' ')[0].length >= 3) s = 0.7;
+        }
+        return { key: keyOf(p), name: p, s };
+      }).filter(x => x.s > 0).sort((a, b) => b.s - a.s);
+      if (!scored.length) return null;
+      const best = scored[0], second = scored[1];
+      if (best.s < 0.75 && !(best.s >= 0.7 && !second)) return null;
+      if (second && second.s >= best.s - 0.04 && best.s < 1) return null;
+      return best;
+    }
+    let pasteState = null;   // { eventId, rows: [{ name, status, pick }] }
+    function openPasteList(id) {
+      pasteState = { eventId: id, rows: [] };
+      document.getElementById('paste-text').value = '';
+      document.getElementById('paste-preview').innerHTML = '';
+      document.getElementById('paste-confirm').classList.add('hidden');
+      closeEventSheet();
+      eventOpen = id;
+      document.getElementById('modal-paste').classList.remove('hidden');
+    }
+    function closePasteList() { document.getElementById('modal-paste').classList.add('hidden'); const id = pasteState && pasteState.eventId; pasteState = null; if (id) openEventSheet(id); }
+    function readPastedList() {
+      const e = eventsCache.find(x => x.id === (pasteState && pasteState.eventId));
+      if (!e) return;
+      const players = (turmaById(e.turma_id) || {}).players || [];
+      const parsed = parsePastedList(document.getElementById('paste-text').value);
+      if (!parsed.length) { showToast('Não achei nomes nesse texto. Cole a lista com um nome por linha.', 'warning'); return; }
+      const used = new Set();
+      pasteState.rows = parsed.map(r => {
+        const m = matchTurmaName(r.name, players.filter(p => !used.has(keyOf(p))));
+        if (m) used.add(m.key);
+        return { name: r.name, status: r.status, pick: m ? m.key : '__new', sure: !!m && m.s >= 0.95 };
+      });
+      renderPastePreview();
+    }
+    function renderPastePreview() {
+      const e = eventsCache.find(x => x.id === pasteState.eventId);
+      const players = (turmaById(e.turma_id) || {}).players || [];
+      const opts = sel => `<option value="__new" ${sel === '__new' ? 'selected' : ''}>➕ Avulso (não é da turma)</option><option value="__skip" ${sel === '__skip' ? 'selected' : ''}>Ignorar esta linha</option>` +
+        players.map(p => `<option value="${escapeHtml(keyOf(p))}" ${sel === keyOf(p) ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('');
+      const matched = pasteState.rows.filter(r => r.pick !== '__new' && r.pick !== '__skip').length;
+      document.getElementById('paste-preview').innerHTML = `
+        <p class="text-[12.5px] text-ink-2 leading-snug">${pasteState.rows.length} nomes lidos · ${matched} reconhecidos na turma. Confira os que não bateram.</p>
+        ${pasteState.rows.map((r, i) => `
+          <div class="rounded-2xl border ${r.pick === '__new' ? 'border-butter-3 bg-butter/30' : r.pick === '__skip' ? 'border-ink/10 opacity-60' : 'border-ink/10 bg-card'} p-2.5 space-y-1.5">
+            <div class="flex items-center gap-2"><span class="text-[13.5px] font-bold flex-1 min-w-0 truncate">“${escapeHtml(r.name)}”</span>
+              <select onchange="pasteSet(${i}, 'status', this.value)" class="select !h-9 !w-[104px] !text-[12.5px] flex-shrink-0">${['vou', 'talvez', 'nao'].map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''}>${ANSWER_LABEL[s]}</option>`).join('')}</select></div>
+            <select onchange="pasteSet(${i}, 'pick', this.value)" class="select !h-9 !text-[12.5px]">${opts(r.pick)}</select>
+          </div>`).join('')}`;
+      document.getElementById('paste-confirm').classList.remove('hidden');
+    }
+    function pasteSet(i, field, v) { if (pasteState && pasteState.rows[i]) { pasteState.rows[i][field] = v; renderPastePreview(); } }
+    async function confirmPastedList() {
+      const e = eventsCache.find(x => x.id === (pasteState && pasteState.eventId));
+      if (!e) return;
+      const t = turmaById(e.turma_id);
+      const rows = pasteState.rows.filter(r => r.pick !== '__skip').map(r => {
+        if (r.pick === '__new') return { name: r.name.slice(0, 60), player_id: null, status: r.status };
+        const m = (t.meta || {})[r.pick];
+        return { name: (t.players || []).find(p => keyOf(p) === r.pick) || r.name, player_id: m ? m.id : null, status: r.status };
+      });
+      const btn = document.getElementById('paste-confirm');
+      setBusy(btn, true, 'Salvando...');
+      try {
+        const n = await api.importRsvps(e.id, rows);
+        showToast(`${n} nome${n === 1 ? '' : 's'} na lista.`);
+        await loadEvents(true);
+        closePasteList();
+      } catch (err) { showToast(isNetworkError(err) ? 'Precisa de internet.' : 'Não deu certo. Tente de novo.', 'warning'); }
+      finally { if (document.body.contains(btn)) setBusy(btn, false); }
+    }
+
+    /* ---- Fechar presença: cumpriu x miou ---- */
+    let closeState = null;   // { eventId, out: { key: outcome } }
+    let closeStash = null;   // outcomes worked out right before "Começar novo baba" reset the arrival list
+    function arrivedToday(key) {
+      const p = state.players.find(x => keyOf(x.name) === key);
+      return !!(p && (p.present || p.arrivedAt || (p.matches || 0) > 0));
+    }
+    function openCloseEvent(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      const sameDay = new Date(e.starts_at).toDateString() === new Date().toDateString() || (state.startedAt && new Date(e.starts_at).toDateString() === new Date(state.startedAt).toDateString());
+      const hasDay = sameDay && state.players.some(p => p.present || p.arrivedAt || p.matches);
+      const stash = closeStash && closeStash.eventId === id ? closeStash : null;
+      closeStash = null;
+      const out = {};
+      (e.event_rsvps || []).filter(r => r.status === 'vou' || r.outcome).forEach(r => {
+        out[r.player_key] = r.outcome || (stash ? stash.out[r.player_key] || null : hasDay ? (arrivedToday(r.player_key) ? 'cumpriu' : 'miou') : null);
+      });
+      closeState = { eventId: id, out, prefilled: hasDay || !!stash };
+      closeEventSheet();
+      eventOpen = id;
+      renderCloseEvent();
+      document.getElementById('modal-close-ev').classList.remove('hidden');
+    }
+    function closeCloseEvent() { document.getElementById('modal-close-ev').classList.add('hidden'); const id = closeState && closeState.eventId; closeState = null; if (id) openEventSheet(id); }
+    function setOutcome(key, v) { if (closeState) { closeState.out[key] = closeState.out[key] === v ? null : v; renderCloseEvent(); } }
+    function renderCloseEvent() {
+      const e = eventsCache.find(x => x.id === closeState.eventId);
+      const rows = (e.event_rsvps || []).filter(r => r.player_key in closeState.out);
+      const seg = (r, v, label, cls) => `<button onclick="setOutcome(${escapeHtml(JSON.stringify(r.player_key))}, '${v}')" class="seg-btn !py-1.5 !text-[12px] ${closeState.out[r.player_key] === v ? 'is-selected ' + cls : ''}">${label}</button>`;
+      document.getElementById('close-ev-sub').innerText = `${evWhen(e, true)} · ${rows.length} confirmado${rows.length === 1 ? '' : 's'}`;
+      document.getElementById('close-ev-body').innerHTML = (closeState.prefilled ? '<p class="text-[12.5px] text-ink-2 leading-snug">Já marquei pela Lista de chegada de hoje: quem chegou cumpriu, quem não chegou miou. Confira e ajuste.</p>' : '<p class="text-[12.5px] text-ink-2 leading-snug">Marque quem veio. Quem avisou com motivo pode ficar como Justificou (não conta falta).</p>') +
+        (rows.length ? rows.map(r => `
+          <div class="py-2">
+            <p class="text-[14px] font-bold truncate mb-1.5">${escapeHtml(r.name)} ${levelTag(e.turma_id, r.player_key, true)}</p>
+            <div class="seg grid-cols-3">${seg(r, 'cumpriu', 'Cumpriu', '')}${seg(r, 'miou', 'Miou', '')}${seg(r, 'justificado', 'Justificou', '')}</div>
+          </div>`).join('') : '<p class="text-[13px] text-ink-2 py-3">Ninguém confirmou nessa lista.</p>');
+      const missing = rows.filter(r => !closeState.out[r.player_key]).length;
+      const btn = document.getElementById('close-ev-save');
+      btn.disabled = missing > 0;
+      btn.innerText = missing ? `Falta marcar ${missing}` : 'Fechar presença';
+    }
+    async function saveCloseEvent() {
+      const e = eventsCache.find(x => x.id === (closeState && closeState.eventId));
+      if (!e) return;
+      const outcomes = Object.entries(closeState.out).map(([key, outcome]) => ({ key, outcome }));
+      const btn = document.getElementById('close-ev-save');
+      setBusy(btn, true, 'Salvando...');
+      try {
+        const up = (await api.closeEvent(e.id, outcomes)) || [];
+        await loadDiscipline(e.turma_id, true);
+        await loadEvents(true);
+        document.getElementById('modal-close-ev').classList.add('hidden');
+        closeState = null;
+        const miou = outcomes.filter(o => o.outcome === 'miou').length;
+        if (up.length) {
+          showPopup({ img: 'red', eyebrow: 'Presença fechada', title: miou ? `${miou} miou${miou === 1 ? '' : 'ram'}` : 'Tudo certo',
+            html: `<p class="text-[14px] text-ink-2 mb-2">Com as regras da turma, mudou o nível de:</p>` + up.map(u => `
+              <div class="flex items-center gap-2 py-1.5"><span class="flex-1 font-bold text-[14px] truncate">${escapeHtml(u.name)}</span><span class="ev-tag ${LEVEL_CLS[u.level] || 'bg-sunk'}">${LEVEL_LABEL[u.level] || u.level}</span></div>
+              ${u.level === 'banimento' ? `<button onclick="closePopup(); banFromTurma('${e.turma_id}', ${escapeHtml(JSON.stringify(u.player_key))}, ${escapeHtml(JSON.stringify(u.name))})" class="btn-outline w-full h-10 text-[13px] !text-danger mb-1">Banir ${escapeHtml(firstName(u.name))} da turma</button>` : ''}`).join(''), ok: 'Beleza' });
+        } else showToast(miou ? `Presença fechada. ${miou} miou${miou === 1 ? '' : 'ram'}.` : 'Presença fechada. Todo mundo cumpriu!');
+        openEventSheet(e.id);
+      } catch (err) { showToast(isNetworkError(err) ? 'Precisa de internet.' : 'Não deu certo. Tente de novo.', 'warning'); }
+      finally { if (document.body.contains(btn)) setBusy(btn, false); }
+    }
+
+    /* ---- Regras de presença e penalidades ---- */
+    let rulesTurma = null;
+    async function openRules(turmaId) {
+      rulesTurma = turmaId;
+      closeEventSheet();
+      document.getElementById('modal-rules').classList.remove('hidden');
+      document.getElementById('rules-body').innerHTML = '<p class="text-[14px] text-ink-2 py-3">Carregando...</p>';
+      let r = null;
+      try { r = await api.turmaRules(turmaId); } catch (e) {}
+      await loadDiscipline(turmaId, true);
+      if (rulesTurma !== turmaId) return;
+      renderRules(r || { mode: 'auto', aviso: 1, prioridade: 2, bloqueio: 3, banimento: 4, janela_dias: 60 });
+    }
+    function closeRules() { document.getElementById('modal-rules').classList.add('hidden'); rulesTurma = null; }
+    function renderRules(r) {
+      const t = turmaById(rulesTurma);
+      const adm = canEditTurma(t);
+      const d = disciplineCache.get(rulesTurma);
+      const rows = d ? [...d.rows.values()].filter(x => x.level !== 'ok' || (x.misses || 0) > 0 || (x.kept || 0) > 0) : [];
+      rows.sort((a, b) => (b.misses || 0) - (a.misses || 0) || String(a.name).localeCompare(String(b.name)));
+      const num = (id, v, label) => `<label class="block min-w-0"><span class="label">${label}</span><input id="${id}" type="number" min="1" max="30" value="${v}" class="field !h-11 text-center" ${adm ? '' : 'disabled'} /></label>`;
+      document.getElementById('rules-sub').innerText = t ? t.name : '';
+      document.getElementById('rules-body').innerHTML = `
+        <div>
+          <span class="label">Penalidade por falta (miou)</span>
+          <div class="seg grid-cols-3" id="rules-mode">${[['auto', 'Automática'], ['manual', 'Só manual'], ['off', 'Desligada']].map(([v, l]) => `<button ${adm ? `onclick="rulesMode('${v}')"` : 'disabled'} data-v="${v}" class="seg-btn ${r.mode === v ? 'is-selected' : ''}">${l}</button>`).join('')}</div>
+          <p class="text-[12px] text-ink-2 leading-snug mt-1.5">${r.mode === 'auto' ? 'O BABA conta as faltas e sobe o nível sozinho. Banir da turma sempre é decisão do adm.' : r.mode === 'manual' ? 'Só valem as sanções que o adm aplicar.' : 'Ninguém é penalizado.'}</p>
+        </div>
+        <div class="${r.mode === 'auto' ? '' : 'hidden'}" id="rules-auto">
+          <p class="text-[12.5px] font-bold mb-1.5">Quantas faltas pra cada nível, nos últimos <input id="rule-janela" type="number" min="7" max="365" value="${r.janela_dias}" class="w-14 h-8 rounded-lg border border-ink/15 text-center bg-card" ${adm ? '' : 'disabled'} /> dias</p>
+          <div class="grid grid-cols-4 gap-2">${num('rule-aviso', r.aviso, 'Aviso')}${num('rule-prioridade', r.prioridade, 'Prioridade')}${num('rule-bloqueio', r.bloqueio, 'Bloqueio')}${num('rule-banimento', r.banimento, 'Banir?')}</div>
+          <p class="text-[12px] text-ink-2 leading-snug mt-1.5"><b>Aviso:</b> a pessoa é avisada. <b>Prioridade:</b> entra na lista depois de quem não tem falta. <b>Bloqueio:</b> não consegue confirmar sozinha. <b>Banir?:</b> o BABA sugere e o adm decide.</p>
+        </div>
+        ${adm ? `<button onclick="saveRules()" class="btn-primary w-full h-12 text-[14px]" id="rules-save">Salvar regras</button>` : ''}
+        <div>
+          <p class="section-tag">Presença da galera</p>
+          ${rows.length ? `<div class="divide-y divide-ink/[0.07]">${rows.map(x => {
+            const total = (x.misses || 0) + (x.kept || 0);
+            const rate = total ? Math.round(100 * (x.misses || 0) / total) : 0;
+            return `
+            <div class="py-2.5">
+              <div class="flex items-center gap-2">
+                <span class="flex-1 min-w-0 text-[14px] font-bold truncate">${escapeHtml(x.name)}</span>
+                ${x.level !== 'ok' ? `<span class="ev-tag ${LEVEL_CLS[x.level]}">${LEVEL_LABEL[x.level]}</span>` : ''}
+              </div>
+              ${x.misses != null ? `<p class="text-[12px] text-ink-2">${x.kept || 0} cumpriu · ${x.misses || 0} miou${x.justified ? ` · ${x.justified} justificou` : ''}${total ? ` · taxa de miou ${rate}%` : ''}</p>` : ''}
+              ${(x.sanctions || []).map(s => `<p class="text-[12px] text-ink-2 flex items-center gap-2 mt-1"><span class="ev-tag ${LEVEL_CLS[s.kind]}">${LEVEL_LABEL[s.kind] || s.kind}</span><span class="flex-1 truncate">${escapeHtml(s.reason || 'sem motivo')}${s.until ? ` · até ${fmtDate(s.until)}` : ''}</span>${adm ? `<button onclick="clearSanction(${s.id})" class="text-pitch font-bold">Tirar</button>` : ''}</p>`).join('')}
+              ${adm ? `<div class="flex gap-3 mt-1.5 text-[12.5px] font-bold"><button onclick="addSanctionFor(${escapeHtml(JSON.stringify(x.player_key))}, ${escapeHtml(JSON.stringify(x.name))})" class="text-pitch">Aplicar sanção</button>
+                ${x.level === 'banimento' ? `<button onclick="banFromTurma('${rulesTurma}', ${escapeHtml(JSON.stringify(x.player_key))}, ${escapeHtml(JSON.stringify(x.name))})" class="text-danger">Banir da turma</button>` : ''}</div>` : ''}
+            </div>`; }).join('')}</div>` : '<p class="text-[13px] text-ink-2">Ninguém com falta ou sanção. Quando o adm fechar a presença das listas, os números aparecem aqui.</p>'}
+          ${adm ? `<button onclick="addSanctionFor(null, null)" class="btn-outline w-full h-11 text-[13px] mt-2"><i class="fa-solid fa-gavel"></i> Aplicar sanção a alguém</button>` : ''}
+        </div>`;
+      rulesCurrent = r;
+    }
+    let rulesCurrent = null;
+    function rulesMode(v) { if (rulesCurrent) { rulesCurrent = Object.assign({}, rulesCurrent, readRulesForm(), { mode: v }); renderRules(rulesCurrent); } }
+    function readRulesForm() {
+      const n = id => { const el = document.getElementById(id); return el ? Math.max(1, parseInt(el.value, 10) || 1) : undefined; };
+      return { aviso: n('rule-aviso'), prioridade: n('rule-prioridade'), bloqueio: n('rule-bloqueio'), banimento: n('rule-banimento'), janela_dias: Math.min(365, Math.max(7, n('rule-janela') || 60)) };
+    }
+    async function saveRules() {
+      const r = Object.assign({}, rulesCurrent, readRulesForm());
+      if (!(r.aviso <= r.prioridade && r.prioridade <= r.bloqueio && r.bloqueio <= r.banimento)) { showToast('Os números têm que ir subindo: aviso ≤ prioridade ≤ bloqueio ≤ banir.', 'warning'); return; }
+      try {
+        await api.setRules(rulesTurma, r.mode, r.aviso, r.prioridade, r.bloqueio, r.banimento, r.janela_dias);
+        disciplineCache.delete(rulesTurma);
+        showToast('Regras salvas.');
+        openRules(rulesTurma);
+        loadEvents(true);
+      } catch (e) { showToast(isNetworkError(e) ? 'Precisa de internet.' : 'Não deu certo agora.', 'warning'); }
+    }
+    async function addSanctionFor(key, name) {
+      const t = turmaById(rulesTurma);
+      if (!t) return;
+      if (!key) {
+        const who = (prompt('Nome de quem recebe a sanção (como está na turma):') || '').trim();
+        if (!who) return;
+        const p = (t.players || []).find(n => keyOf(n) === keyOf(who)) || who;
+        key = keyOf(p); name = p;
+      }
+      const kind = (prompt(`Sanção pra ${name}: digite aviso, prioridade ou bloqueio`, 'aviso') || '').trim().toLowerCase();
+      if (!['aviso', 'prioridade', 'bloqueio'].includes(kind)) { if (kind) showToast('Use aviso, prioridade ou bloqueio.', 'warning'); return; }
+      const reason = (prompt('Motivo (opcional):') || '').trim();
+      const days = parseInt(prompt('Por quantos dias? (vazio = até o adm tirar)') || '0', 10) || 0;
+      try { await api.addSanction(rulesTurma, key, name, kind, reason, days); disciplineCache.delete(rulesTurma); showToast('Sanção aplicada.'); openRules(rulesTurma); }
+      catch (e) { showToast(isNetworkError(e) ? 'Precisa de internet.' : 'Não deu certo agora.', 'warning'); }
+    }
+    async function clearSanction(id) {
+      try { await api.clearSanction(id); disciplineCache.delete(rulesTurma); showToast('Sanção tirada.'); openRules(rulesTurma); }
+      catch (e) { showToast('Não deu certo agora.', 'warning'); }
+    }
+    async function banFromTurma(turmaId, key, name) {
+      if (!(await askConfirm(`Banir ${name} da turma? A pessoa sai da turma e o convite deixa de funcionar pra ela. Dá pra desfazer depois nas regras.`, 'Banir'))) return;
+      const reason = (prompt('Motivo (fica registrado pros adms):', 'Faltas na lista') || '').trim();
+      try {
+        const r = await api.banPlayer(turmaId, key, reason);
+        disciplineCache.delete(turmaId);
+        showToast(r === 'banned_account' ? `${firstName(name)} saiu da turma.` : `${firstName(name)} está banido da lista.`);
+        pullCloud(true);
+        if (rulesTurma) openRules(rulesTurma);
+      } catch (e) {
+        const m = String((e && e.message) || '');
+        showToast(isNetworkError(e) ? 'Precisa de internet.' : m.includes('not_allowed') ? 'Só o dono pode banir um adm, e o dono não pode ser banido.' : 'Não deu certo agora.', 'warning');
+      }
+    }
+
+    /* ---- Na turma: compromissos ---- */
+    function renderTurmaEvents() {
+      const box = document.getElementById('turma-edit-events');
+      if (!box) return;
+      const t = turmaById(editingTurmaId);
+      if (!t || !t.cloud || eventsOff === true || v7 !== true) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      const list = eventsCache.filter(e => e.turma_id === t.id && (evUpcoming(e) || (e.status === 'done' && Date.now() - new Date(e.starts_at).getTime() < 3 * 864e5)))
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+      const adm = canEditTurma(t);
+      box.innerHTML = `
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <p class="text-[14px] font-extrabold">Compromisso</p>
+          ${adm ? `<button onclick="openEventEdit('${t.id}')" class="btn-primary h-9 px-3 text-[12.5px]"><i class="fa-solid fa-clipboard-list"></i> Puxar lista</button>` : ''}
+        </div>
+        ${list.length ? `<div class="space-y-2">${list.map(e => `
+          <button onclick="openEventSheet('${e.id}')" class="w-full flex items-center gap-3 p-2.5 rounded-2xl bg-card border border-ink/10 text-left">
+            <span class="tile w-9 h-9 rounded-xl ${e.status === 'done' ? 'bg-leaf/10 text-leaf' : 'bg-butter text-pitch'} text-[14px]"><i class="fa-solid ${e.status === 'done' ? 'fa-clipboard-check' : 'fa-clipboard-list'}"></i></span>
+            <span class="min-w-0 flex-1"><span class="block text-[14px] font-bold truncate">${escapeHtml(evWhen(e))}</span><span class="block text-[12px] text-ink-2 truncate">${evLines(e).vou.length} vão${e.place ? ` · ${escapeHtml(e.place)}` : ''}${e.status === 'done' ? ' · presença fechada' : ''}</span></span>
+            <i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>
+          </button>`).join('')}</div>`
+          : `<p class="text-[12.5px] text-ink-2 leading-snug">${adm ? 'Puxe a lista do próximo baba: a turma recebe o aviso e confirma pelo app.' : 'Quando o adm puxar a lista do próximo baba, ela aparece aqui e no Início.'}</p>`}
+        ${adm ? `<button onclick="openRules('${t.id}')" class="w-full text-left text-[12.5px] font-bold text-pitch mt-2">Regras de presença e penalidades <i class="fa-solid fa-chevron-right text-[10px]"></i></button>` : ''}`;
+    }
+
+    /* Today's list for the turmas of the day (for "Marcou que vem" on the arrival list). */
+    function todaysEvent() {
+      const today = new Date().toDateString();
+      return eventsCache.filter(e => e.status !== 'canceled' && state.selectedTeams.includes(e.turma_id) && new Date(e.starts_at).toDateString() === today)
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0] || null;
+    }
+    function arrivalTag(p) {
+      const e = todaysEvent();
+      if (!e) return '';
+      const r = rsvpOf(e, keyOf(p.name));
+      if (!r) return '';
+      if (r.outcome) return `<span class="ev-tag ${r.outcome === 'miou' ? 'bg-danger/10 text-danger' : 'bg-leaf/10 text-leaf'}">${r.outcome === 'miou' ? 'Miou' : r.outcome === 'cumpriu' ? 'Cumpriu' : 'Justificou'}</span>`;
+      if (r.status === 'vou') return `<span class="ev-tag bg-leaf/10 text-leaf">Marcou que vem</span>`;
+      if (r.status === 'talvez') return '<span class="ev-tag bg-butter text-pitch">Talvez</span>';
+      return '<span class="ev-tag bg-sunk text-ink-2">Disse que não vem</span>';
+    }
+
+    /* Pop-up: a list you haven't answered. */
+    function pendingListPopup() {
+      const e = eventsCache.filter(evUpcoming).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).find(x => {
+        const me = myPlayerIn(x.turma_id);
+        return me && x.created_by !== currentUser.id && !rsvpOf(x, me.key) && !lsGet('baba_ev_seen_' + x.id);
+      });
+      if (!e) return null;
+      const creator = peopleCache.get(e.created_by) || (evTurma(e).people || []).find(p => p.id === e.created_by);
+      return {
+        img: 'coach', eyebrow: `Lista · ${evTurma(e).name}`, title: `${creator ? firstName(creator.name) : 'O adm'} puxou a lista!`,
+        html: `<p class="text-[16px] font-extrabold">${escapeHtml(evWhen(e, true))}</p>${e.place ? `<p class="text-[14px] text-ink-2">${escapeHtml(e.place)}</p>` : ''}
+          <p class="text-[13px] text-ink-2 mt-1">${evLines(e).vou.length} já confirmaram${e.max_players ? ` · ${e.max_players} vagas` : ''}. Bora?</p>
+          <div class="grid grid-cols-3 gap-1.5 mt-3">
+            <button onclick="closePopup(); answerEvent('${e.id}', 'vou')" class="ev-ans h-12 is-on ev-vou">Vou</button>
+            <button onclick="closePopup(); answerEvent('${e.id}', 'talvez')" class="ev-ans h-12">Talvez</button>
+            <button onclick="closePopup(); answerEvent('${e.id}', 'nao')" class="ev-ans h-12">Não vou</button>
+          </div>`,
+        ok: 'Depois', onClose: () => lsSet('baba_ev_seen_' + e.id, '1')
+      };
+    }
+
+    /* Chat card for ":ev:<id>:" */
+    const eventIdOf = body => { const m = /^:ev:([0-9a-f-]{36}):$/.exec(String(body || '').trim()); return m ? m[1] : null; };
+    function chatEventCard(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return `<div class="chat-bubble"><i class="fa-solid fa-clipboard-list text-pitch"></i> Lista do próximo baba ${eventsOff ? '' : '<span class="text-ink-3">(carregando...)</span>'}</div>`;
+      const me = myPlayerIn(e.turma_id);
+      const mine = me ? rsvpOf(e, me.key) : null;
+      const L = evLines(e);
+      const open = evUpcoming(e);
+      return `
+        <div class="ev-chat">
+          <button onclick="openEventSheet('${e.id}')" class="block w-full text-left">
+            <p class="text-[11px] font-extrabold uppercase tracking-wider text-pitch"><i class="fa-solid fa-clipboard-list"></i> Lista puxada</p>
+            <p class="text-[15px] font-extrabold leading-tight mt-0.5">${escapeHtml(evWhen(e))}</p>
+            ${e.place ? `<p class="text-[12.5px] text-ink-2 truncate">${escapeHtml(e.place)}</p>` : ''}
+            <p class="text-[12.5px] font-bold mt-1">${e.status === 'canceled' ? 'Cancelada' : e.status === 'done' ? 'Presença fechada' : `${L.vou.length}${e.max_players ? `/${e.max_players}` : ''} vão${L.talvez.length ? ` · ${L.talvez.length} talvez` : ''}`}</p>
+          </button>
+          ${open && me ? `<div class="grid grid-cols-2 gap-1.5 mt-2">
+            <button onclick="answerEvent('${e.id}', 'vou')" class="ev-ans h-9 ${mine && mine.status === 'vou' ? 'is-on ev-vou' : ''}">Vou</button>
+            <button onclick="answerEvent('${e.id}', 'nao')" class="ev-ans h-9 ${mine && mine.status === 'nao' ? 'is-on ev-nao' : ''}">Não vou</button>
+          </div>` : ''}
+        </div>`;
+    }
+
+    /* ===================================================================
        CHAT (turma e jogo ao vivo)
        =================================================================== */
     async function ensurePeople(ids) {
@@ -4578,6 +5397,7 @@
                 ${head ? `<p class="chat-meta">${styledName(who.name || '?', who.cosmetics)}${titleChip(who.cosmetics, 'ml-1')}</p>` : ''}
                 <div class="flex items-end gap-1 ${me ? 'flex-row-reverse' : ''}">
                   ${m.deleted ? '<div class="chat-bubble chat-del">Mensagem apagada</div>'
+                    : eventIdOf(m.body) ? chatEventCard(eventIdOf(m.body))
                     : stickerOf(m.body) ? `<img src="babinha/${stickerOf(m.body)}.webp" alt="Babinha" class="chat-sticker" />`
                     : bigEmoji(m.body) ? `<div class="chat-jumbo">${escapeHtml(m.body)}</div>`
                     : `<div class="chat-bubble">${escapeHtml(m.body)}</div>`}
@@ -4601,6 +5421,8 @@
           if (full) { msgs.clear(); lastId = 0; }
           merge(rows);
           if (!opts.live) await ensurePeople(rows.map(r => r.user_id));
+          // A list card for a list this phone doesn't have yet: fetch the lists.
+          if (rows.some(r => eventIdOf(r.body) && !eventsCache.some(e => e.id === eventIdOf(r.body)))) loadEvents(true);
           render();
         } catch (e) {
           if (!msgs.size) list.innerHTML = `<p class="text-[13px] text-ink-2 text-center py-6">${isNetworkError(e) ? 'O chat precisa de internet.' : 'Não consegui abrir o chat.'}</p>`;
@@ -4610,7 +5432,7 @@
         await api.chatSend(opts.room, body);
         await load();
       };
-      container.__chat = { reload: () => load(true), toggle: id => { open = open === id ? null : id; render(); }, send };
+      container.__chat = { reload: () => load(true), toggle: id => { open = open === id ? null : id; render(); }, send, repaint: () => render() };
 
       if (form) {
         const input = form.querySelector('input');
@@ -5016,6 +5838,7 @@
 
     function renderHome() {
       renderClock();
+      renderHomeEvents();
       renderWeather();
       refreshWeather(false);
       document.getElementById('home-hello').innerText = greeting();
@@ -5294,6 +6117,7 @@
       document.getElementById('turma-edit-delete').innerText = ownsTurma(t) ? 'Excluir turma' : 'Sair da turma';
       const hist = t.cloud ? state.pastDays.filter(d => (d.turmaIds || []).includes(t.id)).length : 0;
       document.getElementById('turma-edit-history').classList.toggle('hidden', !t.cloud);
+      renderTurmaEvents();
       document.getElementById('turma-edit-history-sub').innerText = hist ? `${hist} baba${hist === 1 ? '' : 's'} encerrado${hist === 1 ? '' : 's'} · todo mundo da turma vê` : 'Nenhum encerrado ainda';
       paintAvatar(document.getElementById('turma-edit-icon-img'), t.icon, t.name);
       document.getElementById('turma-edit-icon-cam').classList.toggle('hidden', !admin);
@@ -5514,7 +6338,10 @@
     function renderSheetTable() {
       const tbody = document.getElementById('sheet-players-tbody');
       const present = presentPlayers().sort((a, b) => (a.arrival || 0) - (b.arrival || 0));
-      const absent = state.players.filter(p => !p.present);
+      // Who said they're coming shows first among those who haven't arrived.
+      const ev = todaysEvent();
+      const coming = p => { const r = ev && rsvpOf(ev, keyOf(p.name)); return r && r.status === 'vou' ? 0 : r && r.status === 'talvez' ? 1 : r ? 3 : 2; };
+      const absent = state.players.filter(p => !p.present).map((p, i) => [p, i]).sort((a, b) => coming(a[0]) - coming(b[0]) || a[1] - b[1]).map(x => x[0]);
 
       document.getElementById('sheet-active-count').innerText = present.length;
       document.getElementById('sheet-waiting-count').innerText = absent.length;
@@ -5532,6 +6359,7 @@
             <button onclick="openPlayerSheet(${p.id})" class="text-left w-full min-w-0">
               <span class="block font-bold text-ink truncate">${p.isGoalkeeper ? '🧤 ' : ''}${escapeHtml(p.name)}</span>
               <span class="block text-[11px] text-ink-2 truncate">${sub}</span>
+              ${arrivalTag(p) ? `<span class="block mt-0.5">${arrivalTag(p)}</span>` : ''}
             </button>
           </td>
           <td class="py-1.5 px-0.5 text-center">
@@ -7335,6 +8163,10 @@
         ? 'Começar um novo baba? O dia de hoje vai pro histórico (aba Stats → Todos os babas) e o placar, a fila e as chegadas são zerados. Turmas e regras ficam.'
         : 'Começar um novo baba? Placar, fila e chegadas são zerados. Turmas e regras ficam.';
       if (!(await askConfirm(msg, 'Novo baba'))) return;
+      // Today's list: remember who arrived, so the adm can close it (cumpriu x miou) after the reset.
+      const ev = todaysEvent();
+      const evClose = ev && ev.status === 'open' && evAdmin(ev) && hasDay
+        ? { eventId: ev.id, out: Object.fromEntries((ev.event_rsvps || []).filter(r => r.status === 'vou').map(r => [r.player_key, arrivedToday(r.player_key) ? 'cumpriu' : 'miou'])) } : null;
       pauseMatchTimer();
       endLiveQuiet();
       if (hasDay) {
@@ -7362,6 +8194,11 @@
       syncPool();
       commit(hasDay ? 'Dia salvo no histórico da turma. Novo baba: marque quem chegou!' : 'Novo baba! Marque quem chegou na Lista.');
       switchTab('ficha');
+      if (evClose && Object.keys(evClose.out).length) {
+        closeStash = evClose;
+        setTimeout(() => showPopup({ img: 'coach', eyebrow: 'Compromisso', title: 'Fechar a presença?', html: '<p class="text-[15px] leading-relaxed">A lista de hoje ainda está aberta. Já marquei quem chegou (cumpriu) e quem não apareceu (miou) pela Lista de chegada. Confere?</p>',
+          ok: 'Conferir agora', onClose: () => openCloseEvent(evClose.eventId) }), 400);
+      }
     }
 
     /* ===================================================================

@@ -407,6 +407,18 @@
     .chat-sticker { width: 104px; height: auto; display: block; filter: drop-shadow(0 6px 10px rgba(0,0,0,.18)); }
     .chat-jumbo { font-size: 40px; line-height: 1.15; }
 
+    /* ---- v11: compromisso ---- */
+    .ev-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 9999px; font-size: 10.5px; font-weight: 800; white-space: nowrap; }
+    .ev-ans { height: 38px; border-radius: 12px; border: 1px solid rgb(var(--c-ink) / .15); background: rgb(var(--c-card)); font-size: 13.5px; font-weight: 800; color: rgb(var(--c-ink)); transition: transform .1s; }
+    .ev-ans:active { transform: scale(.97); }
+    .ev-ans.is-on.ev-vou { background: rgb(var(--c-pitch)); color: rgb(var(--c-butter)); border-color: rgb(var(--c-pitch)); }
+    .ev-ans.is-on.ev-talvez { background: rgb(var(--c-butter)); color: rgb(var(--c-pitch)); border-color: rgb(var(--c-butter-3)); }
+    .ev-ans.is-on.ev-nao { background: rgb(var(--c-sunk)); color: rgb(var(--c-ink-2)); border-color: rgb(var(--c-ink) / .25); }
+    .ev-chat { width: 230px; max-width: 100%; padding: 10px 12px; border-radius: 18px; border-bottom-left-radius: 6px; background: rgb(var(--c-card)); border: 1px solid rgb(var(--c-butter-3)); box-shadow: 0 6px 14px -10px rgba(0,0,0,.35); }
+    .chat-msg.me .ev-chat { border-bottom-left-radius: 18px; border-bottom-right-radius: 6px; }
+    .ev-flash { animation: evFlash 1.4s ease-out 2; border-radius: 14px; }
+    @keyframes evFlash { 0% { box-shadow: 0 0 0 0 rgb(var(--c-butter-3)); } 100% { box-shadow: 0 0 0 10px transparent; } }
+
     /* ---- v10.1: título, pipoca, card de atleta, anúncio de gol ---- */
     .cos-title { display: inline-block; vertical-align: middle; font-size: 10.5px; line-height: 1; font-weight: 800; letter-spacing: .02em; padding: 3px 7px; border-radius: 9999px;
       background: rgb(var(--c-butter)); color: rgb(var(--c-pitch)); white-space: nowrap; }
@@ -842,6 +854,7 @@
           <div id="home-strip" class="relative glass"></div>
         </div>
 
+        <div id="home-events"></div>
         <div id="home-mine"></div>
         <div id="home-v7"></div>
 
@@ -1938,6 +1951,7 @@
         </label>
         <div id="turma-edit-invite" class="hidden rounded-2xl bg-butter/60 border border-butter-3/60 p-3.5"></div>
         <button id="turma-edit-history" onclick="openHistory(editingTurmaId)" class="hidden w-full menu-row rounded-2xl bg-card border border-ink/10"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0 text-left"><span class="block">Babas anteriores da turma</span><span id="turma-edit-history-sub" class="block text-[12px] font-medium text-ink-2"></span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <div id="turma-edit-events" class="hidden rounded-2xl bg-butter/40 border border-butter-3/60 p-3.5"></div>
         <div id="turma-tabs" class="seg grid-cols-2 hidden">
           <button id="turma-tab-atletas" onclick="turmaTab('atletas')" class="seg-btn is-selected">Atletas</button>
           <button id="turma-tab-pessoas" onclick="turmaTab('pessoas')" class="seg-btn">Pessoas e cargos</button>
@@ -2171,6 +2185,83 @@
           <div id="past-days-list" class="space-y-1.5"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Compromisso: a lista -->
+  <div id="modal-event" class="overlay hidden z-[63]" onclick="if(event.target===this) closeEventSheet()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0"><h3 id="ev-title" class="title truncate"></h3><p id="ev-sub" class="text-[13px] text-ink-2 truncate"></p></div>
+        <button onclick="closeEventSheet()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="ev-body" class="space-y-3.5 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
+    </div>
+  </div>
+  <div id="modal-evmenu" class="overlay hidden z-[66]" onclick="if(event.target===this) closeEvMenu()">
+    <div class="sheet-panel space-y-3">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0"><h3 id="evmenu-title" class="title truncate"></h3></div>
+        <button onclick="closeEvMenu()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="evmenu-body"></div>
+    </div>
+  </div>
+  <div id="modal-event-edit" class="overlay hidden z-[64]" onclick="if(event.target===this) closeEventEdit()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] overflow-y-auto overscroll-contain">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0"><h3 id="eve-title" class="title truncate"></h3></div>
+        <button onclick="closeEventEdit()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label class="block"><span class="label">Turma</span><select id="eve-turma" class="select"></select></label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block min-w-0"><span class="label">Dia</span><input id="eve-date" type="date" class="field" /></label>
+        <label class="block min-w-0"><span class="label">Hora</span><input id="eve-time" type="time" class="field" /></label>
+      </div>
+      <label class="block"><span class="label">Onde</span><input id="eve-place" maxlength="120" class="field" placeholder="Ex.: Quadra do Zé, Asa Norte" /></label>
+      <label class="block"><span class="label">Vagas (opcional)</span><input id="eve-max" type="number" min="2" max="200" inputmode="numeric" class="field" placeholder="Sem limite" /></label>
+      <p class="text-[12px] text-ink-2 -mt-1.5 leading-snug">Com vagas, quem confirmar depois do limite vai pra lista de espera.</p>
+      <label class="block"><span class="label">Recado (opcional)</span><textarea id="eve-note" maxlength="280" rows="2" class="field !h-auto py-2.5" placeholder="Ex.: leva colete, rachamos a quadra"></textarea></label>
+      <p id="eve-error" class="hidden text-[13px] font-semibold text-danger"></p>
+      <button id="eve-save" onclick="saveEventEdit()" class="btn-primary w-full h-14 text-[15px]">Puxar a lista</button>
+    </div>
+  </div>
+  <div id="modal-paste" class="overlay hidden z-[64]" onclick="if(event.target===this) closePasteList()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] overflow-y-auto overscroll-contain">
+      <div class="grabber"></div>
+      <div class="flex items-start gap-3 -mt-1">
+        <img src="babinha/calculante.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" />
+        <div class="min-w-0 flex-1"><h3 class="title">Colar lista do grupo</h3><p class="text-[13px] text-ink-2 leading-snug">Copie a lista do WhatsApp e cole aqui. O BABA acha os nomes da turma, mesmo escritos diferente.</p></div>
+        <button onclick="closePasteList()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <textarea id="paste-text" rows="7" class="field !h-auto py-2.5 text-[14px]" placeholder="1- Gabriel&#10;2- Bezão ✅&#10;3- Caio (gol)&#10;&#10;Não vão:&#10;- Duda"></textarea>
+      <button onclick="readPastedList()" class="btn-outline w-full h-12 text-[14px]"><i class="fa-solid fa-wand-magic-sparkles"></i> Ler a lista</button>
+      <div id="paste-preview" class="space-y-2"></div>
+      <button id="paste-confirm" onclick="confirmPastedList()" class="hidden btn-primary w-full h-14 text-[15px]">Pôr na lista</button>
+    </div>
+  </div>
+  <div id="modal-close-ev" class="overlay hidden z-[64]" onclick="if(event.target===this) closeCloseEvent()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0"><h3 class="title">Fechar presença</h3><p id="close-ev-sub" class="text-[13px] text-ink-2 truncate"></p></div>
+        <button onclick="closeCloseEvent()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="close-ev-body" class="overflow-y-auto overscroll-contain divide-y divide-ink/[0.07] -mx-1 px-1"></div>
+      <button id="close-ev-save" onclick="saveCloseEvent()" class="btn-primary w-full h-14 text-[15px] flex-shrink-0">Fechar presença</button>
+    </div>
+  </div>
+  <div id="modal-rules" class="overlay hidden z-[64]" onclick="if(event.target===this) closeRules()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0"><h3 class="title">Regras de presença</h3><p id="rules-sub" class="text-[13px] text-ink-2 truncate"></p></div>
+        <button onclick="closeRules()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="rules-body" class="space-y-3.5 overflow-y-auto overscroll-contain -mx-1 px-1 pb-1"></div>
     </div>
   </div>
 
