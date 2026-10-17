@@ -73,7 +73,7 @@
       // queueOrder: 'chegada' | 'menos-jogos' · lateAfter: minutes after the first kick-off
       // from which a new arrival goes to the front of the line (0 = off) · keeperMode for the
       // line-only formats: 'fixo' (keepers never rotate) | 'fila' (the next two in line keep goal).
-      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time' };
+      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time', venue: '' };
     }
 
     function seedTurmas() {
@@ -441,7 +441,7 @@
       // Babas still being played in my turmas (by other organizers): "Meus números" counts them live.
       turmaOpenBabas: () => q(sb.from('babas').select('id, title, created_by, state, updated_at').eq('finished', false).gt('updated_at', new Date(Date.now() - 2 * 864e5).toISOString()).order('updated_at', { ascending: false }).limit(20)),
       async finishedBabas() {
-        const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, turma_ids, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
+        const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, turma_ids, venue:state->>venue, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
         const base = 'name, goals, assists, saves, matches, wins, turma_player_id';
         if (penCol !== false) {
           const { data, error } = await run(base + ', pen_goals, pen_misses, pen_saves');
@@ -475,6 +475,7 @@
       async transfer(id, member) { const { error } = await sb.rpc('transfer_turma', { t: id, member }); if (error) throw error; },
       async removeMember(id, member) { const { error } = await sb.rpc('remove_member', { t: id, member }); if (error) throw error; },
       upsertBaba: row => q(sb.from('babas').upsert(row)),
+      async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
         await q(sb.from('baba_stats').delete().eq('baba_id', babaId));
@@ -689,7 +690,7 @@
       const id = summary.id;
       enqueue({
         type: 'baba_finish', id,
-        row: { id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: null, finished: true, matches: summary.matches },
+        row: { id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: { venue: summary.venue || '', games: summary.games || [] }, finished: true, matches: summary.matches },
         stats: summary.players.map(p => ({
           baba_id: id, turma_player_id: p.cloudId || null, name: p.name,
           goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0, matches: p.matches || 0, wins: p.wins || 0,
@@ -760,6 +761,7 @@
         // History of finished babas (yours and your turmas').
         const done = await api.finishedBabas();
         const pendingDays = state.pastDays.filter(d => readOutbox().some(o => o.type === 'baba_finish' && o.id === d.id));
+        const oldGames = new Map(state.pastDays.filter(d => d.games).map(d => [d.id, d.games]));
         state.pastDays = pendingDays.concat(done.filter(d => !pendingDays.some(p => p.id === d.id)).map(d => ({
           id: d.id,
           date: `${d.played_on}T12:00:00`,
@@ -767,6 +769,8 @@
           matches: d.matches || 0,
           owner: d.created_by === uid,
           turmaIds: Array.isArray(d.turma_ids) ? d.turma_ids : [],
+          venue: VENUES[d.venue] ? d.venue : '',
+          games: oldGames.get(d.id),
           players: (d.baba_stats || []).map(s => ({ name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
             penGoals: s.pen_goals || 0, penMisses: s.pen_misses || 0, penSaves: s.pen_saves || 0 }))
         })));
@@ -1259,7 +1263,7 @@
     }
 
     /* Totals for the player linked to this account, across every baba it can see. */
-    function myStats() {
+    function myStats(venue) {
       if (!currentUser) return null;
       const linked = new Set(myPlayerIds);
       const myNamesToday = new Set();
@@ -1272,16 +1276,16 @@
       const known = new Set();
       const myNameIn = {};
       state.turmas.forEach(t => Object.entries(t.meta || {}).forEach(([n, m]) => { known.add(m.id); if (m.userId === currentUser.id) myNameIn[t.id] = n; }));
-      state.pastDays.forEach(d => {
+      state.pastDays.filter(d => !venue || d.venue === venue).forEach(d => {
         const rows = d.players.filter(p => (p.cloudId && linked.has(p.cloudId))
           || ((!p.cloudId || !known.has(p.cloudId)) && (d.turmaIds || []).some(tid => myNameIn[tid] && myNameIn[tid] === String(p.name).trim().toLowerCase())));
         if (rows.length) tot.babas++;
         rows.forEach(p => STAT_KEYS.forEach(k => { tot[k] += Number(p[k]) || 0; }));
       });
-      const today = state.players.find(p => myNamesToday.has(p.name.trim().toLowerCase()) && hasStats(p));
+      const today = (!venue || state.settings.venue === venue) && state.players.find(p => myNamesToday.has(p.name.trim().toLowerCase()) && hasStats(p));
       if (today) { tot.babas++; STAT_KEYS.forEach(k => { tot[k] += Number(today[k]) || 0; }); }
       // A baba someone else is organizing right now, where my name is linked.
-      othersOpen.forEach(b => {
+      (venue ? [] : othersOpen).forEach(b => {
         const row = b.players.find(p => { const t = turmaById(p.turmaId); const m = t && t.meta ? t.meta[String(p.name).trim().toLowerCase()] : null; return m && m.userId === currentUser.id; });
         if (row) { tot.babas++; tot.live = true; STAT_KEYS.forEach(k => { tot[k] += Number(row[k]) || 0; }); }
       });
@@ -1700,7 +1704,7 @@
        and in the profile, so a new phone picks them up.
        =================================================================== */
     const PREFS_KEY = 'baba_prefs_v1';
-    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '' };
+    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '', detailStats: false };
     const SYNCED_PREFS = Object.keys(DEFAULT_PREFS);
     let prefs = loadPrefs();
     let prefsPulledFor = null;
@@ -1727,6 +1731,8 @@
       set('pref-motion', prefs.reduceMotion);
       set('pref-sound', prefs.sound);
       set('pref-vibrate', prefs.vibrate);
+      set('pref-detail', prefs.detailStats);
+      renderVenueUI();
     }
 
     function setPref(key, value) {
@@ -1947,6 +1953,12 @@
       const cell = (v, l) => `<div class="card-flat p-3 text-center"><p class="font-serif text-[28px] leading-none text-pitch">${Number(v) || 0}</p><p class="text-[11px] font-semibold text-ink-2 mt-1">${l}</p></div>`;
       const m = mine || {};
       document.getElementById('pf-stats').innerHTML = cell(m.babas, 'Babas') + cell(m.matches, 'Jogos') + cell(m.goals, 'Gols') + cell(m.assists, 'Assistências') + cell(m.saves, 'Defesas') + cell(m.wins, 'Vitórias');
+      const vb = document.getElementById('pf-venues');
+      if (vb) vb.innerHTML = detailOn() ? Object.entries(VENUES).map(([k, l]) => {
+        const v = myStats(k);
+        if (!v || !(v.matches || v.goals || v.assists || v.saves)) return '';
+        return `<div class="card-flat p-3"><p class="text-[12px] font-extrabold text-pitch mb-1.5">${l}</p><div class="grid grid-cols-4 text-center">${[[v.matches, 'Jogos'], [v.goals, 'Gols'], [v.assists, 'Assist.'], [v.saves, 'Defesas']].map(([n, t]) => `<div><p class="font-serif text-[22px] leading-none">${Number(n) || 0}</p><p class="text-[10.5px] font-semibold text-ink-2 mt-0.5">${t}</p></div>`).join('')}</div></div>`;
+      }).join('') : '';
       const cardBox = document.getElementById('pf-card');
       if (currentUser) cardBox.innerHTML = `<button onclick="openAthleteCard(currentUser.id)" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics || {} }, mine || {}, { small: true })}</button>`;
       const box = document.getElementById('profile-mine');
@@ -2570,7 +2582,7 @@
       document.getElementById('export-title').value = title === 'Baba' ? '' : title;
       document.getElementById('export-title').placeholder = `Baba de ${date}`;
       document.getElementById('export-sub').innerText = past ? `Baba de ${date} · ${past.players.length} atletas` : `Baba de hoje · ${state.matchHistory.length} partida${state.matchHistory.length === 1 ? '' : 's'}`;
-      document.getElementById('export-row-games').classList.toggle('hidden', !!past);
+      document.getElementById('export-row-games').classList.toggle('hidden', !!past && !(past.games && past.games.length));
       if (!past && !state.players.length) showToast('O baba de hoje ainda está vazio. O PDF sai só com as fotos e o recado.', 'warning');
       renderExportPhotos();
       document.getElementById('modal-export').classList.remove('hidden');
@@ -2647,7 +2659,7 @@
       const past = sheetOpen && exportSource ? state.pastDays.find(d => d.id === exportSource) : null;
       const opt = id => !sheetOpen || document.getElementById(id).checked;
       const showHighlights = opt('export-opt-highlights');
-      const showGames = !past && opt('export-opt-games');
+      const showGames = opt('export-opt-games') && (!past || !!(past.games && past.games.length));
       const showPlayers = opt('export-opt-players');
       const note = sheetOpen ? pdfText(document.getElementById('export-note').value) : '';
       const when = past ? new Date(past.date) : new Date(state.startedAt || Date.now());
@@ -2712,7 +2724,7 @@
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
         doc.setTextColor(232, 222, 176);
-        doc.text(pdfText(`${dateTxt}  ·  ${matches} partida${matches === 1 ? '' : 's'}  ·  ${players.length} atleta${players.length === 1 ? '' : 's'}`), M + 31, titleLines.length > 1 ? 34 : 31);
+        doc.text(pdfText(`${dateTxt}${VENUES[past ? past.venue : state.settings.venue] ? '  ·  ' + VENUES[past ? past.venue : state.settings.venue] : ''}  ·  ${matches} partida${matches === 1 ? '' : 's'}  ·  ${players.length} atleta${players.length === 1 ? '' : 's'}`), M + 31, titleLines.length > 1 ? 34 : 31);
         y = 56;
 
         if (photos[0]) {
@@ -2764,6 +2776,8 @@
         }
 
         if (showGames) {
+          const gamesList = past ? past.games : [...state.matchHistory].reverse();
+          if (!past) {
           heading('CLASSIFICAÇÃO DOS TIMES');
           const standings = sortedStandings();
           if (!standings.length) row([{ text: 'Sem partidas finalizadas.', x: M + 2 }]);
@@ -2776,12 +2790,14 @@
             });
           }
           y += 4;
+          }
           heading('HISTÓRICO DE JOGOS');
-          if (!state.matchHistory.length) row([{ text: 'Nenhuma partida finalizada.', x: M + 2 }]);
-          else [...state.matchHistory].reverse().forEach(h => {
+          if (!gamesList.length) row([{ text: 'Nenhuma partida finalizada.', x: M + 2 }]);
+          else gamesList.forEach(h => {
             ensure(12);
             row([{ text: h.timestamp, x: M + 2 }, { text: `Time ${h.labelA}   ${h.scoreA} x ${h.scoreB}   Time ${h.labelB}${h.pens ? `   (pên. ${h.pens.a} x ${h.pens.b})` : ''}`, x: 40 }]);
             if (h.namesA && h.namesA.length) small(`${shortNames(h.namesA)}  vs  ${shortNames(h.namesB)}`);
+            gameLines(h).forEach(l => small('      ' + gameLineText(l)));
           });
           y += 4;
         }
@@ -2998,9 +3014,14 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.3';
+    const APP_VERSION = '11.3.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.3.1', date: '17/10/2026', title: 'Perfil na barra, local e lances', items: [
+        'O botão do seu perfil agora fica dentro da barra de baixo, junto de Início, Turmas e Lojinha.',
+        'Estatísticas detalhadas (Configurações → Seu baba): marque se o baba é no Campo, Society ou Futsal e veja jogos, gols, assistências e defesas por local, no Stats e no Perfil.',
+        'O relatório do baba agora mostra cada jogo com quem fez gol, quem deu o passe, as defesas e o minuto de cada lance. Vale na tela, no PDF e na planilha.'
+      ] },
       { v: '11.3', date: '17/10/2026', title: 'App reorganizado', items: [
         'Três abas embaixo: Início, Turmas e Lojinha do Babinha. Lista, Times, Placar e Stats agora ficam dentro de Turmas.',
         'Seu perfil virou o botão redondo no canto de baixo: posição, pé dominante, turma principal, estatísticas e o card pra compartilhar.',
@@ -8121,6 +8142,7 @@
       state.match.events.unshift({
         type: 'goal',
         side: selectedGoalSide,
+        el: playedSeconds(),
         scorerId: scorer ? scorer.id : null,
         assistId: assist ? assist.id : null,
         time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
@@ -8193,6 +8215,7 @@
       state.match.events.unshift({
         type: 'save',
         side: selectedSaveSide,
+        el: playedSeconds(),
         keeperId: keeper.id,
         time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
         text: `🧤 Defesa do Time ${team.label}: ${keeper.name}`
@@ -8265,7 +8288,8 @@
           timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           labelA: A.label, labelB: B.label, scoreA, scoreB,
           namesA: A.ids.map(nameOf), namesB: B.ids.map(nameOf),
-          played: playedSeconds(), added: state.match.addedSeconds || 0
+          played: playedSeconds(), added: state.match.addedSeconds || 0,
+          events: gameEvents(A, B)
         }, pen ? { pens: { a: pen.a, b: pen.b } } : {}));
         if (pen) {
           // Each kick counts: gol for the kicker, miss for the kicker, a save for the keeper.
@@ -8573,6 +8597,7 @@
               <span class="font-bold text-ink text-right">Time ${h.labelA} <b class="font-serif font-normal text-[22px] leading-none text-pitch mx-1">${h.scoreA} × ${h.scoreB}</b> Time ${h.labelB}${h.pens ? `<span class="block text-[11px] font-bold text-ink-2">pênaltis ${h.pens.a} × ${h.pens.b}</span>` : ''}</span>
             </div>
             ${(h.namesA && h.namesA.length) ? `<p class="text-[11px] text-ink-2 mt-1 leading-snug">${escapeHtml(shortNames(h.namesA))} <span class="text-ink-3">vs</span> ${escapeHtml(shortNames(h.namesB))}</p>` : ''}
+            ${gameLinesHtml(h)}
           </div>`).join('');
       }
     }
@@ -8594,6 +8619,15 @@
           q(p.present ? 'Sim' : 'Nao')
         ].join(';') + '\n';
       });
+      if (state.matchHistory.length) {
+        csv += '\nJogo;Hora;Time A;Placar;Time B;Minuto;Lance;Jogador;Assistencia;Time\n';
+        [...state.matchHistory].reverse().forEach((h, i) => {
+          const ls = gameLines(h);
+          const head = [i + 1, q(h.timestamp || ''), q('Time ' + h.labelA), q(`${h.scoreA} x ${h.scoreB}`), q('Time ' + h.labelB)];
+          if (!ls.length) csv += head.join(';') + ';;;;;\n';
+          ls.forEach(l => { csv += [...head, q(l.time), q(l.kind === 'g' ? 'Gol' : 'Defesa'), q(l.who), q(l.assist), q('Time ' + l.team)].join(';') + '\n'; });
+        });
+      }
       offerFile(`BABA_Resumo_${todayStamp()}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8;' }), 'Planilha salva!');
     }
 
@@ -8723,6 +8757,83 @@
 
     const STAT_KEYS = ['goals', 'assists', 'saves', 'matches', 'wins', 'penGoals', 'penMisses', 'penSaves'];
 
+    /* ---- Local do baba (estatísticas detalhadas) e lances de cada jogo ---- */
+    const VENUES = { campo: 'Campo', society: 'Society', futsal: 'Futsal' };
+    const detailOn = () => !!prefs.detailStats;
+    let statsVenue = '';
+    function renderVenueUI() {
+      const card = document.getElementById('venue-card');
+      if (!card) return;
+      card.classList.toggle('hidden', !detailOn());
+      document.getElementById('venue-seg').innerHTML = [['', 'Nenhum'], ...Object.entries(VENUES)].map(([k, l]) =>
+        `<button onclick="setVenue('${k}')" class="seg-btn${(state.settings.venue || '') === k ? ' is-selected' : ''}">${l}</button>`).join('');
+      const sv = document.getElementById('stats-venue');
+      if (sv) {
+        sv.classList.toggle('hidden', !detailOn() || currentStatsScope !== 'all');
+        sv.innerHTML = [['', 'Todos'], ...Object.entries(VENUES)].map(([k, l]) =>
+          `<button onclick="setStatsVenue('${k}')" class="seg-btn${statsVenue === k ? ' is-selected' : ''}">${l}</button>`).join('');
+      }
+    }
+    function setVenue(v) {
+      state.settings.venue = VENUES[v] ? v : '';
+      commit(VENUES[v] ? `Local: ${VENUES[v]}` : 'Local do baba removido.');
+      renderVenueUI();
+    }
+    function setStatsVenue(v) { statsVenue = VENUES[v] ? v : ''; renderStatsView(); renderVenueUI(); }
+    const venueTag = v => VENUES[v] ? `<span class="inline-block text-[10.5px] font-extrabold bg-sage text-pitch rounded-md px-1.5 py-0.5 ml-1 align-middle">${VENUES[v]}</span>` : '';
+
+    /* Goals and saves of the game that just ended, in order, with the clock time each one happened. */
+    function gameEvents(A, B) {
+      return state.match.events.slice().reverse().filter(e => e.type === 'goal' || e.type === 'save').map(e => {
+        const team = e.side === 'A' ? A : B;
+        const o = { k: e.type === 'goal' ? 'g' : 'd', l: team ? team.label : '?', t: e.el == null ? null : e.el };
+        if (e.type === 'goal') { o.p = e.scorerId ? nameOf(e.scorerId) : '?'; if (e.assistId) o.a = nameOf(e.assistId); }
+        else o.p = nameOf(e.keeperId);
+        return o;
+      });
+    }
+    /* [{ time, kind, text, score }] ready to print. */
+    function gameLines(h) {
+      let a = 0, b = 0;
+      return (h.events || []).map(e => {
+        if (e.k === 'g') { if (e.l === h.labelA) a++; else b++; }
+        return { time: e.t == null ? '' : fmtMMSS(e.t), kind: e.k, team: e.l, who: e.p, assist: e.a || '', score: e.k === 'g' ? `${a} × ${b}` : '' };
+      });
+    }
+    function gameLinesHtml(h) {
+      const ls = gameLines(h);
+      if (!ls.length) return '';
+      return `<div class="mt-2 pt-2 border-t border-ink/[0.07] space-y-1">${ls.map(l => `
+        <p class="text-[12px] leading-snug flex gap-1.5 items-baseline">
+          <span class="w-[38px] flex-shrink-0 font-bold text-ink-3 tabular-nums">${l.time || '—'}</span>
+          <span>${l.kind === 'g' ? '⚽' : '🧤'}</span>
+          <span class="min-w-0"><b>${escapeHtml(l.who)}</b>${l.assist ? ` <span class="text-ink-2">· passe de ${escapeHtml(l.assist)}</span>` : ''}${l.kind === 'd' ? ' <span class="text-ink-2">· defesa</span>' : ''} <span class="text-ink-3">· Time ${escapeHtml(l.team)}${l.score ? ` · ${l.score}` : ''}</span></span>
+        </p>`).join('')}</div>`;
+    }
+    function gameLineText(l) {
+      return `${l.time || '--:--'}  ${l.kind === 'g' ? 'Gol' : 'Defesa'}: ${l.who}${l.assist ? ` (passe de ${l.assist})` : ''}  -  Time ${l.team}${l.score ? `  [${l.score.replace(' × ', 'x')}]` : ''}`;
+    }
+    /* Finished babas pulled from the server bring only their summary; the games load when one is opened. */
+    function gamesBlockHtml(d) {
+      if (!d.games) return d.matches && cloudOn() ? '<p class="text-[12px] text-ink-2 text-center">Carregando os jogos...</p>' : '';
+      if (!d.games.length) return '';
+      return `<div><p class="eyebrow mb-2 px-1">Jogos</p><div class="space-y-2">${d.games.map(h => `
+        <div class="p-3 rounded-2xl bg-sunk/60 text-[13px]">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-ink-2 text-[11px] font-bold flex-shrink-0">${escapeHtml(h.timestamp || '')}${h.played ? `<span class="block font-semibold">${fmtMMSS(h.played)}</span>` : ''}</span>
+            <span class="font-bold text-right">Time ${escapeHtml(h.labelA)} <b class="font-serif font-normal text-[22px] leading-none text-pitch mx-1">${h.scoreA} × ${h.scoreB}</b> Time ${escapeHtml(h.labelB)}${h.pens ? `<span class="block text-[11px] font-semibold text-ink-2">pên. ${h.pens.a} × ${h.pens.b}</span>` : ''}</span>
+          </div>
+          ${(h.namesA && h.namesA.length) ? `<p class="text-[11px] text-ink-2 mt-1 leading-snug">${escapeHtml(shortNames(h.namesA))} <span class="text-ink-3">vs</span> ${escapeHtml(shortNames(h.namesB))}</p>` : ''}
+          ${gameLinesHtml(h)}
+        </div>`).join('')}</div></div>`;
+    }
+    async function ensureGames(d) {
+      if (!d || d.games || !cloudOn() || !isUuid(d.id)) return;
+      d.games = [];
+      try { d.games = await api.babaGames(d.id); } catch (e) { d.games = undefined; return; }
+      if (!document.getElementById('modal-history').classList.contains('hidden') && historyView.day === d.id) renderHistory();
+    }
+
     /* Today's numbers as a compact record (what goes into the history). */
     function daySummary() {
       const names = state.selectedTeams.map(id => (turmaById(id) || {}).name).filter(Boolean);
@@ -8733,6 +8844,8 @@
         matches: state.matchHistory.length,
         owner: true,
         turmaIds: [...state.selectedTeams],
+        venue: state.settings.venue || '',
+        games: state.matchHistory.slice().reverse(),
         players: state.players.filter(hasStats).map(p => {
           const row = { name: p.name, cloudId: playerCloudId(p) };
           if (p.female) row.female = true;
@@ -8743,7 +8856,7 @@
     }
 
     /* Every past baba plus today, summed per player name. */
-    function aggregatedPlayers() {
+    function aggregatedPlayers(venue) {
       const map = new Map();
       const add = p => {
         const key = p.name.trim().toLowerCase();
@@ -8751,12 +8864,13 @@
         STAT_KEYS.forEach(k => { cur[k] += Number(p[k]) || 0; });
         map.set(key, cur);
       };
-      state.pastDays.forEach(d => d.players.forEach(add));
-      state.players.filter(hasStats).forEach(add);
+      state.pastDays.filter(d => !venue || d.venue === venue).forEach(d => d.players.forEach(add));
+      if (!venue || state.settings.venue === venue) state.players.filter(hasStats).forEach(add);
       return [...map.values()];
     }
 
     function renderStatsView() {
+      renderVenueUI();
       const configs = {
         goals: { title: 'Artilharia', col: 'Gols', value: p => p.goals || 0 },
         assists: { title: 'Assistências', col: 'Ast.', value: p => p.assists || 0 },
@@ -8778,7 +8892,7 @@
           ? `Somando ${state.pastDays.length} baba${state.pastDays.length === 1 ? '' : 's'} anterior${state.pastDays.length === 1 ? '' : 'es'} + hoje. <button onclick="openHistory()" class="font-bold text-pitch underline underline-offset-2">Ver cada baba</button>`
           : 'Ainda não há babas anteriores. Ao tocar em "Começar novo baba", o dia vai pro histórico. Backups importados também entram aqui.';
       }
-      const base = all ? aggregatedPlayers() : state.players.filter(p => p.present || hasStats(p));
+      const base = all ? aggregatedPlayers(detailOn() ? statsVenue : '') : state.players.filter(p => p.present || hasStats(p));
       const sorted = base
         .sort((a, b) => cfg.value(b) - cfg.value(a) || (a.matches || 0) - (b.matches || 0) || a.name.localeCompare(b.name));
       const ranked = sorted.filter(p => cfg.value(p) > 0);
@@ -8855,6 +8969,7 @@
           document.getElementById(`tab-nav-${n}`).classList.toggle('is-active', n === pane);
         });
         updateTurmaPicker();
+        renderVenueUI();
       }
       if (tabName === 'inicio') renderHome();
       if (tabName === 'loja') enterShop();
@@ -8985,6 +9100,7 @@
       const d = historyView.day ? state.pastDays.find(x => x.id === historyView.day) : null;
       if (d) {
         title.innerText = d.title || 'Baba';
+        ensureGames(d);
         const rows = [...d.players].sort((a, b) => (b.goals || 0) - (a.goals || 0) || (b.assists || 0) - (a.assists || 0) || (b.wins || 0) - (a.wins || 0) || String(a.name).localeCompare(String(b.name)));
         const best = [['goals', 'fa-futbol', 'gols'], ['assists', 'fa-handshake', 'assist.'], ['saves', 'fa-hand', 'def.']].map(([k, ic, l]) => {
           const p = topOf(d.players, k);
@@ -8992,7 +9108,7 @@
         }).join('');
         body.innerHTML = `
           <button onclick="historyOpenDay(null)" class="text-[13px] font-bold text-pitch"><i class="fa-solid fa-chevron-left text-[11px]"></i> Todos os babas</button>
-          <p class="text-[13px] text-ink-2">${fmtDate(d.date)} · ${d.matches || 0} partida${d.matches === 1 ? '' : 's'} · ${d.players.length} atleta${d.players.length === 1 ? '' : 's'}${d.owner === false ? '' : ' · você organizou'}</p>
+          <p class="text-[13px] text-ink-2">${fmtDate(d.date)}${venueTag(d.venue)} · ${d.matches || 0} partida${d.matches === 1 ? '' : 's'} · ${d.players.length} atleta${d.players.length === 1 ? '' : 's'}${d.owner === false ? '' : ' · você organizou'}</p>
           ${best ? `<div class="grid grid-cols-3 gap-2">${best}</div>` : ''}
           <div class="card-flat overflow-hidden">
             <table class="w-full text-[13px]">
@@ -9000,6 +9116,7 @@
               <tbody>${rows.map(p => `<tr class="border-t border-ink/[0.07]"><td class="py-2 pl-3 pr-1 max-w-0 truncate font-semibold">${escapeHtml(p.name)}</td><td class="text-center font-extrabold text-pitch">${p.goals || 0}</td><td class="text-center">${p.assists || 0}</td><td class="text-center">${p.saves || 0}</td><td class="text-center">${p.matches || 0}</td><td class="text-center pr-2">${p.wins || 0}</td></tr>`).join('')}</tbody>
             </table>
           </div>
+          ${gamesBlockHtml(d)}
           <div class="flex gap-2">
             <button onclick="historyPdf('${d.id}')" class="btn-outline flex-1 h-11 text-[14px]"><i class="fa-solid fa-file-pdf"></i> PDF desse baba</button>
             ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !w-11 !h-11 !text-danger !bg-danger/10" aria-label="Apagar do histórico"><i class="fa-solid fa-trash-can"></i></button>`}

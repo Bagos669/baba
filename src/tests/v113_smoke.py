@@ -50,6 +50,34 @@ async def main():
         if not await vis('#page-settings'): bad.append('settings')
         await pg.screenshot(path=f'{OUT}/config.png')
         await pg.evaluate("closeSettings()"); await pg.evaluate("switchTab('inicio')")
+        # nav: profile inside the bar
+        if await pg.evaluate("!document.querySelector('nav #header-profile')"): bad.append('perfil fora da barra')
+        # venue + detailed games
+        await pg.evaluate("setPref('detailStats', true)")
+        await pg.evaluate("switchTab('placar')")
+        if not await vis('#venue-card'): bad.append('venue-card oculto com detalhe ligado')
+        await pg.evaluate("setVenue('society')")
+        r = await pg.evaluate('''() => {
+          state.players = ['Artur','Beto','Caio','Davi'].map((n,i)=>({id:i+1,name:n,present:true,goals:0,assists:0,saves:0,matches:0,wins:0}));
+          state.court = { A: { label:'A', ids:[1,2], streak:0 }, B: { label:'B', ids:[3,4], streak:0 } };
+          state.match.events = [
+            { type:'save', side:'B', keeperId:4, el:300, time:'02:00' },
+            { type:'goal', side:'A', scorerId:1, assistId:2, el:200, time:'03:20' }];
+          const ev = gameEvents(state.court.A, state.court.B);
+          state.matchHistory.unshift({ timestamp:'18:00', labelA:'A', labelB:'B', scoreA:1, scoreB:0, namesA:['Artur','Beto'], namesB:['Caio','Davi'], played:420, added:0, events: ev });
+          const lines = gameLines(state.matchHistory[0]);
+          const sum = daySummary();
+          renderDailyResumo();
+          return { ev, lines, venue: sum.venue, games: sum.games.length, html: document.getElementById('match-history-timeline').innerText };
+        }''')
+        if [e['k'] for e in r['ev']] != ['g','d'] or r['ev'][0].get('a') != 'Beto' or r['ev'][0]['t'] != 200: bad.append('gameEvents ' + str(r['ev']))
+        if r['venue'] != 'society' or r['games'] != 1: bad.append('daySummary venue/games')
+        if 'Artur' not in r['html'] or '03:20' not in r['html'] or 'Beto' not in r['html']: bad.append('timeline sem lances: ' + r['html'])
+        await pg.evaluate("switchTab('stats')"); await pg.evaluate("switchStatsScope('all')")
+        if not await vis('#stats-venue'): bad.append('filtro de local oculto')
+        await pg.screenshot(path=f'{OUT}/stats_venue.png')
+        await pg.evaluate("switchTab('placar')"); await pg.screenshot(path=f'{OUT}/placar_venue.png')
+        await pg.evaluate("switchTab('inicio')"); await pg.screenshot(path=f'{OUT}/inicio2.png')
         await b.close()
     print({'problems': bad, 'errs': errs})
 asyncio.run(main())
