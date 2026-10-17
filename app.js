@@ -1111,7 +1111,7 @@
 
     async function logout() {
       if (!(await askConfirm('Sair da conta? O baba de hoje fica salvo e volta quando você entrar de novo.', 'Sair'))) return;
-      closeProfile();
+      closeProfile(); closeSettings();
       saveState();
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       releaseWakeLock();
@@ -1464,7 +1464,6 @@
       renderProfileBits();
       renderPrefsUI();
       renderProfileMine();
-      renderPushPref();
       setSync(syncState);
       document.getElementById('profile-name-view').classList.remove('hidden');
       document.getElementById('profile-name-form').classList.add('hidden');
@@ -1472,6 +1471,46 @@
       page.classList.remove('hidden');
       page.scrollTop = 0;
       pushPage('page-profile');
+      pullCloud();
+    }
+
+    function closeProfile() {
+      document.getElementById('page-profile').classList.add('hidden');
+      popPage('page-profile');
+    }
+
+    let installPromptEvt = null;
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPromptEvt = e; renderPwaStatus(); });
+    window.addEventListener('appinstalled', () => { installPromptEvt = null; renderPwaStatus(); });
+    function renderPwaStatus() {
+      const st = document.getElementById('settings-pwa-status'), btn = document.getElementById('settings-pwa-btn');
+      if (!st || !btn) return;
+      if (isStandalone()) { st.textContent = 'Instalado: aberto como aplicativo'; btn.classList.add('hidden'); return; }
+      st.textContent = installPromptEvt ? 'Ainda no navegador' : isIos() ? 'No iPhone: Compartilhar → Adicionar à Tela de Início' : 'Ainda no navegador';
+      btn.classList.toggle('hidden', !installPromptEvt && !isIos());
+    }
+    async function installApp() {
+      if (installPromptEvt) {
+        installPromptEvt.prompt();
+        try { await installPromptEvt.userChoice; } catch (e) {}
+        installPromptEvt = null;
+        renderPwaStatus();
+      } else if (isIos()) {
+        showToast('Toque em Compartilhar e depois em "Adicionar à Tela de Início".');
+      }
+    }
+
+    async function openSettings() {
+      if (!currentUser) return;
+      renderPrefsUI();
+      renderPushPref();
+      renderPwaStatus();
+      const v = document.getElementById('settings-version');
+      if (v) v.textContent = 'v' + APP_VERSION;
+      const page = document.getElementById('page-settings');
+      page.classList.remove('hidden');
+      page.scrollTop = 0;
+      pushPage('page-settings');
       const toggle = document.getElementById('profile-bio-toggle');
       const sub = document.getElementById('profile-bio-sub');
       const locked = !!readLock(currentUser.id);
@@ -1479,12 +1518,10 @@
       const avail = await bioAvailable();
       if (!locked) sub.innerText = avail ? 'Desativada' : 'Indisponível neste navegador';
       toggle.disabled = !avail && !locked;
-      pullCloud();
     }
-
-    function closeProfile() {
-      document.getElementById('page-profile').classList.add('hidden');
-      popPage('page-profile');
+    function closeSettings() {
+      document.getElementById('page-settings').classList.add('hidden');
+      popPage('page-settings');
     }
 
     async function toggleBio(input) {
@@ -1630,7 +1667,7 @@
         currentUser = null;
         state = defaultState();
         closeAccountSheet();
-        closeProfile();
+        closeProfile(); closeSettings();
         showAuth('landing');
         showToast('Conta excluída.');
       } catch (e) {
@@ -1663,7 +1700,7 @@
        and in the profile, so a new phone picks them up.
        =================================================================== */
     const PREFS_KEY = 'baba_prefs_v1';
-    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false };
+    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '' };
     const SYNCED_PREFS = Object.keys(DEFAULT_PREFS);
     let prefs = loadPrefs();
     let prefsPulledFor = null;
@@ -1891,23 +1928,74 @@
       }
     }
 
+    const POSITIONS = ['Goleiro', 'Fixo/Zagueiro', 'Ala/Meia', 'Pivô/Atacante'];
+    const FEET = ['Destro', 'Canhoto', 'Ambidestro'];
+    function setProfilePref(key, value) {
+      setPref(key, value);
+      renderProfileMine();
+    }
+    function openProfileShop() { closeProfile(); openShop('card'); }
     function renderProfileMine() {
-      const box = document.getElementById('profile-mine');
-      if (!box) return;
+      const pos = document.getElementById('pf-pos');
+      if (!pos) return;
+      pos.innerHTML = POSITIONS.map(p => `<button onclick="setProfilePref('position', ${prefs.position === p ? "''" : `'${p}'`})" class="h-11 rounded-xl text-[13px] font-bold border ${prefs.position === p ? 'bg-pitch text-butter border-pitch' : 'bg-card text-ink border-ink/10'}">${p}</button>`).join('');
+      document.getElementById('pf-foot').innerHTML = FEET.map(f => `<button onclick="setProfilePref('foot', ${prefs.foot === f ? "''" : `'${f}'`})" class="seg-btn${prefs.foot === f ? ' is-selected' : ''}">${f}</button>`).join('');
+      const sel = document.getElementById('pf-turma');
+      const opts = state.turmas.filter(t => t.name);
+      sel.innerHTML = `<option value="">Nenhuma</option>` + opts.map(t => `<option value="${escapeHtml(t.id)}"${prefs.mainTurma === t.id ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('');
       const mine = myStats();
-      if (currentUser && v7 === true && cloudOn()) {
-        box.innerHTML = `
-          <section class="space-y-3">
-            <p class="eyebrow px-1">Seu card de atleta</p>
-            <button onclick="openAthleteCard(currentUser.id)" class="block mx-auto" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics }, mine, { small: true })}</button>
-            <button onclick="openShop('card')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-wand-magic-sparkles"></i> Mudar o visual na lojinha</button>
-            ${mine ? '' : '<p class="text-[12.5px] text-ink-2 text-center leading-snug">Ligue seu nome numa turma pra seus números aparecerem no card.</p>'}
-          </section>`;
-        return;
+      const cell = (v, l) => `<div class="card-flat p-3 text-center"><p class="font-serif text-[28px] leading-none text-pitch">${Number(v) || 0}</p><p class="text-[11px] font-semibold text-ink-2 mt-1">${l}</p></div>`;
+      const m = mine || {};
+      document.getElementById('pf-stats').innerHTML = cell(m.babas, 'Babas') + cell(m.matches, 'Jogos') + cell(m.goals, 'Gols') + cell(m.assists, 'Assistências') + cell(m.saves, 'Defesas') + cell(m.wins, 'Vitórias');
+      const cardBox = document.getElementById('pf-card');
+      if (currentUser) cardBox.innerHTML = `<button onclick="openAthleteCard(currentUser.id)" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics || {} }, mine || {}, { small: true })}</button>`;
+      const box = document.getElementById('profile-mine');
+      if (box) box.innerHTML = mine ? '' : '<p class="text-[12.5px] text-ink-2 text-center leading-snug">Ligue seu nome numa turma pra seus números aparecerem aqui.</p>';
+    }
+
+    async function shareMyCard() {
+      if (!currentUser) return;
+      const mine = myStats() || {};
+      const c = cosOf(currentUser.cosmetics);
+      const W = 720, H = 1000;
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d');
+      const g = ctx.createLinearGradient(0, 0, W, H);
+      g.addColorStop(0, '#003631'); g.addColorStop(1, '#0b6b5e');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ffeda8'; ctx.font = 'bold 34px "Plus Jakarta Sans", sans-serif'; ctx.fillText('BABA', 50, 80);
+      const title = titleOf(c);
+      if (title) { ctx.font = 'bold 24px "Plus Jakarta Sans", sans-serif'; ctx.textAlign = 'right'; ctx.fillText(title, W - 50, 80); ctx.textAlign = 'left'; }
+      // avatar: the photo when there is one, otherwise the initial
+      const cx = W / 2, cy = 330, r = 150;
+      ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+      let drew = false;
+      if (currentUser.avatar && /^(data:|https?:|blob:)/.test(String(currentUser.avatar))) {
+        try {
+          const img = await new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = rej; i.src = currentUser.avatar; });
+          ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2); drew = true;
+        } catch (e) {}
       }
-      if (!mine) { box.innerHTML = ''; return; }
-      const cell = (v, l) => `<div class="text-center min-w-0"><p class="font-serif text-[26px] leading-none text-pitch">${v}</p><p class="text-[11px] font-semibold text-ink-2 mt-1">${l}</p></div>`;
-      box.innerHTML = `<div class="card p-3.5 grid grid-cols-5 gap-1">${cell(mine.babas, mine.babas === 1 ? 'baba' : 'babas')}${cell(mine.matches, 'jogos')}${cell(mine.goals, 'gols')}${cell(mine.assists, 'assist.')}${cell(mine.wins, 'vitórias')}</div>`;
+      if (!drew) { ctx.fillStyle = '#ffeda8'; ctx.fillRect(cx - r, cy - r, r * 2, r * 2); ctx.fillStyle = '#003631'; ctx.font = 'bold 150px "Plus Jakarta Sans", sans-serif'; ctx.textAlign = 'center'; ctx.fillText((currentUser.name || '?').trim().charAt(0).toUpperCase(), cx, cy + 52); ctx.textAlign = 'left'; }
+      ctx.restore();
+      ctx.lineWidth = 8; ctx.strokeStyle = '#ffeda8'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.font = 'bold 54px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(currentUser.name || '', cx, 570, W - 100);
+      const sub = [prefs.position, prefs.foot].filter(Boolean).join(' · ');
+      ctx.fillStyle = '#ffeda8'; ctx.font = '26px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText(sub || ' ', cx, 615);
+      const cells = [['Gols', mine.goals], ['Assist.', mine.assists], ['Defesas', mine.saves], ['Jogos', mine.matches], ['Vitórias', mine.wins]];
+      const cw = (W - 100) / cells.length;
+      cells.forEach(([l, v], i) => {
+        const x = 50 + cw * i + cw / 2;
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 56px "Plus Jakarta Sans", sans-serif'; ctx.fillText(String(Number(v) || 0), x, 760);
+        ctx.fillStyle = '#ffeda8'; ctx.font = '22px "Plus Jakarta Sans", sans-serif'; ctx.fillText(l, x, 800);
+      });
+      ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '22px "Plus Jakarta Sans", sans-serif'; ctx.fillText('bagos669.github.io/baba', cx, 940);
+      cv.toBlob(blob => {
+        if (!blob) { showToast('Não foi possível gerar a imagem.', 'warning'); return; }
+        offerFile(`BABA_Card_${(currentUser.name || 'atleta').replace(/\s+/g, '_')}.png`, blob, 'Card salvo!');
+      }, 'image/png');
     }
 
     /* Android back button closes the open page instead of leaving the app.
@@ -1917,8 +2005,8 @@
     const pageStack = [];
     let trapArmed = false;
     const PAGE_CLOSERS = {
-      'page-profile': () => closeProfile(), 'page-support': () => closeSupport(), 'page-terms': () => closeTermsPage(),
-      'page-shop': () => closeShop(), 'page-live': () => closeLive(), 'page-chat': () => closeTurmaChat()
+      'page-profile': () => closeProfile(), 'page-settings': () => closeSettings(), 'page-support': () => closeSupport(), 'page-terms': () => closeTermsPage(),
+      'page-live': () => closeLive(), 'page-chat': () => closeTurmaChat()
     };
     function armTrap() {
       if (trapArmed) return;
@@ -1945,7 +2033,7 @@
        SUPORTE
        =================================================================== */
     const FAQ = [
-      ['Começando', 'Onde revejo o tutorial?', 'Em Perfil → Suporte → <b>Tutorial do Babinha</b>. São 6 capítulos curtos: o básico, as regras, imprevistos, ao vivo, baba points e conta. Dá pra ver em qualquer ordem.'],
+      ['Começando', 'Onde revejo o tutorial?', 'Em Configurações → Suporte → <b>Tutorial do Babinha</b>. São 6 capítulos curtos: o básico, as regras, imprevistos, ao vivo, baba points e conta. Dá pra ver em qualquer ordem.'],
       ['Começando', 'Como começo um baba?', 'Escolha a turma em <b>Início → Turmas</b> (ou crie uma), confirme e vá em <b>Lista</b> marcando quem chegou, na ordem. Depois, em <b>Times</b>, toque em Montar times.'],
       ['Começando', 'Preciso de internet na quadra?', 'Não. Tudo fica salvo no celular e vai pra nuvem quando o sinal voltar. O pontinho no seu avatar mostra: verde é sincronizado, amarelo é esperando internet.'],
       ['Começando', 'Como instalo o BABA no celular?', 'No Android, abra o site no Chrome e toque em <b>Adicionar à tela inicial</b>. No iPhone, no Safari, toque em Compartilhar → <b>Adicionar à Tela de Início</b>.'],
@@ -1980,7 +2068,7 @@
       ['Baba points', 'O que é o card de atleta?', 'É a sua figurinha no BABA: foto, nome, codinome, título, mascote e seus números. Fica no <b>Perfil</b>, e a galera vê ao tocar em você na turma ou no chat. O fundo, o título e o mascote saem da lojinha.'],
       ['Baba points', 'Como funciona o anúncio de gol?', 'Compre um <b>Anúncio de gol</b> (e, se quiser, um <b>Som de gol</b>) na lojinha, aba Gol. Quando você marcar com o nome ligado à conta, o celular de quem organiza mostra seu cartão e toca seu som, e quem assiste ao vivo vê o cartão.'],
       ['Baba points', 'O que é a pipoca?', 'Uma zoeira de 150 pontos: abra o card de alguém da sua turma e toque em <b>Jogar pipoca</b>. Ela fica 24 h no card e na foto da pessoa. Uma por vez em cada card, até 3 por dia.'],
-      ['Ao vivo', 'Como recebo os gols no celular?', 'No jogo ao vivo, toque em <b>Avisar gols</b>. Pra todos os babas das suas turmas, ligue em Perfil → <b>Avisos dos babas das minhas turmas</b>. No iPhone, os avisos só funcionam com o BABA instalado na tela de início.'],
+      ['Ao vivo', 'Como recebo os gols no celular?', 'No jogo ao vivo, toque em <b>Avisar gols</b>. Pra todos os babas das suas turmas, ligue em Configurações → <b>Avisos dos babas das minhas turmas</b>. No iPhone, os avisos só funcionam com o BABA instalado na tela de início.'],
       ['Baba points', 'Como ganho baba points?', 'No bônus do dia, nas <b>Missões da semana</b> (na Lojinha) e acertando palpites. As missões renovam toda segunda.'],
       ['Turmas e convites', 'Como chamo a galera pra turma?', 'Abra a turma e toque em <b>Convidar</b>. Mande o link no grupo: quem entrar vê a turma e o histórico, e toca no próprio nome pra ligar à conta.'],
       ['Turmas e convites', 'Qual a diferença entre dono e adm?', 'O <b>adm</b> adiciona e remove atletas, marca goleiro, convida e tira pessoas. O <b>dono</b> faz tudo isso e ainda escolhe os adms, passa a turma pra outra pessoa e é o único que pode excluir a turma.'],
@@ -1988,13 +2076,13 @@
       ['Turmas e convites', 'Como ligo meu nome à minha conta?', 'Abra sua turma e toque no seu nome na lista de atletas. Seus gols, assistências e vitórias de todos os babas aparecem em "Meus números".'],
       ['Turmas e convites', 'Como coloco foto na turma?', 'Dono ou adm: abra a turma e toque no quadradinho ao lado do nome. Dá pra usar uma foto ou um ícone.'],
       ['Conta e segurança', 'Esqueci minha senha.', 'Na tela de entrar, toque em <b>Esqueci minha senha</b> e use o código de recuperação que apareceu quando você criou a conta.'],
-      ['Conta e segurança', 'Perdi o código de recuperação.', 'Se ainda estiver conectado em algum celular, vá em Perfil → <b>Novo código de recuperação</b>.'],
-      ['Conta e segurança', 'Posso usar a digital?', 'Sim, em Perfil → Segurança → <b>Pedir digital ao abrir</b>. É uma trava daquele celular: o BABA pede a digital sempre que abrir.'],
-      ['Conta e segurança', 'Usei o BABA num celular emprestado.', 'Em Perfil → Segurança → <b>Sair dos outros aparelhos</b>. Só o celular que você está usando continua conectado.'],
-      ['Recordações', 'Como faço o PDF com fotos?', 'Em Perfil → <b>PDF do baba com fotos</b> (ou Stats → Times e jogos → PDF). Escolha as fotos, o título e um recado. A primeira foto vira a capa.'],
-      ['Recordações', 'Onde ficam os babas antigos?', 'Em Perfil → <b>Babas anteriores</b>, ou dentro da turma em <b>Babas anteriores da turma</b>. Qualquer pessoa da turma (dono, adm ou membro) vê cada baba com os números de todo mundo, e cada um gera PDF.'],
-      ['App', 'Como deixo no modo escuro?', 'Perfil → Aparência → <b>Escuro</b>. Em "Auto" o BABA segue o tema do celular.'],
-      ['App', 'As letras estão pequenas.', 'Perfil → Aparência → <b>Texto maior</b>.'],
+      ['Conta e segurança', 'Perdi o código de recuperação.', 'Se ainda estiver conectado em algum celular, vá em Configurações → <b>Novo código de recuperação</b>.'],
+      ['Conta e segurança', 'Posso usar a digital?', 'Sim, em Configurações → Segurança → <b>Pedir digital ao abrir</b>. É uma trava daquele celular: o BABA pede a digital sempre que abrir.'],
+      ['Conta e segurança', 'Usei o BABA num celular emprestado.', 'Em Configurações → Segurança → <b>Sair dos outros aparelhos</b>. Só o celular que você está usando continua conectado.'],
+      ['Recordações', 'Como faço o PDF com fotos?', 'Em Configurações → <b>PDF do baba com fotos</b> (ou Stats → Times e jogos → PDF). Escolha as fotos, o título e um recado. A primeira foto vira a capa.'],
+      ['Recordações', 'Onde ficam os babas antigos?', 'Em Configurações → <b>Babas anteriores</b>, ou dentro da turma em <b>Babas anteriores da turma</b>. Qualquer pessoa da turma (dono, adm ou membro) vê cada baba com os números de todo mundo, e cada um gera PDF.'],
+      ['App', 'Como deixo no modo escuro?', 'Configurações → Aparência → <b>Escuro</b>. Em "Auto" o BABA segue o tema do celular.'],
+      ['App', 'As letras estão pequenas.', 'Configurações → Aparência → <b>Texto maior</b>.'],
       ['App', 'Como aparece o clima no Início?', 'Toque em <b>Ver o clima</b> e permita a localização. Ela fica só no seu celular, arredondada; o clima vem do Open-Meteo e atualiza a cada 20 minutos.'],
       ['App', 'Como mando o Babinha no chat?', 'No chat, toque na carinha ao lado da mensagem: tem as figurinhas do Babinha e os emojis. Mensagem só com emoji aparece grandona.']
     ];
@@ -2047,15 +2135,15 @@
     const TUTORIAL = [
       { id: 'basico', title: 'O básico do baba', img: 'aidentro', desc: 'Da turma ao apito final, do jeito que um baba roda.', steps: [
         { img: 'wave', tab: 'inicio', title: 'E aí! Eu sou o Babinha.', text: 'Já levei muita bicuda nesse baba, olha o band-aid. Em 10 passos te mostro como um baba roda no BABA, do começo ao fim.' },
-        { img: 'aidentro', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Tudo começa na turma', text: 'A turma é o grupo fixo do seu baba: os atletas, quem é goleiro e o histórico de todos os jogos. Crie a sua ou entre pelo link de convite que a galera mandou.' },
-        { img: 'coach', tab: 'inicio', target: '#home-events', fallback: '#home-shortcuts', title: 'A lista do próximo baba', text: 'O adm puxa a lista na turma e todo mundo responde Vou, Talvez ou Não vou, até pelo chat. Dá pra colar a lista do WhatsApp e salvar o baba na agenda.' },
+        { img: 'aidentro', tab: 'inicio', target: '#home-mine', fallback: '#home-babinha', title: 'Tudo começa na turma', text: 'A turma é o grupo fixo do seu baba: os atletas, quem é goleiro e o histórico de todos os jogos. Crie a sua ou entre pelo link de convite que a galera mandou.' },
+        { img: 'coach', tab: 'inicio', target: '#home-events', fallback: '#home-babinha', title: 'A lista do próximo baba', text: 'O adm puxa a lista na turma e todo mundo responde Vou, Talvez ou Não vou, até pelo chat. Dá pra colar a lista do WhatsApp e salvar o baba na agenda.' },
         { img: 'run', tab: 'ficha', target: '#sheet-players-tbody', fallback: '#tab-nav-ficha', title: 'Lista de chegada', text: 'No dia, marque quem chegou, na ordem em que chegou. Essa ordem vira a fila: quem chega primeiro, joga primeiro. Apareceu alguém de fora? Adicione como convidado.' },
         { img: 'coach', tab: 'fila', target: '#court-manager', title: 'Montar os times', text: 'Em Times, toque em Montar: o BABA pega os primeiros da fila e monta Time 1 x Time 2. O tamanho vem do jogo escolhido no Placar (ex.: 4v4 com goleiro do time = 5 por time). Prefere escolher? Dá pra montar na mão.' },
         { img: 'calculante', tab: 'fila', demo: 'rotacao', title: 'Rei da Quadra: quem perde sai', text: 'Quem ganha fica. Quem perde volta pro fim da fila, um por um, e os primeiros da fila entram. Assim os times vão se misturando a noite toda.' },
         { img: 'tired', tab: 'placar', target: '#placar-clock', title: 'Relógio e acréscimo', text: 'Escolha o tempo de jogo e dê play. Precisou? +1, +2 ou +3 de acréscimo. Pode apagar a tela: o relógio continua certo.' },
         { img: 'siuu', tab: 'placar', target: '#placar-sides', title: 'Gol, passe e defesa', text: 'Toque em Gol no time que marcou, escolha quem fez e quem deu o passe. Defesa do goleiro também conta. Tudo isso vira estatística.' },
         { img: 'red', tab: 'placar', target: '#btn-finish', title: 'Finalizar a partida', text: 'Acabou? Finalize: o placar vai pro histórico, o vencedor fica e o próximo time entra. Errou alguma coisa? Tem Desfazer.' },
-        { img: 'champion', tab: 'inicio', title: 'Pronto pro primeiro baba!', text: 'Tem mais 5 capítulos curtinhos: regras, imprevistos, ao vivo, baba points e conta. Ficam em Perfil → Suporte → Tutorial, e o Início te lembra.' }
+        { img: 'champion', tab: 'inicio', title: 'Pronto pro primeiro baba!', text: 'Tem mais 5 capítulos curtinhos: regras, imprevistos, ao vivo, baba points e conta. Ficam em Configurações → Ajuda → Tutorial, e o Início te lembra.' }
       ] },
       { id: 'regras', title: 'Regras do Rei da Quadra', img: 'calculante', desc: 'Tamanho do jogo, goleiro, empate e pênaltis, fila e régua de tempo.', steps: [
         { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Tamanho do jogo e goleiro', text: 'Escolha de 1v1 a 12v12, contando só a linha. Ao lado, o goleiro: do time (entra junto: 4v4 vira 5 por time), fixo, da fila ou sem goleiro.' },
@@ -2082,18 +2170,18 @@
         { img: 'shhh', tab: 'inicio', title: 'Chat da turma e do jogo', text: 'Cada turma tem chat, e cada jogo ao vivo também, com figurinhas do Babinha na carinha ao lado da mensagem. Mensagem ofensiva? Toque no ⋯ e denuncie: com 3 denúncias ela some e o suporte fica sabendo.' }
       ] },
       { id: 'pontos', title: 'Baba points e lojinha', img: 'dancinha', desc: 'Bônus do dia, missões da semana, lojinha e exclusivos.', steps: [
-        { img: 'money', tab: 'inicio', target: '#home-v7', title: 'Seus baba points', text: 'Toda conta começa com 1.000 pontos. Ganha mais no bônus do dia, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.' },
+        { img: 'money', tab: 'inicio', target: '#tab-nav-loja', title: 'Seus baba points', text: 'Toda conta começa com 1.000 pontos. Ganha mais no bônus do dia, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.' },
         { img: 'calculante', tab: 'inicio', title: 'Missões da semana', text: 'Na Lojinha: abrir o app 3 dias, jogar um baba, marcar gols, organizar... Cada missão vale pontos. Cumpriu? Toque em Pegar. Renova toda segunda.' },
         { img: 'dancinha', tab: 'inicio', title: 'Lojinha', text: 'Troque pontos por molduras, nomes coloridos, brilhos, títulos, codinome, mascote, fundo do card e até o anúncio e o som do seu gol. Tudo aparece no seu card de atleta.' },
         { img: 'siuu', tab: 'inicio', target: '#header-profile', title: 'Card de atleta e pipoca', text: 'Seu card fica no Perfil, e a galera abre tocando em você na turma ou no chat. No card de um amigo dá pra jogar pipoca: 150 pontos e ela fica lá 24 h.' },
         { img: 'aura', tab: 'inicio', title: 'Itens exclusivos', text: 'Alguns itens não estão à venda: a Aura de Fogo Azul é dos 100 primeiros do BABA. Ficam com o selo Fundador na lojinha.' }
       ] },
       { id: 'conta', title: 'Turma, conta e recordações', img: 'messi', desc: 'Convites e cargos, ligar seu nome, Stats, PDF, perfil e suporte.', steps: [
-        { img: 'coach', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Convite e cargos', text: 'Na turma, Convidar gera um link pro grupo. O dono escolhe os adms; adm adiciona e tira atletas, marca goleiro e convida. Só o dono exclui a turma.' },
-        { img: 'wink', tab: 'inicio', target: '#home-mine', fallback: '#home-shortcuts', title: 'Ligue seu nome à conta', text: 'Abra a turma e toque no seu nome na lista: seus gols e jogos de todos os babas passam a ser seus, e contam nas missões da semana.' },
+        { img: 'coach', tab: 'inicio', target: '#home-mine', fallback: '#home-babinha', title: 'Convite e cargos', text: 'Na turma, Convidar gera um link pro grupo. O dono escolhe os adms; adm adiciona e tira atletas, marca goleiro e convida. Só o dono exclui a turma.' },
+        { img: 'wink', tab: 'inicio', target: '#home-mine', fallback: '#home-babinha', title: 'Ligue seu nome à conta', text: 'Abra a turma e toque no seu nome na lista: seus gols e jogos de todos os babas passam a ser seus, e contam nas missões da semana.' },
         { img: 'messi', tab: 'stats', target: '#tab-nav-stats', title: 'Stats e PDF', text: 'Artilharia, assistências e defesas do dia e de todos os babas. Em Jogos ficam os placares, e dá pra gerar o PDF do baba com as fotos da pelada.' },
         { img: 'shhh', tab: 'inicio', target: '#header-profile', title: 'Perfil e segurança', text: 'No perfil: foto, modo escuro, texto maior, digital e o código de recuperação. Guarde o código em segredo: é ele que salva sua conta se você esquecer a senha.' },
-        { img: 'rezando', tab: 'inicio', target: '#header-profile', title: 'Deu ruim? Suporte', text: 'Perfil → Suporte tem as dúvidas mais comuns, as notas de atualização e estes capítulos. E sempre tem o contatobabaapp@gmail.com.' }
+        { img: 'rezando', tab: 'inicio', target: '#header-profile', title: 'Deu ruim? Suporte', text: 'Configurações → Ajuda tem as dúvidas mais comuns, as notas de atualização e estes capítulos. E sempre tem o contatobabaapp@gmail.com.' }
       ] }
     ];
 
@@ -2154,7 +2242,8 @@
       });
       if (!document.getElementById('page-support').classList.contains('hidden')) closeSupport();
       if (!document.getElementById('page-profile').classList.contains('hidden')) closeProfile();
-      if (!document.getElementById('page-shop').classList.contains('hidden')) closeShop();
+      if (!document.getElementById('page-settings').classList.contains('hidden')) closeSettings();
+      closeShop();
       tourIndex = 0;
       document.getElementById('toast-container').innerHTML = '';
       document.getElementById('tour').classList.remove('hidden');
@@ -2262,7 +2351,7 @@
       tourChapter = null;
       switchTab('inicio');
       if (!prefs.tutorialDone) setPref('tutorialDone', true);
-      if (skipped) showToast('Tutorial pausado. Os capítulos ficam em Perfil → Suporte → Tutorial.');
+      if (skipped) showToast('Tutorial pausado. Os capítulos ficam em Configurações → Ajuda → Tutorial.');
       renderTutorialHub();
       renderHomeV7();
       const fn = tourOnEnd;
@@ -2909,9 +2998,15 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.2';
+    const APP_VERSION = '11.3';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.3', date: '17/10/2026', title: 'App reorganizado', items: [
+        'Três abas embaixo: Início, Turmas e Lojinha do Babinha. Lista, Times, Placar e Stats agora ficam dentro de Turmas.',
+        'Seu perfil virou o botão redondo no canto de baixo: posição, pé dominante, turma principal, estatísticas e o card pra compartilhar.',
+        'A engrenagem no topo abre as Configurações: aparência, quadra, segurança, seu baba, instalação e ajuda.',
+        'No Início, o Babinha reage ao que está rolando e mostra a bateria do aparelho.'
+      ] },
       { v: '11.2', date: '16/10/2026', title: 'Turmas: ranking, troféus e desafios', items: [
         'Cada turma tem Ranking Top 10 e Top 26 por gols, assistências, participações, vitórias, jogos e defesas, da última partida ou da temporada de 6 meses.',
         'Prateleira de troféus: no fim de cada temporada saem artilheiro, garçom, craque, mais vitórias e paredão. Campeonatos ganhos viram troféu da turma.',
@@ -3170,7 +3265,7 @@
         <h3>2. Quem pode usar</h3>
         <p>Você precisa ter pelo menos 16 anos para criar uma conta. Os Palpites são só para quem tem 18 anos ou mais. Quem tem menos de 16 pode aparecer na lista de uma turma só pelo nome, cadastrado pelo organizador, sem conta própria.</p>
         <h3>3. Sua conta</h3>
-        <p>Use dados verdadeiros e guarde sua senha e seu código de recuperação. Você responde pelo que é feito na sua conta e pode excluí-la a qualquer momento em Perfil → Excluir minha conta.</p>
+        <p>Use dados verdadeiros e guarde sua senha e seu código de recuperação. Você responde pelo que é feito na sua conta e pode excluí-la a qualquer momento em Configurações → Excluir minha conta.</p>
         <h3>4. Turmas</h3>
         <p>Quem cria a turma é o dono: escolhe os adms, pode passar a turma para outra pessoa e é o único que pode excluí-la. Dono e adms cuidam do elenco, dos convites e da moderação do chat. Quem entra pelo convite vê o elenco, o histórico e as estatísticas da turma.</p>
         <h3>5. Baba points e Palpites</h3>
@@ -3633,9 +3728,10 @@
     async function openShop(tab) {
       if (v7 !== true) { showToast('A lojinha chega quando o servidor for atualizado.', 'warning'); return; }
       if (typeof tab === 'string' && SHOP_TABS.some(t => t[0] === tab)) shopKind = tab;
-      document.getElementById('page-shop').classList.remove('hidden');
-      document.getElementById('page-shop').scrollTop = 0;
-      pushPage('page-shop');
+      switchTab('loja');
+    }
+    async function enterShop() {
+      if (v7 !== true) { showToast('A lojinha chega quando o servidor for atualizado.', 'warning'); switchTab('inicio'); return; }
       renderShop();
       try {
         const [items] = await Promise.all([shopItemsCache ? Promise.resolve(shopItemsCache) : api.shopItems(), refreshWallet()]);
@@ -3648,8 +3744,8 @@
       loadMissions().then(loadLedger);
     }
     function closeShop() {
-      document.getElementById('page-shop').classList.add('hidden');
-      popPage('page-shop');
+      const c = document.getElementById('tab-content-loja');
+      if (c && !c.classList.contains('hidden')) switchTab('inicio');
       renderProfileBits();
     }
     function shopTab(kind) { shopKind = kind; renderShop(); }
@@ -6112,6 +6208,48 @@
       renderHomeV7();
     }
 
+    /* Babinha: the mascot reacts to what is happening and says one thing at a time. */
+    function homeBabinhaMood() {
+      const present = presentPlayers().length;
+      const { A, B } = state.court;
+      const hasCourt = !!(A && B);
+      const ev = typeof todaysEvent === 'function' ? todaysEvent() : null;
+      const hr = new Date().getHours();
+      if (hasCourt && state.match.running) {
+        const d = state.match.scoreA - state.match.scoreB;
+        if (!d) return ['run', 'Tá empatado! Bola rolando.'];
+        return d > 0 ? ['siuu', `Time ${A.label} na frente!`] : ['siuu', `Time ${B.label} na frente!`];
+      }
+      if (hasCourt) return ['coach', `Time ${A.label} × Time ${B.label} esperando o apito.`];
+      if (!state.players.length) return ['wave', 'Escolhe a turma em Turmas e bora montar o baba.'];
+      if (!present) return ev ? ['happy', 'Tem baba hoje! Marca quem chegou na lista.'] : ['wink', 'Ninguém chegou ainda. Respira que a bola vai rolar.'];
+      if (present < 4) return ['worried', `Só ${present} na quadra. Falta gente!`];
+      if (hr >= 23 || hr < 5) return ['tired', 'Já é tarde, hein? Último jogo?'];
+      return ['happy', `${present} na quadra. Dá pra montar os times!`];
+    }
+    function renderHomeBabinha() {
+      const box = document.getElementById('home-babinha');
+      if (!box) return;
+      const [img, msg] = homeBabinhaMood();
+      box.innerHTML = `<div class="flex items-center gap-3"><img src="babinha/${img}.webp" alt="" class="w-16 h-16 object-contain flex-shrink-0 babinha-bob" /><p class="flex-1 min-w-0 rounded-2xl rounded-bl-sm bg-card border border-ink/[0.07] px-3.5 py-2.5 text-[13.5px] font-semibold leading-snug">${escapeHtml(msg)}</p></div>`;
+    }
+    let batteryInfo = null;
+    function renderBattery() {
+      const box = document.getElementById('home-battery');
+      if (!box) return;
+      if (!batteryInfo) {
+        if (navigator.getBattery && !renderBattery.asked) {
+          renderBattery.asked = true;
+          navigator.getBattery().then(b => { batteryInfo = b; ['levelchange', 'chargingchange'].forEach(e => b.addEventListener(e, renderBattery)); renderBattery(); }).catch(() => {});
+        }
+        box.innerHTML = '';
+        return;
+      }
+      const pct = Math.round(batteryInfo.level * 100);
+      const icon = batteryInfo.charging ? 'fa-bolt' : pct > 75 ? 'fa-battery-full' : pct > 40 ? 'fa-battery-half' : pct > 15 ? 'fa-battery-quarter' : 'fa-battery-empty';
+      box.innerHTML = `<span class="weather-chip ${pct <= 15 && !batteryInfo.charging ? 'text-danger' : 'text-ink-2'}"><i class="fa-solid ${icon}"></i> ${pct}%</span>`;
+    }
+
     function renderHomeV7() {
       const box = document.getElementById('home-v7');
       if (!box) return;
@@ -6153,7 +6291,7 @@
           <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">Assistir um jogo ao vivo</span><span class="block text-[12.5px] text-ink-2">Tem o código de um baba? Digite aqui</span></span>
           <i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>
         </button>`;
-      const all = banned + notice + staff + tut + lives + watch + pts;
+      const all = banned + notice + staff + tut + lives + watch;
       box.innerHTML = all ? `<section class="space-y-2.5">${all}</section>` : '';
     }
 
@@ -6411,6 +6549,7 @@
       renderClock();
       renderHomeEvents();
       renderWeather();
+      renderBattery();
       refreshWeather(false);
       document.getElementById('home-hello').innerText = greeting();
       document.getElementById('home-name').innerText = (currentUser ? firstName(currentUser.name) : 'craque') + '.';
@@ -6444,31 +6583,7 @@
       }
       updateHomeLive();
 
-      // Shortcuts
-      const missing = state.players.filter(p => !p.present).length;
-      const leader = [...state.players].filter(p => p.goals).sort((a, b) => b.goals - a.goals)[0];
-      const orb = (size, x, y, c1, c2, c3) => `<span class="orb" style="width:${size}px;height:${size}px;left:${x}px;top:${y}px;background:radial-gradient(circle at 32% 30%,${c1} 0%,${c2} 50%,${c3} 100%)"></span>`;
-      const shortcut = (onclick, cls, orbs, title, sub) => `
-        <button onclick="${onclick}" class="snap-start flex-shrink-0 w-[150px] h-[178px] rounded-[24px] relative overflow-hidden text-left p-3.5 flex flex-col justify-end active:scale-[0.97] transition ${cls}">
-          ${orbs}
-          <span class="relative block text-[15px] font-bold leading-tight">${title}</span>
-          <span class="relative block text-[12px] font-medium opacity-75 mt-0.5 truncate">${sub}</span>
-        </button>`;
-      const cream = ['#FFFFFF', '#FBF5E0', '#E8DDB8'], butter = ['#FFFBEA', '#FBE59A', '#EFC955'], sage = ['#F4FAEE', '#CFE3C1', '#9EC28E'], deep = ['#2F7A6A', '#0B4A42', '#012E2A'];
-      document.getElementById('home-shortcuts').innerHTML = [
-        shortcut("switchTab('ficha')", 'keep-light bg-gradient-to-br from-[#EAF3E1] to-[#CFE3C1] text-ink border border-white/60',
-          orb(84, 34, 18, ...cream) + orb(54, 18, 52, ...sage.map((c, i) => i ? '#8DB97C' : c)) + orb(30, 98, 30, ...butter),
-          'Chegadas', missing ? `${missing} faltam chegar` : `${present} chegaram`),
-        shortcut("switchTab('fila')", 'keep-light bg-gradient-to-br from-[#FFF6D3] to-[#FBE08B] text-ink border border-white/60',
-          orb(84, 40, 14, ...cream) + orb(46, 22, 56, ...butter.map((c, i) => i === 2 ? '#DDA92A' : c)) + orb(32, 104, 34, ...sage),
-          'Times e fila', hasCourt ? `${state.queue.length} esperando` : 'Montar times'),
-        shortcut("switchTab('stats')", 'bg-gradient-to-br from-[#0B4A42] to-[#002A26] text-butter',
-          orb(84, 36, 16, ...deep.map((c, i) => i === 0 ? '#3F8C7A' : c)) + orb(40, 92, 46, ...butter) + orb(26, 22, 64, ...sage),
-          'Ranking', leader ? `${firstName(leader.name)} lidera` : 'Sem gols ainda'),
-        shortcut('openDatabaseModal()', 'bg-card text-ink border border-ink/10',
-          orb(80, 38, 16, ...butter) + orb(44, 20, 54, ...sage) + orb(28, 104, 40, ...deep),
-          'Turmas', `${state.selectedTeams.length} selecionada${state.selectedTeams.length === 1 ? '' : 's'}`)
-      ].join('');
+      renderHomeBabinha();
 
       // Today
       const pool = state.players.filter(p => p.present || hasStats(p));
@@ -8711,14 +8826,38 @@
     /* ===================================================================
        NAV & UTILS
        =================================================================== */
+    const TURMA_PANES = ['ficha', 'fila', 'placar', 'stats'];
+    let lastTurmaPane = 'ficha';
+    function updateTurmaPicker() {
+      const el = document.getElementById('turmas-picker-name');
+      if (!el) return;
+      const names = (state.selectedTeams || []).map(id => (turmaById(id) || {}).name).filter(Boolean);
+      el.textContent = names.length ? names.join(' + ') : 'Escolher turma';
+    }
+    function openTurmaHubFromPicker() {
+      const t = (state.selectedTeams || []).map(turmaById).find(x => x && x.cloud) || state.turmas.find(x => x.cloud);
+      if (t && typeof openTurmaHub === 'function') openTurmaHub(t.id);
+      else openDatabaseModal();
+    }
     function switchTab(tabName) {
       // "Resumo" now lives inside Stats, under "Times e jogos".
       if (tabName === 'resumo') { tabName = 'stats'; switchStatsView('jogos'); }
+      let pane = null;
+      if (TURMA_PANES.includes(tabName)) { pane = tabName; lastTurmaPane = pane; tabName = 'turmas'; }
+      else if (tabName === 'turmas') pane = lastTurmaPane;
       document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
       document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.toggle('is-active', btn.id === `tab-nav-${tabName}`));
       const content = document.getElementById(`tab-content-${tabName}`);
       if (content) content.classList.remove('hidden');
+      if (pane) {
+        TURMA_PANES.forEach(n => {
+          document.getElementById(`tab-content-${n}`).classList.toggle('hidden', n !== pane);
+          document.getElementById(`tab-nav-${n}`).classList.toggle('is-active', n === pane);
+        });
+        updateTurmaPicker();
+      }
       if (tabName === 'inicio') renderHome();
+      if (tabName === 'loja') enterShop();
       window.scrollTo(0, 0);
     }
 

@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=66f40c84c7" />
+  <link rel="stylesheet" href="app.css?v=4a7a47887a" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -450,6 +450,9 @@
     @keyframes livePulse { 70% { box-shadow: 0 0 0 7px rgba(123, 224, 168, 0); } 100% { box-shadow: 0 0 0 0 rgba(123, 224, 168, 0); } }
 
     .nav-tab-btn.is-active { background: #FFEDA8; color: #003631; }
+    .sub-tab-btn { height: 46px; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 10.5px; font-weight: 700; color: #5a6b69; transition: background .15s; }
+    .sub-tab-btn i { font-size: 14px; }
+    .sub-tab-btn.is-active { background: #fff; color: #003631; box-shadow: 0 1px 4px rgba(0,54,49,.15); }
 
     .tabular { font-variant-numeric: tabular-nums; }
     tr.is-absent td:not(:last-child) { opacity: 0.5; }
@@ -729,7 +732,7 @@
           <button type="submit" id="btn-forgot" class="btn-primary w-full h-14 text-[16px]">Criar nova senha</button>
         </form>
 
-        <p class="mt-auto pt-10 text-center text-[13px] text-ink-2 leading-relaxed">Perdeu o código? Ainda conectado em outro celular, gere um novo em <b>Perfil → Novo código de recuperação</b>.</p>
+        <p class="mt-auto pt-10 text-center text-[13px] text-ink-2 leading-relaxed">Perdeu o código? Ainda conectado em outro celular, gere um novo em <b>Configurações → Novo código de recuperação</b>.</p>
       </section>
     </div>
   </div>
@@ -743,10 +746,7 @@
           <img id="app-logo" src="icons/icon-192.png" alt="BABA" width="36" height="36" class="w-9 h-9 rounded-xl ring-1 ring-ink/10" />
           <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
         </button>
-        <button id="header-profile" onclick="openProfile()" class="relative w-10 h-10 rounded-full ring-2 ring-card shadow-md flex" aria-label="Seu perfil">
-          <span id="header-avatar" class="avatar w-full h-full text-[13px]">?</span>
-          <span id="sync-dot" class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-paper"></span>
-        </button>
+        <button id="header-settings" onclick="openSettings()" class="btn-icon w-10 h-10" aria-label="Configurações"><i class="fa-solid fa-gear"></i></button>
       </div>
     </header>
 
@@ -757,7 +757,7 @@
         <div class="pt-2">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <p id="home-date" class="text-[13px] font-semibold text-ink-2"></p>
-            <div id="home-weather"></div>
+            <div class="flex items-center gap-1.5"><div id="home-battery"></div><div id="home-weather"></div></div>
           </div>
           <h1 class="mt-1 text-[38px] leading-[1.02] font-semibold tracking-[-0.035em]"><span id="home-hello">Bom dia,</span><br><span id="home-name" class="font-serif italic font-normal text-pitch text-[46px] tracking-[-0.01em]">craque.</span></h1>
           <p id="home-status" class="mt-2 text-[14px] text-ink-2"></p>
@@ -781,16 +781,11 @@
           <div id="home-strip" class="relative glass"></div>
         </div>
 
+        <div id="home-babinha"></div>
         <div id="home-events"></div>
         <div id="home-explore"></div>
         <div id="home-mine"></div>
         <div id="home-v7"></div>
-
-        <section>
-          <p class="eyebrow">Pra agora</p>
-          <h2 class="title mt-0.5 mb-3">Atalhos</h2>
-          <div id="home-shortcuts" class="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2 snap-x"></div>
-        </section>
 
         <section>
           <div class="flex items-end justify-between mb-3">
@@ -804,8 +799,24 @@
         </section>
       </div>
 
+      <!-- =================== TURMAS =================== -->
+      <div id="tab-content-turmas" class="tab-content hidden space-y-3">
+        <div class="flex items-center gap-2 pt-1">
+          <button id="turmas-picker" onclick="openDatabaseModal()" class="flex-1 min-w-0 card px-3.5 h-12 flex items-center gap-2.5 text-left active:scale-[0.99] transition">
+            <i class="fa-solid fa-people-group text-pitch"></i>
+            <span class="min-w-0 flex-1"><span class="block text-[10.5px] text-ink-2 leading-none">Turma de hoje</span><span id="turmas-picker-name" class="block text-[14.5px] font-bold truncate leading-tight">Escolher turma</span></span>
+            <i class="fa-solid fa-chevron-down text-[11px] text-ink-3"></i>
+          </button>
+          <button id="turmas-hub-btn" onclick="openTurmaHubFromPicker()" class="btn-icon w-12 h-12 flex-shrink-0" aria-label="Painel da turma"><i class="fa-solid fa-gear"></i></button>
+        </div>
+        <div class="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-sunk">
+          <button onclick="switchTab('ficha')" id="tab-nav-ficha" class="sub-tab-btn"><i class="fa-solid fa-clipboard-list"></i><span>Lista</span></button>
+          <button onclick="switchTab('fila')" id="tab-nav-fila" class="sub-tab-btn"><i class="fa-solid fa-users"></i><span>Times</span></button>
+          <button onclick="switchTab('placar')" id="tab-nav-placar" class="sub-tab-btn"><i class="fa-solid fa-stopwatch"></i><span>Placar</span></button>
+          <button onclick="switchTab('stats')" id="tab-nav-stats" class="sub-tab-btn"><i class="fa-solid fa-trophy"></i><span>Stats</span></button>
+        </div>
       <!-- =================== PLACAR =================== -->
-      <div id="tab-content-placar" class="tab-content hidden space-y-3">
+      <div id="tab-content-placar" class="turma-pane hidden space-y-3">
 
         <div class="card p-3.5 grid grid-cols-2 gap-2.5">
           <label class="block min-w-0">
@@ -954,7 +965,7 @@
       </div>
 
       <!-- =================== LISTA =================== -->
-      <div id="tab-content-ficha" class="tab-content hidden space-y-3">
+      <div id="tab-content-ficha" class="turma-pane hidden space-y-3">
         <div class="card p-4 space-y-3">
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
@@ -986,7 +997,7 @@
       </div>
 
       <!-- =================== TIMES =================== -->
-      <div id="tab-content-fila" class="tab-content hidden space-y-3">
+      <div id="tab-content-fila" class="turma-pane hidden space-y-3">
         <div id="rules-card" class="card p-4 space-y-3">
           <div class="flex items-center gap-3">
             <span class="tile bg-butter text-pitch w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
@@ -1061,7 +1072,7 @@
       </div>
 
       <!-- =================== STATS =================== -->
-      <div id="tab-content-stats" class="tab-content hidden space-y-3">
+      <div id="tab-content-stats" class="turma-pane hidden space-y-3">
         <div class="seg grid-cols-2">
           <button onclick="switchStatsView('atletas')" id="btn-view-atletas" class="seg-btn is-selected">Atletas</button>
           <button onclick="switchStatsView('jogos')" id="btn-view-jogos" class="seg-btn">Times e jogos</button>
@@ -1144,25 +1155,55 @@
           </div>
         </div>
       </div>
+      </div>
+
+      <!-- =================== LOJINHA =================== -->
+      <div id="tab-content-loja" class="tab-content hidden space-y-5">
+        <h2 class="text-[22px] font-extrabold tracking-tight pt-2">Lojinha do Babinha</h2>
+      <section class="pitch-card p-4 pr-[128px] min-h-[150px] flex flex-col justify-center">
+        <div class="rings"></div>
+        <img src="babinha/money.webp" alt="" class="absolute right-1 bottom-0 w-[124px] babinha-bob" />
+        <p class="relative text-[12px] font-semibold text-butter/75">Seus baba points</p>
+        <p class="relative font-serif text-[52px] leading-none mt-1"><span id="shop-balance">0</span></p>
+        <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
+      </section>
+      <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
+      <section id="shop-missions" class="hidden"></section>
+      <button onclick="openAthleteCard(currentUser && currentUser.id)" class="w-full flex items-center gap-4 card p-4 text-left active:scale-[0.99] transition">
+        <span id="shop-preview-avatar"></span>
+        <div class="min-w-0 flex-1">
+          <p class="text-[12px] text-ink-2">Como a galera te vê</p>
+          <p id="shop-preview-name" class="text-[20px] font-bold truncate"></p>
+          <p id="shop-preview-sub" class="text-[12.5px] text-ink-2 truncate"></p>
+        </div>
+        <span class="text-[12px] font-bold text-pitch flex-shrink-0">Ver card <i class="fa-solid fa-chevron-right text-[10px]"></i></span>
+      </button>
+      <div id="shop-tabs" class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-0.5"></div>
+      <div id="shop-items" class="grid grid-cols-2 gap-2.5"></div>
+      <div>
+        <p class="eyebrow mb-2 px-1">Extrato</p>
+        <div id="shop-ledger" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
+      </div>
+    
+      </div>
     </main>
+
+    <button id="header-profile" onclick="openProfile()" class="fixed right-4 z-[41] w-14 h-14 rounded-full ring-2 ring-card shadow-xl flex" style="bottom: calc(var(--sab) + 88px);" aria-label="Seu perfil">
+      <span id="header-avatar" class="avatar w-full h-full text-[16px]">?</span>
+      <span id="sync-dot" class="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full bg-leaf ring-2 ring-paper"></span>
+    </button>
 
     <!-- Floating pill navigation -->
     <nav class="fixed inset-x-0 bottom-0 z-40 px-3 pointer-events-none" style="padding-bottom: calc(var(--sab) + 10px);">
-      <div class="pointer-events-auto max-w-lg mx-auto h-[66px] rounded-[24px] bg-card/90 backdrop-blur-xl border border-ink/[0.07] grid grid-cols-5 gap-1 p-1.5" style="box-shadow: 0 18px 40px -18px rgba(0,54,49,.5);">
+      <div class="pointer-events-auto max-w-lg mx-auto h-[66px] rounded-[24px] bg-card/90 backdrop-blur-xl border border-ink/[0.07] grid grid-cols-3 gap-1 p-1.5" style="box-shadow: 0 18px 40px -18px rgba(0,54,49,.5);">
         <button onclick="switchTab('inicio')" id="tab-nav-inicio" class="nav-tab-btn is-active rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
           <i class="fa-solid fa-house text-[17px]"></i><span class="text-[10.5px] font-bold">Início</span>
         </button>
-        <button onclick="switchTab('placar')" id="tab-nav-placar" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <i class="fa-solid fa-stopwatch text-[17px]"></i><span class="text-[10.5px] font-bold">Placar</span>
+        <button onclick="switchTab('turmas')" id="tab-nav-turmas" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-people-group text-[17px]"></i><span class="text-[10.5px] font-bold">Turmas</span>
         </button>
-        <button onclick="switchTab('ficha')" id="tab-nav-ficha" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <i class="fa-solid fa-clipboard-list text-[17px]"></i><span class="text-[10.5px] font-bold">Lista</span>
-        </button>
-        <button onclick="switchTab('fila')" id="tab-nav-fila" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <i class="fa-solid fa-users text-[17px]"></i><span class="text-[10.5px] font-bold">Times</span>
-        </button>
-        <button onclick="switchTab('stats')" id="tab-nav-stats" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <i class="fa-solid fa-trophy text-[17px]"></i><span class="text-[10.5px] font-bold">Stats</span>
+        <button onclick="switchTab('loja')" id="tab-nav-loja" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-bag-shopping text-[17px]"></i><span class="text-[10.5px] font-bold">Lojinha</span>
         </button>
       </div>
     </nav>
@@ -1278,6 +1319,50 @@
       <div id="profile-mine"></div>
 
       <section>
+        <p class="eyebrow mb-2 px-1">Seu jeito de jogar</p>
+        <div class="card p-4 space-y-4">
+          <div>
+            <p class="text-[13px] font-semibold mb-2">Posição preferida</p>
+            <div id="pf-pos" class="grid grid-cols-2 gap-1.5"></div>
+          </div>
+          <div>
+            <p class="text-[13px] font-semibold mb-2">Pé dominante</p>
+            <div id="pf-foot" class="seg grid-cols-3"></div>
+          </div>
+          <div>
+            <p class="text-[13px] font-semibold mb-2">Turma principal</p>
+            <select id="pf-turma" class="field" onchange="setProfilePref('mainTurma', this.value)"></select>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Suas estatísticas</p>
+        <div id="pf-stats" class="grid grid-cols-3 gap-2"></div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Seu card</p>
+        <div class="card p-4 space-y-3">
+          <div id="pf-card" class="flex justify-center"></div>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="openProfileShop()" class="btn-outline h-11 text-[13px]"><i class="fa-solid fa-wand-magic-sparkles"></i> Mudar o visual na lojinha</button>
+            <button onclick="shareMyCard()" class="btn-primary h-11 text-[13px]"><i class="fa-solid fa-share-nodes"></i> Compartilhar card</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="page-settings" class="page hidden" aria-label="Configurações">
+    <div class="page-head">
+      <button onclick="closeSettings()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Configurações</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-6">
+
+      <section>
         <p class="eyebrow mb-2 px-1">Aparência</p>
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
           <div class="px-4 py-3.5">
@@ -1329,13 +1414,6 @@
         </div>
       </section>
 
-      <section data-v7 class="hidden">
-        <p class="eyebrow mb-2 px-1">Baba points</p>
-        <div class="card-flat overflow-hidden">
-          <button onclick="openShop()" class="menu-row"><img src="babinha/money.webp" alt="" class="w-9 h-9 object-contain flex-shrink-0" /><span class="flex-1 min-w-0"><span class="block">Lojinha do Babinha</span><span class="block text-[12px] font-medium text-ink-2">Molduras, nomes brilhantes e o bônus do dia</span></span><span id="profile-points" class="text-[13px] font-extrabold text-pitch"></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-        </div>
-      </section>
-
       <section>
         <p class="eyebrow mb-2 px-1">Segurança</p>
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
@@ -1356,13 +1434,21 @@
       <section>
         <p class="eyebrow mb-2 px-1">Seu baba</p>
         <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
-          <button onclick="closeProfile(); openDatabaseModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sage text-pitch text-[14px]"><i class="fa-solid fa-users-rectangle"></i></span><span class="flex-1">Turmas e atletas</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); openExportSheet();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-images"></i></span><span class="flex-1 min-w-0"><span class="block">PDF do baba com fotos</span><span class="block text-[12px] font-medium text-ink-2">Recordação com as estatísticas</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); openHistory();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0"><span class="block">Babas anteriores</span><span class="block text-[12px] font-medium text-ink-2">Os babas encerrados das suas turmas, com os números de cada um</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); openBackupModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-import"></i></span><span class="flex-1">Backup e importar</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); offerLocalImport(true);" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-cloud-arrow-up"></i></span><span class="flex-1">Trazer dados antigos deste aparelho</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); startNewDay();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-calendar-plus"></i></span><span class="flex-1">Começar novo baba</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
-          <button onclick="closeProfile(); confirmResetAllData();" class="menu-row !text-danger"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-trash-arrow-up"></i></span><span class="flex-1">Zerar o baba de hoje</span></button>
+          <button onclick="closeSettings(); openDatabaseModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sage text-pitch text-[14px]"><i class="fa-solid fa-users-rectangle"></i></span><span class="flex-1">Turmas e atletas</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); openExportSheet();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-images"></i></span><span class="flex-1 min-w-0"><span class="block">PDF do baba com fotos</span><span class="block text-[12px] font-medium text-ink-2">Recordação com as estatísticas</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); openHistory();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0"><span class="block">Babas anteriores</span><span class="block text-[12px] font-medium text-ink-2">Os babas encerrados das suas turmas, com os números de cada um</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); openBackupModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-import"></i></span><span class="flex-1">Backup e importar</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); offerLocalImport(true);" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-cloud-arrow-up"></i></span><span class="flex-1">Trazer dados antigos deste aparelho</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); startNewDay();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-calendar-plus"></i></span><span class="flex-1">Começar novo baba</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); confirmResetAllData();" class="menu-row !text-danger"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-trash-arrow-up"></i></span><span class="flex-1">Zerar o baba de hoje</span></button>
+        </div>
+      </section>
+
+      <section id="settings-pwa">
+        <p class="eyebrow mb-2 px-1">Instalação</p>
+        <div class="card-flat overflow-hidden">
+          <div class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-mobile-screen-button"></i></span><span class="flex-1 min-w-0"><span class="block">Aplicativo no celular</span><span id="settings-pwa-status" class="block text-[12px] font-medium text-ink-2"></span></span></div>
+          <button id="settings-pwa-btn" onclick="installApp()" class="menu-row hidden"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-download"></i></span><span class="flex-1">Adicionar à Tela Inicial</span><i class="fa-solid fa-chevron-right text-[11px] text-ink-3"></i></button>
         </div>
       </section>
 
@@ -1379,9 +1465,10 @@
         <button onclick="logout()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-right-from-bracket"></i> Sair da conta</button>
         <button onclick="openAccountSheet('delete')" class="w-full h-11 text-[13px] font-bold text-danger">Excluir minha conta</button>
       </div>
-      <p class="text-center text-[11px] text-ink-3">BABA · Gestão Digital</p>
+      <p class="text-center text-[11px] text-ink-3">BABA · Gestão Digital · <span id="settings-version"></span></p>
     </div>
   </div>
+
 
   <!-- ===================== SUPORTE (página) ===================== -->
   <div id="page-support" class="page hidden z-[57]" aria-label="Suporte">
@@ -1561,40 +1648,6 @@
   </div>
 
   <!-- ===================== LOJINHA ===================== -->
-  <div id="page-shop" class="page hidden !z-[56]" aria-label="Lojinha">
-    <div class="page-head">
-      <button onclick="closeShop()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
-      <span class="text-[16px] font-extrabold">Lojinha do Babinha</span>
-      <span class="w-10"></span>
-    </div>
-    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-5">
-      <section class="pitch-card p-4 pr-[128px] min-h-[150px] flex flex-col justify-center">
-        <div class="rings"></div>
-        <img src="babinha/money.webp" alt="" class="absolute right-1 bottom-0 w-[124px] babinha-bob" />
-        <p class="relative text-[12px] font-semibold text-butter/75">Seus baba points</p>
-        <p class="relative font-serif text-[52px] leading-none mt-1"><span id="shop-balance">0</span></p>
-        <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
-      </section>
-      <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
-      <section id="shop-missions" class="hidden"></section>
-      <button onclick="openAthleteCard(currentUser && currentUser.id)" class="w-full flex items-center gap-4 card p-4 text-left active:scale-[0.99] transition">
-        <span id="shop-preview-avatar"></span>
-        <div class="min-w-0 flex-1">
-          <p class="text-[12px] text-ink-2">Como a galera te vê</p>
-          <p id="shop-preview-name" class="text-[20px] font-bold truncate"></p>
-          <p id="shop-preview-sub" class="text-[12.5px] text-ink-2 truncate"></p>
-        </div>
-        <span class="text-[12px] font-bold text-pitch flex-shrink-0">Ver card <i class="fa-solid fa-chevron-right text-[10px]"></i></span>
-      </button>
-      <div id="shop-tabs" class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-0.5"></div>
-      <div id="shop-items" class="grid grid-cols-2 gap-2.5"></div>
-      <div>
-        <p class="eyebrow mb-2 px-1">Extrato</p>
-        <div id="shop-ledger" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
-      </div>
-    </div>
-  </div>
-
   <!-- ===================== JOGO AO VIVO (espectador) ===================== -->
   <div id="page-live" class="page hidden !z-[83]" aria-label="Jogo ao vivo">
     <div class="page-head">
@@ -2280,6 +2333,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=205c51c481"></script>
+  <script src="app.js?v=56867f018d"></script>
 </body>
 </html>
