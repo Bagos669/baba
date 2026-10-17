@@ -78,6 +78,12 @@ async def main():
         await pg.screenshot(path=f'{OUT}/stats_venue.png')
         await pg.evaluate("switchTab('placar')"); await pg.screenshot(path=f'{OUT}/placar_venue.png')
         await pg.evaluate("switchTab('inicio')"); await pg.screenshot(path=f'{OUT}/inicio2.png')
+        for fx in ['fogo-azul', 'brilho']:
+            await pg.evaluate("(fx) => { currentUser.cosmetics = { frame: 'tealorange', frameShine: fx }; renderProfileBits(); }", fx)
+            await pg.wait_for_timeout(600)
+            await pg.screenshot(path=f'{OUT}/nav_{fx}.png', clip={'x': 0, 'y': 744, 'width': 390, 'height': 100})
+            w = await pg.evaluate("document.getElementById('header-profile').className")
+            if ' fr' in ' ' + w: bad.append('moldura aplicada no botao inteiro')
         await b.close()
     print({'problems': bad, 'errs': errs})
 asyncio.run(main())

@@ -1456,7 +1456,7 @@
       paintAvatar(document.getElementById('header-avatar'), acc ? acc.avatar : null, acc ? acc.name : '');
       paintAvatar(document.getElementById('profile-avatar'), acc ? acc.avatar : null, acc ? acc.name : '');
       document.getElementById('profile-name').innerText = acc ? acc.name : '';
-      applyFrame(document.getElementById('header-profile'), acc && acc.cosmetics);
+      applyFrame(document.getElementById('header-avatar-wrap'), acc && acc.cosmetics);
       applyFrame(document.getElementById('profile-avatar-wrap'), acc && acc.cosmetics);
       applyNameStyle(document.getElementById('profile-name'), acc && acc.cosmetics);
       document.getElementById('profile-user').innerText = acc ? acc.email || '' : '';
