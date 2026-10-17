@@ -3014,9 +3014,12 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.3.1';
+    const APP_VERSION = '11.3.2';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.3.2', date: '17/10/2026', title: 'Moldura do perfil corrigida', items: [
+        'A moldura e o brilho que você comprou na lojinha agora ficam só em volta da sua foto na barra de baixo, não no botão inteiro.'
+      ] },
       { v: '11.3.1', date: '17/10/2026', title: 'Perfil na barra, local e lances', items: [
         'O botão do seu perfil agora fica dentro da barra de baixo, junto de Início, Turmas e Lojinha.',
         'Estatísticas detalhadas (Configurações → Seu baba): marque se o baba é no Campo, Society ou Futsal e veja jogos, gols, assistências e defesas por local, no Stats e no Perfil.',
