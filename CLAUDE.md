@@ -11,8 +11,10 @@ ao vivo com palpites, lojinha de Baba Points. Dono: Gabriel Marini. **Responda s
 
 ```
 /            site PUBLICADO (gerado pelo build). Não edite app.js, index.html, sw.js, app.css aqui.
-src/app.src.js     todo o JavaScript do app (~9.500 linhas, ~570 funções, vanilla, sem bundler)
-src/shell.html     todo o HTML + CSS próprio + config do Tailwind (vira index.html)
+src/js/*.js        todo o JavaScript do app, em 16 módulos (564 funções, vanilla, sem bundler). Índice abaixo
+src/html/*.html    todo o HTML + CSS próprio + config do Tailwind, em 11 partes (viram index.html)
+                   O build junta os arquivos de cada pasta em ordem alfabética do nome (00-, 10-, ...) por simples
+                   concatenação: sem import/export. A ordem é a ordem de execução do app; não renumere sem necessidade.
 src/sw.template.js service worker (o build injeta versão e precache)
 src/admin.html, src/admin.src.js   painel de suporte (admin.html)
 src/babinha/*.webp mascote (nomes = moods: happy, coach, siuu, tired, worried, wave, money, champion...)
@@ -40,7 +42,7 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
 1. Ler a spec (modelo no projeto Claude "BABA App": `claude/modelo-de-pedido.md`). Dúvida que muda o resultado → perguntar antes.
 2. Código em `src/`. Se mexer no banco: novo `src/supabase/vNN_x_nome.sql` (idempotente: `if not exists`, `create or replace`,
    `drop policy if exists`) + testes em `src/supabase/test/vNN_x_rules.sql` + incluir os dois na cadeia de `src/tests/sql_check.sh`.
-3. `APP_VERSION` e uma entrada nova no topo de `PATCH_NOTES` (português simples, para o usuário final) em app.src.js.
+3. `APP_VERSION` e uma entrada nova no topo de `PATCH_NOTES` (português simples, para o usuário final) em `src/js/40-servidor-termos.js`.
 4. API falsa para RPC nova: `m('nome')` em `tests/fake_api.js` + `f_nome` em `tests/fake_server.py` (decoradores `_reg/_evreg/_tmreg`).
 5. Teste: smoke novo `src/tests/vNNN_smoke.py` (copie `v113_smoke.py`) e registre em `TESTS` de `check.py`.
 6. `bash src/build.sh` → `python3 src/tests/check.py --sql` → olhar prints de tela das telas mudadas.
@@ -55,38 +57,52 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
   baba_delete, turma_sync, turma_delete, turma_leave, player_rename, profile_update, live_settle, live_end`.
 - Mudou a forma do `state`? Ajustar `migrate()` e `defaultState()`; o teste sim2 recarrega a página e exige estado idêntico.
 
-## Mapa do app.src.js (seções, na ordem do arquivo)
+## Módulos do JavaScript (src/js, na ordem de execução)
 
-| Seção (banner `/* ==== */`) | Funções principais |
+Cada módulo guarda funções inteiras; a ordem dos arquivos é a mesma de antes da divisão (v11.3.4). Procure a função por nome
+(`grep -rn "function nomeDaFuncao" src/js`) e abra só o módulo certo. Nenhum módulo passa de ~1.200 linhas; se passar, divida num número livre.
+
+| Módulo | O que contém (banners `/* ==== */`) | Funções principais |
+|---|---|---|
+| `00-core` | BABA - STATE | `defaultMatch, defaultSettings, defaultState, migrate, loadState, saveState`, `STORAGE_KEY`, `STATE_VERSION` |
+| `10-sync` | CONTA E NUVEM (parte 1): chamadas ao servidor, status, outbox, baba atual, pull, service worker | `api` (supabase-js; `window.__BABA_FAKE_API__` substitui), `enqueue/flushOutbox/runOp`, `syncTurmaNow`, `stateForCloud`, `enqueueFinish`, `pullCloud`, `adoptCloudBaba` |
+| `11-auth-conta` | CONTA E NUVEM (parte 2): telas de login, convites, "Sou eu", dados antigos, biometria, perfil/conta na nuvem, formulários de conta | `doSignup, doLogin, enterApp, logout`, `handlePendingInvite, joinTurmaWithCode`, `claimPlayer`, `myStats`, `openProfile/closeProfile`, `openSettings/closeSettings` (página Configurações), `installApp` (PWA) |
+| `20-prefs-perfil` | PREFERÊNCIAS, FOTO/ÍCONE, PERFIL | `DEFAULT_PREFS` (todas sincronizadas na conta), `setPref, renderPrefsUI, adoptServerPrefs`, `openAvatarPicker`, `renderProfileMine` (posição, pé, stats, card), `shareMyCard`, `PAGE_CLOSERS` + `pushPage/popPage` (botão voltar do Android) |
+| `25-suporte-tutorial` | SUPORTE, TUTORIAL DO BABINHA | `openSupport`, FAQ, `TUTORIAL` (6 capítulos, alvos por seletor), `startTour` |
+| `30-pessoas-pdf` | PESSOAS DA TURMA, PDF DO BABA | dono/adm/membro, `openPersonActions`, `openExportSheet`, `generateBabaPDF` (jsPDF) |
+| `40-servidor-termos` | V7 · SERVIDOR, POP-UPS, TERMOS, MOLDURAS E NOMES | `API7` = RPCs do Supabase (termos, pontos, loja, ao vivo, palpites, chat, eventos, turmas v11.2), `PATCH_NOTES`, `APP_VERSION`, `maybePopups`, `openPatchNotes`, `applyFrame` (moldura no **wrapper** do avatar, nunca no botão), `framedAvatar`, `styledName` |
+| `50-visual-loja` | VISUAL DO ATLETA, LOJINHA, MISSÕES | `athleteCardHtml`, `openAthleteCard`, push do ao vivo, `openShop` → `switchTab('loja')` → `enterShop`, `renderShop`, `claimDaily` |
+| `60-aovivo` | JOGO AO VIVO (organiza / assiste) | `playerRates`, `oddFrom` (0,9/p), `liveMarkets`, `openLive`, palpites ao vivo, duelos |
+| `70-compromisso` | COMPROMISSO (v11) | eventos/lista: `openEventEdit/saveEventEdit`, `openEventSheet`, `answerEvent`, colar lista, convidados, presença |
+| `80-turmas-chat` | TURMAS (v11.2), CHAT | `openTurmaHub` (ranking, troféus, prestígio), desafios, `openExplore`, campeonatos, `openForm`, `openTurmaChat`, `todaysEvent`, `renderHomeV7`, `renderHomeBabinha` (mascote contextual), `renderBattery` |
+| `85-inicio-turmas-editor` | HELPERS, INÍCIO, DIA/HORA/CLIMA, TURMAS (editor) | `nameOf, byId, presentPlayers, lineSize, titleFor...`, `renderHome`, `openDatabaseModal` (turmas de hoje), `openTurmaEditor`, `syncPool` |
+| `90-chegadas-times` | ARRIVALS (LISTA), TEAMS & QUEUE | `checkIn`, `buildTeams`, fila Rei da Quadra |
+| `95-quadra-placar` | PLACAR, MODO QUADRA, GOL/DEFESA, FIM DE PARTIDA, PÊNALTIS | cronômetro, `playedSeconds`, `openGoalModal` → `confirmGoalRecord`, `openSaveModal` → `recordGoalkeeperSave`, `undoLastEvent` (eventos com `el` = segundos jogados), `finishMatchAndNextChallenger` (grava `matchHistory` com `events: gameEvents(A,B)`), `undoFinish`, `openShootout` |
+| `96-stats-relatorio` | RESUMO & EXPORT, STATS | `renderDailyResumo` (lances por jogo), `exportBabaCSV`, `generateBabaPNGCard`, `STAT_KEYS`, `daySummary` (inclui `venue` e `games`), `VENUES`/`renderVenueUI`/`gameLines*`/`ensureGames`, `aggregatedPlayers(venue)`, `renderStatsView` |
+| `99-nav-backup` | NAV & UTILS, BACKUP & IMPORT, histórico | `switchTab` (abas `inicio/turmas/loja`; `ficha/fila/placar/stats` são subabas de Turmas via `TURMA_PANES`), `startNewDay`, `openHistory/renderHistory`, `exportBackup`, `handleImportFile`, `askConfirm`, `showToast` |
+
+Dividir mais um módulo: corte só em fronteira de função/bloco (de preferência num banner `/* ==== */`), escolha um número livre entre
+os vizinhos (ex.: `65-...`) e confira com `cat src/js/*.js | node --check /dev/stdin`.
+
+## Partes do HTML (src/html, na ordem em que aparecem no index.html)
+
+| Parte | Conteúdo |
 |---|---|
-| BABA - STATE | `defaultMatch, defaultSettings, defaultState, migrate`, `STORAGE_KEY`, `STATE_VERSION` |
-| CONTA E NUVEM | `api` (supabase-js; `window.__BABA_FAKE_API__` substitui), outbox `enqueue/flushOutbox/runOp`, `syncTurmaNow`, `stateForCloud`, `enqueueFinish`, `pullCloud`, `adoptCloudBaba`, `myStats` |
-| PREFERÊNCIAS | `DEFAULT_PREFS` (todas sincronizadas na conta), `setPref`, `renderPrefsUI`, `adoptServerPrefs` |
-| PERFIL | `openProfile/closeProfile`, `openSettings/closeSettings` (página Configurações), `renderProfileBits`, `renderProfileMine` (posição, pé, stats, card), `shareMyCard`, PWA `installApp`, `PAGE_CLOSERS` + `pushPage/popPage` (botão voltar do Android) |
-| SUPORTE / TUTORIAL | FAQ, `TUTORIAL` (6 capítulos, alvos por seletor), `startTour` |
-| PESSOAS DA TURMA | dono/adm/membro, `openPersonActions` |
-| PDF DO BABA | `openExportSheet`, `generateBabaPDF` (jsPDF) |
-| V7 · SERVIDOR | `API7` = RPCs do Supabase (termos, pontos, loja, ao vivo, palpites, chat, eventos, turmas v11.2) |
-| POP-UPS | `PATCH_NOTES`, `APP_VERSION`, `maybePopups`, `openPatchNotes` |
-| TERMOS / MOLDURAS / VISUAL | `applyFrame` (moldura no **wrapper** do avatar, nunca no botão), `framedAvatar`, `styledName`, `athleteCardHtml`, `openAthleteCard` |
-| LOJINHA / MISSÕES | `openShop` → `switchTab('loja')` → `enterShop`, `renderShop`, `claimDaily` |
-| JOGO AO VIVO (organiza / assiste) | `playerRates`, `oddFrom` (0,9/p), `liveMarkets`, `openLive`, palpites ao vivo, duelos, push |
-| COMPROMISSO (v11) | eventos/lista: `openEventEdit/saveEventEdit`, `openEventSheet`, `answerEvent`, colar lista, convidados, presença, `todaysEvent` |
-| TURMAS (v11.2) | `openTurmaHub` (ranking, troféus, prestígio), desafios, `openExplore`, campeonatos, `openForm` |
-| CHAT | `openTurmaChat` |
-| HELPERS | `nameOf, byId, presentPlayers, lineSize, titleFor...` |
-| INÍCIO / CLIMA | `renderHome`, `renderHomeV7`, `renderHomeBabinha` (mascote contextual), `renderBattery`, `renderHomeEvents` |
-| TURMAS (editor) / LISTA | `openDatabaseModal` (turmas de hoje), `openTurmaEditor`, `syncPool`, `checkIn` |
-| TEAMS & QUEUE | `buildTeams`, fila Rei da Quadra |
-| PLACAR / MODO QUADRA / GOL-DEFESA | cronômetro, `playedSeconds`, `openGoalModal` → `confirmGoalRecord`, `openSaveModal` → `recordGoalkeeperSave`, `undoLastEvent` (eventos com `el` = segundos jogados) |
-| FIM DE PARTIDA | `finishMatchAndNextChallenger` (grava `matchHistory` com `events: gameEvents(A,B)`), `undoFinish` |
-| PÊNALTIS | `openShootout` |
-| RESUMO & EXPORT | `renderDailyResumo` (lances por jogo), `exportBabaCSV`, `generateBabaPNGCard` |
-| STATS | `STAT_KEYS`, `daySummary` (inclui `venue` e `games`), `VENUES`/`renderVenueUI`/`gameLines*`/`ensureGames`, `aggregatedPlayers(venue)`, `renderStatsView`, `openHistory/renderHistory` |
-| NAV & UTILS | `switchTab` (abas `inicio/turmas/loja`; `ficha/fila/placar/stats` são subabas de Turmas via `TURMA_PANES`), `startNewDay` |
-| BACKUP & IMPORT | `exportBackup`, `handleImportFile` |
+| `00-head` | `<head>`: meta, config do Tailwind, componentes Tailwind e todo o CSS próprio (`<style>`) |
+| `10-auth` | `<body>` e `#auth-root` (login, cadastro, recuperação, demo) |
+| `20-app` | `#app-root`: cabeçalho, abas, Início, Turmas (Lista, Times, Placar, Stats), Lojinha, barra de baixo |
+| `30-quadra-toasts` | `#court-mode` (placar em tela cheia) e `#toast-container` |
+| `40-paginas` | `page-profile`, `page-settings`, `page-support` |
+| `50-modais-perfil` | `modal-picker` (foto), `modal-export` (PDF), `#tour` (tutorial) |
+| `60-termos-live-chat` | `page-terms-gate`, `page-terms`, `page-live`, `page-chat` |
+| `70-modais-aovivo-conta` | pênaltis, pop-up, assistir, QR, palpite, card de atleta, desafio 1v1, formulários de conta |
+| `80-modais-turma-jogo` | turmas, editor de turma, gol, defesa, substituição, times na mão, jogador, backup |
+| `90-modais-eventos` | compromisso/lista, Turmas v11.2 (explorar, hub, campeonato, formulário), babas anteriores |
+| `99-confirm-scripts` | `modal-confirm` e o `<script>` do app, `</body>`, `</html>` |
 
-## shell.html
+O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">`; não mexa nessas linhas em `99-confirm-scripts`.
+
+## Estrutura do HTML (regras)
 
 - Abas: `#tab-content-inicio | turmas | loja`; nav `#tab-nav-inicio|turmas|loja` + `#header-profile` (avatar, 4º botão da barra).
   Subabas de Turmas: `#tab-content-ficha|fila|placar|stats` (classe `turma-pane`) e botões `#tab-nav-*` (classe `sub-tab-btn`).
@@ -112,7 +128,7 @@ configurações, local, lances, moldura), tutorial, sim2 (simulação + reload).
 
 ## Armadilhas conhecidas
 
-- `const` repetido no topo do app.src.js derruba o app inteiro (tela branca): o `node --check` do build pega.
+- `const` repetido no topo de qualquer módulo de `src/js` derruba o app inteiro (tela branca): o `node --check` do build pega.
 - `askConfirm` bloqueia `page.evaluate`: use `evaluate("setTimeout(fn, 0)")` e depois clique em `#modal-confirm-ok`.
 - `.page` é `position: fixed`, então `offsetParent` é null: teste visibilidade com `getComputedStyle(el).display`.
 - Seletores `text=...` pegam parágrafos; prefira `button:has-text("...")` ou ids.

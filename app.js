@@ -3014,9 +3014,12 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.3.2';
+    const APP_VERSION = '11.3.4';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.3.4', date: '18/10/2026', title: 'Organização interna', items: [
+        'Organização interna do código, sem mudanças visíveis.'
+      ] },
       { v: '11.3.2', date: '17/10/2026', title: 'Moldura do perfil corrigida', items: [
         'A moldura e o brilho que você comprou na lojinha agora ficam só em volta da sua foto na barra de baixo, não no botão inteiro.'
       ] },

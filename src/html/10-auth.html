@@ -1,0 +1,224 @@
+<body class="overflow-x-hidden bg-paper text-ink selection:bg-butter selection:text-pitch">
+
+  <!-- ===================== AUTH ===================== -->
+  <div id="auth-root" class="fixed inset-0 z-[80] bg-paper overflow-y-auto overscroll-contain">
+    <div class="max-w-md mx-auto min-h-full flex flex-col px-5" style="padding-top: calc(var(--sat) + 14px);">
+
+      <!-- Landing -->
+      <section id="scr-landing" class="auth-screen hidden flex-1 flex flex-col">
+        <div class="flex items-center gap-2.5 py-1">
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+          <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
+        </div>
+
+        <h1 class="mt-7 text-[38px] leading-[1.02] font-semibold tracking-[-0.035em]">
+          O baba de sempre,<br><span class="font-serif italic font-normal text-pitch text-[46px] tracking-[-0.01em]">sem bagunça.</span>
+        </h1>
+        <p class="mt-3 text-[15px] text-ink-2 leading-relaxed max-w-[32ch]">Placar, relógio, fila do Rei da Quadra e artilharia, no celular de quem organiza.</p>
+
+        <!-- Showcase: the live dial -->
+        <div class="relative mt-6 h-[318px]" aria-hidden="true">
+          <span class="orb" style="width:150px;height:150px;right:-34px;top:-6px;background:radial-gradient(circle at 32% 30%,#FFFBEA 0%,#FBE59A 45%,#EFC955 100%);"></span>
+          <span class="orb" style="width:96px;height:96px;left:-26px;bottom:6px;background:radial-gradient(circle at 32% 30%,#F4FAEE 0%,#CFE3C1 50%,#9EC28E 100%);"></span>
+          <span class="orb" style="width:38px;height:38px;right:30px;bottom:-4px;background:radial-gradient(circle at 32% 30%,#2F7A6A 0%,#0B4A42 60%,#003631 100%);"></span>
+          <div class="pitch-card absolute inset-x-3 top-5 bottom-6 px-4 pt-4 pb-3 flex flex-col">
+            <div class="rings"></div>
+            <div class="relative flex items-center justify-between text-[12px] font-semibold text-butter/80">
+              <span>Partida 4</span>
+              <span class="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1"><span class="live-dot"></span>Rolando</span>
+            </div>
+            <div class="relative flex-1 flex items-center justify-center">
+              <div class="dial w-[150px] h-[150px]">
+                <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-2">Time 3 × Time 5</span>
+                <span id="landing-timer" class="font-serif text-[50px] leading-none mt-0.5">04:12</span>
+                <span class="text-[11px] text-ink-2">Bola rolando</span>
+              </div>
+            </div>
+            <div class="relative glass grid grid-cols-3 divide-x divide-white/15 py-2 text-center">
+              <div><p class="text-[10px] text-butter/65">Placar</p><p class="font-serif text-[22px] leading-tight">2 × 1</p></div>
+              <div><p class="text-[10px] text-butter/65">Na fila</p><p class="font-serif text-[22px] leading-tight">6</p></div>
+              <div><p class="text-[10px] text-butter/65">Rei</p><p class="font-serif text-[22px] leading-tight">Time 3</p></div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="space-y-3">
+          <li class="flex items-center gap-3">
+            <span class="tile bg-sage text-pitch"><i class="fa-solid fa-users"></i></span>
+            <div><p class="text-[15px] font-bold leading-snug">Quem chega primeiro, joga primeiro</p><p class="text-[13px] text-ink-2 leading-snug">A fila se monta pela ordem de chegada.</p></div>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="tile bg-butter text-pitch"><i class="fa-solid fa-stopwatch"></i></span>
+            <div><p class="text-[15px] font-bold leading-snug">Placar com relógio e acréscimo</p><p class="text-[13px] text-ink-2 leading-snug">Gol, assistência e defesa em dois toques.</p></div>
+          </li>
+          <li class="flex items-center gap-3">
+            <span class="tile bg-pitch text-butter"><i class="fa-solid fa-trophy"></i></span>
+            <div><p class="text-[15px] font-bold leading-snug">Artilharia de todos os babas</p><p class="text-[13px] text-ink-2 leading-snug">Ranking do dia e acumulado, com backup.</p></div>
+          </li>
+        </ul>
+
+        <div class="sticky bottom-0 -mx-5 px-5 pt-8 mt-auto space-y-2.5 bg-gradient-to-t from-paper via-paper to-paper/0" style="padding-bottom: calc(var(--sab) + 18px);">
+          <button onclick="authGo('signup')" class="btn-primary w-full h-14 text-[16px]">Criar conta</button>
+          <button onclick="authGo('login')" class="btn-outline w-full h-14 text-[16px]">Entrar</button>
+          <button onclick="openWatch()" class="w-full h-11 text-[14px] font-bold text-pitch flex items-center justify-center gap-2"><span class="live-dot"></span> Assistir um jogo ao vivo com código</button>
+          <p class="text-center text-[12px] text-ink-2"><i class="fa-solid fa-cloud text-[10px] mr-1"></i>Uma conta, qualquer celular. Funciona até sem internet.</p>
+        </div>
+      </section>
+
+      <!-- Login -->
+      <section id="scr-login" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center justify-between py-1">
+          <button onclick="authGo('landing')" class="w-10 h-10 rounded-full bg-card border border-ink/10 flex items-center justify-center" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+        </div>
+
+        <h1 class="mt-8 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Bem-vindo<br><span class="font-serif italic font-normal text-pitch text-[42px]">de volta.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2">Entre pra continuar o baba.</p>
+
+        <form class="mt-7 space-y-3.5" onsubmit="event.preventDefault(); doLogin();" novalidate>
+          <label class="block">
+            <span class="label">E-mail</span>
+            <input id="login-email" type="email" inputmode="email" class="field" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="voce@email.com" />
+          </label>
+          <label class="block">
+            <span class="label">Senha</span>
+            <span class="relative block">
+              <input id="login-pass" type="password" class="field pr-12" autocomplete="current-password" placeholder="Sua senha" />
+              <button type="button" onclick="togglePass('login-pass', this)" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl text-ink-2 flex items-center justify-center" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+            </span>
+          </label>
+          <div class="flex justify-end pt-0.5">
+            <button type="button" onclick="authGo('forgot')" class="text-[13px] font-bold text-pitch underline underline-offset-2">Esqueci minha senha</button>
+          </div>
+          <p id="login-error" class="hidden text-[13px] font-semibold text-danger"></p>
+          <button type="submit" id="btn-login" class="btn-primary w-full h-14 text-[16px]">Entrar</button>
+        </form>
+
+        <p class="mt-auto pt-10 text-center text-[14px] text-ink-2">Não tem conta? <button onclick="authGo('signup')" class="font-bold text-pitch underline underline-offset-2">Criar conta</button></p>
+        <button onclick="openWatch()" class="mt-2 w-full h-11 text-[14px] font-bold text-pitch flex items-center justify-center gap-2"><span class="live-dot"></span> Assistir um jogo ao vivo com código</button>
+      </section>
+
+      <!-- Signup -->
+      <section id="scr-signup" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center justify-between py-1">
+          <button onclick="authGo('landing')" class="w-10 h-10 rounded-full bg-card border border-ink/10 flex items-center justify-center" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+        </div>
+
+        <h1 class="mt-8 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Crie sua<br><span class="font-serif italic font-normal text-pitch text-[42px]">conta.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2">Uma conta só, que funciona em qualquer celular.</p>
+
+        <form class="mt-7 space-y-3.5" onsubmit="event.preventDefault(); doSignup();" novalidate>
+          <label class="block">
+            <span class="label">Seu nome</span>
+            <input id="signup-name" class="field" autocomplete="name" autocapitalize="words" placeholder="Como a galera te chama" />
+          </label>
+          <label class="block">
+            <span class="label">E-mail</span>
+            <input id="signup-email" type="email" inputmode="email" class="field" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="voce@email.com" />
+          </label>
+          <label class="block">
+            <span class="label">Senha</span>
+            <span class="relative block">
+              <input id="signup-pass" type="password" class="field pr-12" autocomplete="new-password" placeholder="Mínimo de 6 caracteres" />
+              <button type="button" onclick="togglePass('signup-pass', this)" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl text-ink-2 flex items-center justify-center" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+            </span>
+          </label>
+          <p id="signup-error" class="hidden text-[13px] font-semibold text-danger"></p>
+          <button type="submit" id="btn-signup" class="btn-primary w-full h-14 text-[16px]">Criar conta</button>
+        </form>
+
+        <p class="mt-auto pt-10 text-center text-[14px] text-ink-2">Já tem conta? <button onclick="authGo('login')" class="font-bold text-pitch underline underline-offset-2">Entrar</button></p>
+      </section>
+
+      <!-- Recovery code (shown once, after signup) -->
+      <section id="scr-recovery" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="relative h-[150px] mt-4" aria-hidden="true">
+          <span class="orb" style="width:120px;height:120px;left:50%;top:10px;transform:translateX(-50%);background:radial-gradient(circle at 32% 30%,#FFFBEA 0%,#FBE59A 45%,#EFC955 100%);"></span>
+          <span class="orb" style="width:46px;height:46px;left:calc(50% + 44px);top:84px;background:radial-gradient(circle at 32% 30%,#F4FAEE 0%,#CFE3C1 50%,#9EC28E 100%);"></span>
+          <span class="absolute left-1/2 top-[50px] -translate-x-1/2 text-[34px] text-pitch"><i class="fa-solid fa-key"></i></span>
+        </div>
+        <h1 class="text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Guarde seu<br><span class="font-serif italic font-normal text-pitch text-[42px]">código.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2 leading-relaxed">Se você esquecer a senha, é com ele que cria outra. Ele só aparece agora: tire um print ou anote.</p>
+
+        <div class="card mt-6 p-4">
+          <input id="recovery-code" readonly class="w-full bg-transparent text-center font-serif text-[38px] tracking-[0.06em] text-pitch outline-none select-all" value="" aria-label="Código de recuperação" />
+          <button onclick="copyText(document.getElementById('recovery-code').value, document.getElementById('recovery-code'))" class="btn-soft w-full h-11 text-[14px] mt-2"><i class="fa-solid fa-copy"></i> Copiar código</button>
+        </div>
+
+        <label class="mt-5 flex items-start gap-3 text-[14px] font-semibold text-ink cursor-pointer">
+          <input id="recovery-ack" type="checkbox" class="mt-0.5 w-5 h-5 accent-[#003631]" onchange="document.getElementById('btn-recovery-done').disabled = !this.checked" />
+          Anotei o código em um lugar seguro
+        </label>
+        <button id="btn-recovery-done" onclick="recoveryDone()" disabled class="btn-primary w-full h-14 text-[16px] mt-auto">Continuar</button>
+      </section>
+
+      <!-- Fingerprint offer -->
+      <section id="scr-bio" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="relative h-[190px] mt-6" aria-hidden="true">
+          <span class="orb" style="width:170px;height:170px;left:50%;top:6px;transform:translateX(-50%);background:radial-gradient(circle at 32% 30%,#2F7A6A 0%,#0B4A42 55%,#003631 100%);box-shadow:0 0 0 14px rgba(0,54,49,.06),0 0 0 30px rgba(0,54,49,.035);"></span>
+          <span class="absolute left-1/2 top-[56px] -translate-x-1/2 text-[64px] text-butter"><i class="fa-solid fa-fingerprint"></i></span>
+        </div>
+        <h1 class="mt-4 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Proteger com a<br><span class="font-serif italic font-normal text-pitch text-[42px]">digital?</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2 leading-relaxed">Você continua conectado, e o BABA pede a digital sempre que abrir neste celular. Bom pra quando o celular passa de mão em mão. Dá pra mudar depois no seu perfil.</p>
+        <p id="bio-offer-error" class="hidden mt-4 text-[13px] font-semibold text-danger"></p>
+        <div class="mt-auto pt-8 space-y-2.5">
+          <button id="btn-bio-accept" onclick="bioOfferAccept()" class="btn-primary w-full h-14 text-[16px]"><i class="fa-solid fa-fingerprint"></i> Ativar digital</button>
+          <button onclick="finishSignup()" class="btn-outline w-full h-14 text-[16px]">Agora não</button>
+        </div>
+      </section>
+
+      <!-- App lock -->
+      <section id="scr-lock" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center gap-2.5 py-1">
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+          <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
+        </div>
+        <div class="relative h-[190px] mt-10" aria-hidden="true">
+          <span class="orb" style="width:170px;height:170px;left:50%;top:6px;transform:translateX(-50%);background:radial-gradient(circle at 32% 30%,#2F7A6A 0%,#0B4A42 55%,#003631 100%);box-shadow:0 0 0 14px rgba(0,54,49,.06),0 0 0 30px rgba(0,54,49,.035);"></span>
+          <span class="absolute left-1/2 top-[56px] -translate-x-1/2 text-[64px] text-butter"><i class="fa-solid fa-fingerprint"></i></span>
+        </div>
+        <h1 class="mt-6 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Olá de novo,<br><span id="lock-name" class="font-serif italic font-normal text-pitch text-[42px]">craque.</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2">Desbloqueie com a digital para abrir o BABA.</p>
+        <p id="lock-error" class="hidden mt-4 text-[13px] font-semibold text-danger"></p>
+        <div class="mt-auto pt-8 space-y-2.5">
+          <button id="btn-unlock" onclick="unlockWithBio()" class="btn-primary w-full h-14 text-[16px]"><i class="fa-solid fa-fingerprint"></i> Desbloquear</button>
+          <button onclick="lockUseOtherAccount()" class="btn-outline w-full h-14 text-[16px]">Entrar com e-mail e senha</button>
+        </div>
+      </section>
+
+      <!-- Forgot password -->
+      <section id="scr-forgot" class="auth-screen hidden flex-1 flex flex-col" style="padding-bottom: calc(var(--sab) + 20px);">
+        <div class="flex items-center justify-between py-1">
+          <button onclick="authGo('login')" class="w-10 h-10 rounded-full bg-card border border-ink/10 flex items-center justify-center" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+          <span class="logo-mark w-9 h-9 rounded-xl ring-1 ring-ink/10" role="img" aria-label="BABA"></span>
+        </div>
+
+        <h1 class="mt-8 text-[34px] leading-[1.03] font-semibold tracking-[-0.03em]">Esqueceu a<br><span class="font-serif italic font-normal text-pitch text-[42px]">senha?</span></h1>
+        <p class="mt-2 text-[15px] text-ink-2 leading-relaxed">Use o código de recuperação que apareceu quando você criou a conta.</p>
+
+        <form class="mt-7 space-y-3.5" onsubmit="event.preventDefault(); doForgot();" novalidate>
+          <label class="block">
+            <span class="label">E-mail</span>
+            <input id="forgot-email" type="email" inputmode="email" class="field" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" />
+          </label>
+          <label class="block">
+            <span class="label">Código de recuperação</span>
+            <input id="forgot-code" class="field uppercase tracking-[0.12em]" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX" />
+          </label>
+          <label class="block">
+            <span class="label">Nova senha</span>
+            <span class="relative block">
+              <input id="forgot-pass" type="password" class="field pr-12" autocomplete="new-password" placeholder="Mínimo de 6 caracteres" />
+              <button type="button" onclick="togglePass('forgot-pass', this)" class="absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl text-ink-2 flex items-center justify-center" aria-label="Mostrar senha"><i class="fa-solid fa-eye"></i></button>
+            </span>
+          </label>
+          <p id="forgot-error" class="hidden text-[13px] font-semibold text-danger"></p>
+          <button type="submit" id="btn-forgot" class="btn-primary w-full h-14 text-[16px]">Criar nova senha</button>
+        </form>
+
+        <p class="mt-auto pt-10 text-center text-[13px] text-ink-2 leading-relaxed">Perdeu o código? Ainda conectado em outro celular, gere um novo em <b>Configurações → Novo código de recuperação</b>.</p>
+      </section>
+    </div>
+  </div>
+

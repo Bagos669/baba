@@ -1,0 +1,283 @@
+  <!-- Turmas -->
+  <div id="modal-database" class="overlay hidden" onclick="if(event.target===this) closeDatabaseModal()">
+    <div class="sheet-panel space-y-4 max-h-[85dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <div>
+          <h3 class="title">Turmas do BABA</h3>
+          <p class="text-[13px] text-ink-2">Marque quem joga hoje · lápis para editar</p>
+        </div>
+        <button onclick="closeDatabaseModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="db-checkboxes-container" class="space-y-2 overflow-y-auto pr-1 flex-grow"></div>
+      <button onclick="openJoinSheet()" class="btn-soft w-full h-11 text-[14px] flex-shrink-0"><i class="fa-solid fa-ticket"></i> Entrar numa turma com convite</button>
+      <div class="pt-1 flex items-center gap-2 flex-shrink-0">
+        <button onclick="createTurma()" class="btn-outline flex-1 h-12 text-[14px]"><i class="fa-solid fa-plus"></i> Nova turma</button>
+        <button onclick="applyDatabaseSelection()" class="btn-primary flex-1 h-12 text-[14px]"><i class="fa-solid fa-check"></i> Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Turma editor -->
+  <div id="modal-turma-edit" class="overlay hidden z-[60]" onclick="if(event.target===this) closeTurmaEditor()">
+    <div class="sheet-panel space-y-3 max-h-[90dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="flex items-center gap-3 min-w-0">
+          <button id="turma-edit-icon" onclick="openAvatarPicker('turma')" class="relative flex-shrink-0" aria-label="Foto ou ícone da turma">
+            <span id="turma-edit-icon-img" class="avatar !rounded-2xl w-12 h-12 text-[20px]"></span>
+            <span id="turma-edit-icon-cam" class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-pitch text-butter ring-2 ring-paper flex items-center justify-center text-[9px]"><i class="fa-solid fa-camera"></i></span>
+          </button>
+          <div class="min-w-0">
+            <h3 class="title truncate" id="turma-edit-title">Editar turma</h3>
+            <p class="text-[12px] font-semibold text-ink-2 truncate" id="turma-edit-role"></p>
+          </div>
+        </div>
+        <button onclick="closeTurmaEditor()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="overflow-y-auto flex-grow min-h-0 -mx-1 px-1 space-y-3 overscroll-contain">
+      <div class="space-y-3">
+        <label class="block">
+          <span class="label">Nome da turma</span>
+          <input type="text" id="turma-edit-name" enterkeyhint="done" class="field" oninput="renameTurma(this.value)" />
+        </label>
+        <div id="turma-edit-invite" class="hidden rounded-2xl bg-butter/60 border border-butter-3/60 p-3.5"></div>
+        <button id="turma-edit-history" onclick="openHistory(editingTurmaId)" class="hidden w-full menu-row rounded-2xl bg-card border border-ink/10"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0 text-left"><span class="block">Babas anteriores da turma</span><span id="turma-edit-history-sub" class="block text-[12px] font-medium text-ink-2"></span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <div id="turma-edit-events" class="hidden rounded-2xl bg-butter/40 border border-butter-3/60 p-3.5"></div>
+        <div id="turma-edit-hub" class="hidden rounded-2xl bg-card border border-ink/10 p-3.5"></div>
+        <div id="turma-tabs" class="seg grid-cols-2 hidden">
+          <button id="turma-tab-atletas" onclick="turmaTab('atletas')" class="seg-btn is-selected">Atletas</button>
+          <button id="turma-tab-pessoas" onclick="turmaTab('pessoas')" class="seg-btn">Pessoas e cargos</button>
+        </div>
+        <div id="turma-pane-atletas-head" class="space-y-3">
+        <div id="turma-edit-addbox">
+          <label class="label" for="turma-edit-add">Adicionar atletas</label>
+          <div class="flex gap-2">
+            <textarea id="turma-edit-add" rows="1" enterkeyhint="enter" autocapitalize="words" placeholder="Nome (ou cole uma lista)" class="field resize-none flex-1 min-w-0"></textarea>
+            <button onclick="addMembersFromInput()" class="btn-primary w-12 h-12 flex-shrink-0 text-[18px] self-start" aria-label="Adicionar"><i class="fa-solid fa-plus"></i></button>
+          </div>
+          <p class="text-[12px] text-ink-2 mt-1.5">Vários de uma vez: um nome por linha ou separados por vírgula.</p>
+        </div>
+        <div class="flex items-start justify-between gap-3">
+          <span class="text-[13px] font-bold flex-shrink-0" id="turma-edit-count">Atletas</span>
+          <span class="text-[12px] text-ink-2 text-right" id="turma-edit-hint">GOL = goleiro</span>
+        </div>
+        </div>
+      </div>
+      <div id="turma-edit-list" class="space-y-1.5 pb-1"></div>
+      <div id="turma-people" class="hidden space-y-1.5 pb-1"></div>
+      </div>
+      <div class="pt-1 flex gap-2 flex-shrink-0">
+        <button onclick="deleteTurma()" id="turma-edit-delete" class="btn-danger flex-1 h-12 text-[14px]">Excluir turma</button>
+        <button onclick="closeTurmaEditor()" class="btn-primary flex-1 h-12 text-[14px]">Concluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Goal -->
+  <div id="modal-goal" class="overlay hidden" onclick="if(event.target===this) closeGoalModal()">
+    <div class="sheet-panel space-y-3 max-h-[88dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <h3 class="title flex items-center gap-2" ><i class="fa-solid fa-futbol text-pitch"></i><span id="modal-goal-title">Registrar gol</span></h3>
+        <button onclick="closeGoalModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5 flex-shrink-0 text-[12px] font-bold">
+        <div id="goal-step-1" class="py-2 rounded-xl text-center">1 · Quem fez</div>
+        <div id="goal-step-2" class="py-2 rounded-xl text-center">2 · Quem deu o passe</div>
+      </div>
+      <div id="goal-pane-scorer" class="overflow-y-auto flex-grow pr-1 overscroll-contain">
+        <div id="modal-goal-scorers-list" class="space-y-1.5"></div>
+      </div>
+      <div id="goal-pane-assist" class="hidden overflow-y-auto flex-grow pr-1 overscroll-contain space-y-2">
+        <div class="flex items-center justify-between gap-2 p-3 rounded-2xl bg-butter border border-butter-3">
+          <span class="text-[15px] font-bold truncate min-w-0"><i class="fa-solid fa-futbol text-pitch mr-1.5"></i><span id="goal-scorer-name"></span></span>
+          <button onclick="goalStep('scorer')" class="text-[13px] font-bold text-pitch underline underline-offset-2 flex-shrink-0">Trocar</button>
+        </div>
+        <button onclick="confirmGoalRecord(null)" class="w-full h-12 rounded-2xl border-2 border-dashed border-pitch/25 text-[14px] font-bold text-ink active:scale-[0.98]">Sem assistência (jogada individual)</button>
+        <div id="modal-goal-assists-list" class="space-y-1.5"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save -->
+  <div id="modal-save" class="overlay hidden" onclick="if(event.target===this) closeSaveModal()">
+    <div class="sheet-panel space-y-3 max-h-[85dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <h3 class="title flex items-center gap-2"><i class="fa-solid fa-hand text-pitch"></i><span id="modal-save-title">Registrar defesa</span></h3>
+        <button onclick="closeSaveModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="modal-save-goalkeepers-list" class="space-y-1.5 overflow-y-auto flex-grow pr-1 overscroll-contain"></div>
+    </div>
+  </div>
+
+  <!-- Substitution -->
+  <div id="modal-sub" class="overlay hidden" onclick="if(event.target===this) closeSubModal()">
+    <div class="sheet-panel space-y-3 max-h-[88dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1 gap-2">
+        <div class="min-w-0">
+          <h3 class="title truncate" id="modal-sub-title">Substituição</h3>
+          <p class="text-[13px] text-ink-2 truncate" id="modal-sub-subtitle"></p>
+        </div>
+        <button onclick="closeSubModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="flex-shrink-0">
+        <span class="label">E quem sai, vai pra onde?</span>
+        <div id="modal-sub-dest" class="seg grid-cols-3"></div>
+      </div>
+      <div class="overflow-y-auto flex-grow pr-1 overscroll-contain">
+        <span class="label">Quem entra</span>
+        <div id="modal-sub-list" class="space-y-1.5"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Montar times na mão -->
+  <div id="modal-manual" class="overlay hidden" onclick="if(event.target===this) closeManualTeams()">
+    <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0">
+          <h3 class="title">Escolher os times</h3>
+          <p class="text-[13px] text-ink-2 leading-snug">Toque em A, B ou Fila pra cada um. Quem sair de quadra volta pra frente da fila.</p>
+        </div>
+        <button onclick="closeManualTeams()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p id="manual-count" class="text-[13px] font-bold flex-shrink-0"></p>
+      <div id="manual-list" class="overflow-y-auto flex-grow pr-1 overscroll-contain divide-y divide-ink/[0.07]"></div>
+      <div class="flex gap-2 flex-shrink-0 pt-1">
+        <button onclick="closeManualTeams()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+        <button onclick="saveManualTeams()" class="btn-primary flex-1 h-12 text-[14px]">Salvar times</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add player -->
+  <div id="modal-add-player" class="overlay hidden" onclick="if(event.target===this) closeAddPlayerModal()">
+    <div class="sheet-panel space-y-3.5">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1">
+        <h3 class="title">Novo atleta</h3>
+        <button onclick="closeAddPlayerModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label class="block">
+        <span class="label">Nome do atleta</span>
+        <input type="text" id="input-new-player-name" enterkeyhint="done" autocapitalize="words" placeholder="Ex: Rodrigo Capita" class="field" />
+      </label>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-pos" value="linha" checked class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Linha</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-pos" value="goleiro" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">🧤 Goleiro</span>
+        </label>
+      </div>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-sex" value="m" checked class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogador</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="new-player-sex" value="f" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogadora</span>
+        </label>
+      </div>
+      <label class="block">
+        <span class="label">Turma</span>
+        <select id="input-new-player-turma" class="select"></select>
+      </label>
+      <label class="flex items-center gap-2.5 text-[14px] font-semibold cursor-pointer">
+        <input type="checkbox" id="input-new-player-arrived" checked class="w-5 h-5 accent-[#003631]" /> Já chegou (entra no fim da fila)
+      </label>
+      <div class="pt-1 flex gap-2">
+        <button onclick="closeAddPlayerModal()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+        <button onclick="saveNewPlayer()" class="btn-primary flex-1 h-12 text-[14px]">Salvar atleta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Player sheet -->
+  <div id="modal-player" class="overlay hidden" onclick="if(event.target===this) closePlayerSheet()">
+    <div class="sheet-panel space-y-3.5 max-h-[92dvh] overflow-y-auto">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1">
+        <h3 class="title">Atleta</h3>
+        <button onclick="closePlayerSheet()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <label class="block">
+        <span class="label">Nome</span>
+        <input type="text" id="player-edit-name" enterkeyhint="done" autocapitalize="words" class="field" />
+      </label>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-pos" value="linha" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Linha</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-pos" value="goleiro" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">🧤 Goleiro</span>
+        </label>
+      </div>
+      <div class="seg grid-cols-2">
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-sex" value="m" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogador</span>
+        </label>
+        <label class="cursor-pointer">
+          <input type="radio" name="player-edit-sex" value="f" class="peer sr-only" />
+          <span class="block text-center py-2.5 rounded-xl text-[14px] font-bold text-ink-2 peer-checked:bg-card peer-checked:text-ink peer-checked:shadow-sm">Jogadora</span>
+        </label>
+      </div>
+      <div>
+        <p class="label">Números de hoje</p>
+        <div id="player-edit-stats" class="space-y-1.5"></div>
+      </div>
+      <label class="block" id="player-edit-turma-wrap">
+        <span class="label">Salvar numa turma</span>
+        <select id="player-edit-turma" class="select"></select>
+      </label>
+      <p id="player-edit-info" class="text-[13px] text-ink-2 leading-snug"></p>
+      <button id="player-edit-leave" onclick="playerLeftFromSheet()" class="w-full h-11 rounded-full text-[13px] font-bold text-ink-2 bg-sunk flex items-center justify-center gap-2"><i class="fa-solid fa-person-walking-arrow-right"></i> Foi embora (tirar da fila e do time)</button>
+      <div class="pt-1 flex gap-2">
+        <button id="player-edit-delete" onclick="deletePlayerFromSheet()" class="btn-danger flex-1 h-12 text-[14px]">Excluir</button>
+        <button onclick="savePlayerSheet()" class="btn-primary flex-1 h-12 text-[14px]">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup & import -->
+  <div id="modal-backup" class="overlay hidden" onclick="if(event.target===this) closeBackupModal()">
+    <div class="sheet-panel space-y-3 max-h-[90dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div>
+          <h3 class="title">Backup e importar</h3>
+          <p class="text-[13px] text-ink-2 leading-snug">Seus babas ficam na nuvem. O backup é uma cópia em arquivo, pra guardar ou levar pra outro app.</p>
+        </div>
+        <button onclick="closeBackupModal()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="overflow-y-auto flex-grow pr-1 overscroll-contain space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="exportBackup()" class="btn bg-card border border-ink/10 text-ink rounded-2xl py-3.5 text-[14px] flex-col gap-1"><i class="fa-solid fa-download text-[18px] text-pitch"></i> Salvar backup</button>
+          <label class="btn bg-card border border-ink/10 text-ink rounded-2xl py-3.5 text-[14px] flex-col gap-1 cursor-pointer">
+            <i class="fa-solid fa-file-import text-[18px] text-pitch"></i> Importar arquivo
+            <input type="file" id="import-file" accept=".json,.csv,.txt,application/json,text/csv,text/plain" class="sr-only" onchange="handleImportFile(this)" />
+          </label>
+        </div>
+        <p class="text-[12px] text-ink-2 leading-snug">Aceita o backup do BABA (.json) de qualquer pelada, a planilha exportada pelo BABA (.csv) ou uma lista de nomes (.txt).</p>
+        <div id="import-preview" class="hidden rounded-[22px] p-4 bg-butter/60 border border-butter-3/60 space-y-2.5"></div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[14px] font-bold">Babas anteriores</span>
+            <span id="past-days-count" class="text-[12px] text-ink-2"></span>
+          </div>
+          <div id="past-days-list" class="space-y-1.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+

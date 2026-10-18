@@ -10,8 +10,14 @@ for d in ['vendor', 'fonts', 'icons', 'babinha']: os.makedirs(f'{OUT}/{d}')
 for f in os.listdir(f'{V}/babinha'):
     if f.endswith('.webp'): shutil.copy(f'{V}/babinha/{f}', f'{OUT}/babinha/{f}')
 
-html = open(f'{V}/shell.html').read()
-js = open(f'{V}/app.src.js').read()
+# The app is written as ordered pieces: src/html/*.html and src/js/*.js, joined by file name (00-, 10-, ...).
+# Joining is plain concatenation (no bundler, no import/export): the result is one page and one app.js.
+def join_parts(folder, ext):
+    names = sorted(f for f in os.listdir(f'{V}/{folder}') if f.endswith(ext))
+    assert names, f'no {ext} files in src/{folder}'
+    return ''.join(open(f'{V}/{folder}/{n}', encoding='utf-8', newline='').read() for n in names)
+html = join_parts('html', '.html')
+js = join_parts('js', '.js')
 admin_html = open(f'{V}/admin.html').read()
 admin_js = open(f'{V}/admin.src.js').read()
 

@@ -1,0 +1,131 @@
+  <!-- ===================== ACEITE DOS TERMOS (bloqueia o app até aceitar) ===================== -->
+  <div id="page-terms-gate" class="page hidden !z-[86]" aria-label="Aceite dos termos">
+    <div class="page-body max-w-md mx-auto px-5 pb-10" style="padding-top: calc(var(--sat) + 18px);">
+      <div class="relative card overflow-hidden p-4 pr-[120px] min-h-[140px] flex flex-col justify-center">
+        <img src="babinha/coach.webp" alt="Babinha" class="absolute right-1 bottom-0 w-[118px]" />
+        <p class="eyebrow">Antes de entrar em campo</p>
+        <h1 class="text-[24px] font-bold leading-tight mt-1">Combinado é<br><span class="font-serif italic font-normal text-pitch text-[30px]">combinado.</span></h1>
+      </div>
+      <ul class="mt-5 space-y-3 text-[14px] text-ink-2 leading-snug">
+        <li class="flex gap-3"><i class="fa-solid fa-coins text-pitch mt-0.5 w-4 text-center"></i><span><b class="text-ink">Baba points são de brincadeira.</b> Não se compram, não se sacam e não viram prêmio. Palpites só para maiores de 18.</span></li>
+        <li class="flex gap-3"><i class="fa-solid fa-shield-halved text-pitch mt-0.5 w-4 text-center"></i><span><b class="text-ink">Seus dados ficam no Brasil</b> e servem só para a pelada funcionar. Dá pra excluir a conta quando quiser.</span></li>
+        <li class="flex gap-3"><i class="fa-solid fa-handshake text-pitch mt-0.5 w-4 text-center"></i><span><b class="text-ink">Respeito no chat e nas fotos.</b> Nada de discriminação, ofensa ou foto de alguém sem autorização.</span></li>
+      </ul>
+      <div class="mt-5 card-flat overflow-hidden divide-y divide-ink/[0.07]">
+        <button onclick="openTermsPage('termos')" class="menu-row"><i class="fa-solid fa-file-contract text-pitch w-5 text-center"></i><span class="flex-1">Termos de Uso</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="openTermsPage('privacidade')" class="menu-row"><i class="fa-solid fa-user-lock text-pitch w-5 text-center"></i><span class="flex-1">Política de Privacidade</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        <button onclick="openTermsPage('conduta')" class="menu-row"><i class="fa-solid fa-people-group text-pitch w-5 text-center"></i><span class="flex-1">Código de Conduta</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+      </div>
+      <form class="mt-5 space-y-3.5" onsubmit="event.preventDefault(); submitTerms();" novalidate>
+        <label id="terms-birth-wrap" class="block">
+          <span class="label">Data de nascimento</span>
+          <input id="terms-birth" type="date" class="field" autocomplete="bday" />
+          <span class="block text-[12px] text-ink-2 mt-1.5">A conta é para quem tem 16 anos ou mais. Não aparece pra ninguém.</span>
+        </label>
+        <label class="flex items-start gap-3 text-[14px] font-semibold text-ink cursor-pointer">
+          <input id="terms-ack" type="checkbox" class="mt-0.5 w-5 h-5 accent-[#003631] flex-shrink-0" />
+          <span>Li e aceito os Termos de Uso, a Política de Privacidade e o Código de Conduta do BABA.</span>
+        </label>
+        <p id="terms-error" class="hidden text-[13px] font-semibold text-danger"></p>
+        <button id="btn-terms" class="btn-primary w-full h-14 text-[16px]">Aceitar e continuar</button>
+        <button type="button" onclick="termsLogout()" class="w-full h-11 text-[13px] font-bold text-ink-2">Agora não, sair da conta</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== TERMOS (leitura) ===================== -->
+  <div id="page-terms" class="page hidden !z-[87]" aria-label="Termos">
+    <div class="page-head">
+      <button onclick="closeTermsPage()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Termos e privacidade</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-4">
+      <div id="terms-tabs" class="seg grid-cols-3">
+        <button onclick="showTermsTab('termos')" data-t="termos" class="seg-btn">Termos</button>
+        <button onclick="showTermsTab('privacidade')" data-t="privacidade" class="seg-btn">Privacidade</button>
+        <button onclick="showTermsTab('conduta')" data-t="conduta" class="seg-btn">Conduta</button>
+      </div>
+      <p id="terms-accepted" class="text-[12px] text-ink-2 px-1"></p>
+      <article id="terms-body" class="legal card-flat p-4"></article>
+    </div>
+  </div>
+
+  <!-- ===================== LOJINHA ===================== -->
+  <!-- ===================== JOGO AO VIVO (espectador) ===================== -->
+  <div id="page-live" class="page hidden !z-[83]" aria-label="Jogo ao vivo">
+    <div class="page-head">
+      <button onclick="closeLive()" class="page-head-btn" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      <span class="flex items-center gap-2 text-[15px] font-extrabold min-w-0"><span class="live-dot flex-shrink-0" id="lv-dot"></span><span id="lv-title" class="truncate">Ao vivo</span></span>
+      <span id="lv-balance" class="h-10 px-3 rounded-full bg-card border border-ink/10 text-[13px] font-extrabold flex items-center gap-1.5 hidden"><i class="fa-solid fa-coins text-pitch"></i><span></span></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-4">
+      <section class="pitch-card p-4">
+        <div class="rings"></div>
+        <div class="relative flex items-center justify-between gap-2 text-[12px] font-semibold text-butter/80">
+          <span id="lv-match" class="min-w-0 truncate">Partida</span>
+          <span class="flex items-center gap-1.5 flex-shrink-0">
+            <button id="lv-bell" onclick="toggleLiveFollow()" class="lv-bell"><i class="fa-solid fa-bell"></i> Avisar gols</button>
+            <span id="lv-status" class="rounded-full bg-white/10 px-2.5 py-1">Aguardando</span>
+          </span>
+        </div>
+        <div class="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 mt-3">
+          <div class="text-center min-w-0"><p id="lv-a" class="text-[13px] font-bold text-butter/80 truncate">Time A</p><p id="lv-sa" class="font-serif text-[64px] leading-none text-butter">0</p></div>
+          <div class="text-center"><p id="lv-timer" class="font-serif text-[30px] leading-none text-butter">--:--</p><p class="text-[11px] text-butter/60 mt-1">tempo</p></div>
+          <div class="text-center min-w-0"><p id="lv-b" class="text-[13px] font-bold text-butter/80 truncate">Time B</p><p id="lv-sb" class="font-serif text-[64px] leading-none text-butter">0</p></div>
+        </div>
+        <div class="relative grid grid-cols-2 gap-2 mt-3 text-[12px] text-butter/75">
+          <p id="lv-na" class="leading-snug"></p><p id="lv-nb" class="leading-snug text-right"></p>
+        </div>
+      </section>
+      <div id="lv-events" class="space-y-1.5"></div>
+
+      <section id="lv-palpites-box">
+        <div class="flex items-end justify-between mb-2 px-1">
+          <div><p class="eyebrow">De brincadeira</p><h2 class="title mt-0.5">Palpites</h2></div>
+          <span id="lv-closes" class="text-[12px] font-semibold text-ink-2"></span>
+        </div>
+        <div id="lv-markets" class="space-y-3"></div>
+        <div id="lv-mine" class="mt-3"></div>
+        <div id="lv-duel" class="hidden card-flat p-3 mt-4">
+          <div class="flex items-center gap-3">
+            <img src="babinha/arrogante.webp" alt="" class="w-12 h-12 object-contain flex-shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p class="text-[15px] font-extrabold leading-tight">Desafio 1v1</p>
+              <p class="text-[12.5px] text-ink-2 leading-snug mt-0.5">Aposte direto contra alguém: quem vence ou quem faz mais gols. Quem acertar leva os pontos dos dois.</p>
+            </div>
+          </div>
+          <button id="lv-duel-btn" onclick="openDuel()" class="btn-primary w-full h-11 mt-3 text-[14px]"><i class="fa-solid fa-hand-fist mr-1"></i> Desafiar alguém</button>
+          <div id="lv-duels" class="mt-3 empty:hidden"></div>
+        </div>
+        <p class="text-[11px] text-ink-3 leading-snug mt-2 px-1">A porcentagem é a chance calculada pelos números de cada um (gols por partida, vitórias e o placar agora). Sem dinheiro: baba points não se compram nem se sacam. Só para maiores de 18.</p>
+      </section>
+
+      <section id="lv-ranking-box" class="hidden">
+        <p class="eyebrow mb-2 px-1">Quem mais acertou</p>
+        <div id="lv-ranking" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Chat do jogo</p>
+        <div id="lv-chat" class="chat-box card-flat"></div>
+      </section>
+      <div id="lv-guest" class="hidden card p-4 space-y-3">
+        <div class="flex items-center gap-3"><img src="babinha/wave.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[14px] text-ink-2 leading-snug"><b class="text-ink">Quer palpitar e conversar?</b> Crie sua conta em 30 segundos. Assistir é liberado.</p></div>
+        <div class="grid grid-cols-2 gap-2"><button onclick="liveGoAuth('signup')" class="btn-primary h-11 text-[14px]">Criar conta</button><button onclick="liveGoAuth('login')" class="btn-outline h-11 text-[14px]">Entrar</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CHAT DA TURMA ===================== -->
+  <div id="page-chat" class="page hidden !z-[57] flex flex-col" aria-label="Chat da turma">
+    <div class="page-head w-full">
+      <button onclick="closeTurmaChat()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span id="chat-title" class="text-[16px] font-extrabold truncate">Chat</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="flex-1 min-h-0 w-full max-w-lg mx-auto px-4 pb-3 flex flex-col" style="padding-bottom: calc(var(--sab) + 12px);">
+      <div id="chat-turma" class="chat-box flex-1 min-h-0 flex flex-col"></div>
+    </div>
+  </div>
+

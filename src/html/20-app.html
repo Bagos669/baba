@@ -1,0 +1,478 @@
+  <!-- ===================== APP ===================== -->
+  <div id="app-root" class="hidden">
+
+    <header class="app-header fixed top-0 inset-x-0 z-40 bg-paper/85 backdrop-blur-xl">
+      <div class="max-w-lg mx-auto h-16 px-4 flex items-center justify-between">
+        <button class="flex items-center gap-2.5" onclick="switchTab('inicio')" aria-label="Início">
+          <img id="app-logo" src="LOGO_DATA_URI" alt="BABA" width="36" height="36" class="w-9 h-9 rounded-xl ring-1 ring-ink/10" />
+          <span class="text-[18px] font-extrabold tracking-tight">BABA</span>
+        </button>
+        <button id="header-settings" onclick="openSettings()" class="btn-icon w-10 h-10" aria-label="Configurações"><i class="fa-solid fa-gear"></i></button>
+      </div>
+    </header>
+
+    <main class="w-full max-w-lg mx-auto pt-safe pb-safe px-4">
+
+      <!-- =================== INÍCIO =================== -->
+      <div id="tab-content-inicio" class="tab-content space-y-7">
+        <div class="pt-2">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <p id="home-date" class="text-[13px] font-semibold text-ink-2"></p>
+            <div class="flex items-center gap-1.5"><div id="home-battery"></div><div id="home-weather"></div></div>
+          </div>
+          <h1 class="mt-1 text-[38px] leading-[1.02] font-semibold tracking-[-0.035em]"><span id="home-hello">Bom dia,</span><br><span id="home-name" class="font-serif italic font-normal text-pitch text-[46px] tracking-[-0.01em]">craque.</span></h1>
+          <p id="home-status" class="mt-2 text-[14px] text-ink-2"></p>
+        </div>
+
+        <div class="pitch-card px-4 pt-4 pb-3.5">
+          <div class="rings"></div>
+          <div class="relative flex items-center justify-between text-[12px] font-semibold text-butter/80">
+            <span id="home-match-no">Partida 1</span>
+            <span id="home-live" class="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1"><span id="home-live-dot" class="live-dot"></span><span id="home-live-text">Pausado</span></span>
+          </div>
+          <div class="relative flex items-center justify-center py-6">
+            <button id="home-btn-left" onclick="toggleMatchTimer()" class="dial-side" style="left:2px" aria-label="Iniciar ou pausar"><i id="home-play-icon" class="fa-solid fa-play"></i></button>
+            <button onclick="switchTab('placar')" class="dial w-[188px] h-[188px]" aria-label="Abrir placar">
+              <span id="home-dial-top" class="text-[10.5px] font-bold uppercase tracking-[0.12em] text-ink-2 max-w-[150px] truncate">Sem times</span>
+              <span id="home-timer" class="font-serif text-[62px] leading-none mt-0.5">07:00</span>
+              <span id="home-dial-sub" class="text-[12px] text-ink-2">Pausado</span>
+            </button>
+            <button id="home-btn-right" onclick="addExtraTime(1)" class="dial-side" style="right:2px" aria-label="Mais 1 minuto">+1'</button>
+          </div>
+          <div id="home-strip" class="relative glass"></div>
+        </div>
+
+        <div id="home-babinha"></div>
+        <div id="home-events"></div>
+        <div id="home-explore"></div>
+        <div id="home-mine"></div>
+        <div id="home-v7"></div>
+
+        <section>
+          <div class="flex items-end justify-between mb-3">
+            <div>
+              <p class="eyebrow">Destaques</p>
+              <h2 class="title mt-0.5">Hoje no baba</h2>
+            </div>
+            <span id="home-live-badge" class="hidden items-center gap-1.5 text-[11px] font-bold text-leaf"><span class="w-1.5 h-1.5 rounded-full bg-leaf"></span>Ao vivo</span>
+          </div>
+          <div id="home-today" class="space-y-2.5"></div>
+        </section>
+      </div>
+
+      <!-- =================== TURMAS =================== -->
+      <div id="tab-content-turmas" class="tab-content hidden space-y-3">
+        <div class="flex items-center gap-2 pt-1">
+          <button id="turmas-picker" onclick="openDatabaseModal()" class="flex-1 min-w-0 card px-3.5 h-12 flex items-center gap-2.5 text-left active:scale-[0.99] transition">
+            <i class="fa-solid fa-people-group text-pitch"></i>
+            <span class="min-w-0 flex-1"><span class="block text-[10.5px] text-ink-2 leading-none">Turma de hoje</span><span id="turmas-picker-name" class="block text-[14.5px] font-bold truncate leading-tight">Escolher turma</span></span>
+            <i class="fa-solid fa-chevron-down text-[11px] text-ink-3"></i>
+          </button>
+          <button id="turmas-hub-btn" onclick="openTurmaHubFromPicker()" class="btn-icon w-12 h-12 flex-shrink-0" aria-label="Painel da turma"><i class="fa-solid fa-gear"></i></button>
+        </div>
+        <div class="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-sunk">
+          <button onclick="switchTab('ficha')" id="tab-nav-ficha" class="sub-tab-btn"><i class="fa-solid fa-clipboard-list"></i><span>Lista</span></button>
+          <button onclick="switchTab('fila')" id="tab-nav-fila" class="sub-tab-btn"><i class="fa-solid fa-users"></i><span>Times</span></button>
+          <button onclick="switchTab('placar')" id="tab-nav-placar" class="sub-tab-btn"><i class="fa-solid fa-stopwatch"></i><span>Placar</span></button>
+          <button onclick="switchTab('stats')" id="tab-nav-stats" class="sub-tab-btn"><i class="fa-solid fa-trophy"></i><span>Stats</span></button>
+        </div>
+      <!-- =================== PLACAR =================== -->
+      <div id="tab-content-placar" class="turma-pane hidden space-y-3">
+
+        <div id="venue-card" class="card p-3.5 hidden">
+          <span class="label">Onde é o baba</span>
+          <div id="venue-seg" class="seg grid-cols-4 mt-1"></div>
+          <p class="text-[11.5px] text-ink-2 mt-2 leading-snug">Separa os números por local nas estatísticas (jogos, gols, assistências e defesas).</p>
+        </div>
+
+        <div class="card p-3.5 grid grid-cols-2 gap-2.5">
+          <label class="block min-w-0">
+            <span class="label">Jogo (na linha)</span>
+            <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option><option value="6">6v6</option><option value="7">7v7</option><option value="8">8v8</option><option value="9">9v9</option><option value="10">10v10</option><option value="11">11v11</option><option value="12">12v12</option></select>
+          </label>
+          <label class="block min-w-0">
+            <span class="label">Fim de jogo</span>
+            <select id="match-goal-limit-rule" onchange="updateGoalLimitRule(this.value)" class="select">
+              <option value="none">Só no tempo</option>
+              <option value="2">2 gols</option>
+              <option value="3">3 gols</option>
+              <option value="5">5 gols</option>
+              <option value="diff2">Dif. de 2</option>
+            </select>
+          </label>
+          <label class="block min-w-0 col-span-2">
+            <span class="label">Goleiro</span>
+            <select id="match-gk-mode" onchange="updateKeeperMode(this.value)" class="select">
+              <option value="time">Do time: cada time tem o seu (N + goleiro)</option>
+              <option value="fixo">Fixo: quem é goleiro não sai do gol</option>
+              <option value="fila">Da fila: os 2 próximos vão pro gol</option>
+              <option value="sem">Sem goleiro</option>
+            </select>
+          </label>
+          <p id="fixed-keepers" class="hidden col-span-2 flex items-start gap-2 text-[12.5px] leading-snug text-ink bg-sunk/70 rounded-xl px-3 py-2.5"></p>
+        </div>
+
+        <div id="placar-clock" class="pitch-card p-4 space-y-3.5">
+          <div class="rings"></div>
+          <div id="live-pill" class="relative hidden items-center justify-between gap-2 -mt-0.5">
+            <span class="flex items-center gap-1.5 text-[12px] font-bold text-butter/85 min-w-0"><span id="live-pill-dot" class="live-dot hidden"></span><i class="fa-solid fa-tower-broadcast text-[11px]"></i><span id="live-pill-text" class="truncate">Transmissão desligada</span></span>
+            <button id="live-pill-btn" onclick="openQr()" class="h-8 px-3 rounded-full bg-butter text-pitch text-[12px] font-extrabold flex-shrink-0 active:scale-95 transition"><i class="fa-solid fa-tower-broadcast"></i> Transmitir</button>
+          </div>
+          <div class="relative flex items-stretch gap-2.5">
+            <div id="timer-box" class="relative flex-1 min-w-0 flex items-center justify-center rounded-2xl bg-black/25 border border-white/10 py-2.5">
+              <div id="timer-display" class="font-serif leading-none text-butter whitespace-nowrap" style="font-size: clamp(44px, calc(29vw - 46px), 70px)">07:00</div>
+              <span id="timer-added-badge" class="hidden absolute -top-2.5 right-2 text-[11px] leading-none font-extrabold text-pitch bg-butter rounded-md px-1.5 py-1 shadow"></span>
+            </div>
+            <button id="btn-timer-toggle" onclick="toggleMatchTimer()" class="w-[68px] flex-shrink-0 rounded-2xl bg-butter text-pitch text-2xl flex items-center justify-center active:scale-95 transition" aria-label="Iniciar ou pausar">
+              <i class="fa-solid fa-play" id="icon-timer-toggle"></i>
+            </button>
+            <div class="w-11 flex-shrink-0 flex flex-col gap-1.5">
+              <button id="btn-court-mode" onclick="enterCourtMode()" class="hidden flex-1 rounded-2xl bg-white/10 border border-white/15 text-butter flex items-center justify-center active:scale-95 transition" aria-label="Placar em tela cheia">
+                <i class="fa-solid fa-expand"></i>
+              </button>
+              <button onclick="resetMatchTimer()" class="flex-1 rounded-2xl bg-white/10 border border-white/15 text-butter/80 flex items-center justify-center active:scale-95 transition" aria-label="Zerar relógio">
+                <i class="fa-solid fa-rotate-right"></i>
+              </button>
+            </div>
+          </div>
+          <div class="relative flex items-end gap-2">
+            <label class="block min-w-0 flex-1">
+              <span class="block text-[12px] font-semibold text-butter/70 mb-1.5">Tempo total</span>
+              <select id="match-duration" onchange="setMatchDuration(Number(this.value))" class="select-dark">
+                <option value="180">3 min</option>
+                <option value="300">5 min</option>
+                <option value="420">7 min</option>
+                <option value="480">8 min</option>
+                <option value="600">10 min</option>
+                <option value="720">12 min</option>
+                <option value="900">15 min</option>
+                <option value="1200">20 min</option>
+                <option value="1500">25 min</option>
+                <option value="1800">30 min</option>
+              </select>
+            </label>
+            <div class="flex-shrink-0">
+              <span class="block text-[12px] font-semibold text-butter/70 mb-1.5">Acréscimo</span>
+              <div class="flex gap-1.5">
+                <button onclick="addExtraTime(1)" class="h-[42px] px-3 rounded-xl bg-white/5 border border-butter/40 text-butter text-sm font-extrabold active:scale-95 transition">+1</button>
+                <button onclick="addExtraTime(2)" class="h-[42px] px-3 rounded-xl bg-white/5 border border-butter/40 text-butter text-sm font-extrabold active:scale-95 transition">+2</button>
+                <button onclick="addExtraTime(3)" class="h-[42px] px-3 rounded-xl bg-white/5 border border-butter/40 text-butter text-sm font-extrabold active:scale-95 transition">+3</button>
+              </div>
+            </div>
+          </div>
+          <p id="timer-meta" class="relative text-[12px] font-medium text-butter/65 text-center"></p>
+        </div>
+
+        <!-- Shown when the court is not fully set -->
+        <div id="court-cta" class="hidden rounded-[22px] p-3.5 border-2 border-dashed border-pitch/25 bg-card/60 flex items-center gap-3">
+          <div class="min-w-0 flex-1">
+            <p id="court-cta-title" class="text-[15px] font-bold leading-tight"></p>
+            <p id="court-cta-text" class="text-[13px] text-ink-2 leading-snug mt-0.5"></p>
+          </div>
+          <button id="court-cta-btn" class="btn-primary px-4 h-11 text-[14px] flex-shrink-0"></button>
+        </div>
+
+        <div id="placar-sides" class="grid grid-cols-2 gap-2.5">
+          <div class="card p-3 flex flex-col gap-2 min-w-0">
+            <span class="text-[12px] font-semibold text-ink-2" id="team-eyebrow-a">Lado A</span>
+            <div class="flex items-center justify-between gap-1 min-w-0 h-9 px-3 rounded-xl bg-sunk">
+              <span id="team-label-a" class="font-bold text-[15px] truncate">Sem time</span>
+              <span id="team-badge-a" class="hidden text-[11px] font-extrabold text-pitch bg-butter rounded-md px-1.5 py-0.5 flex-shrink-0"></span>
+            </div>
+            <div class="text-center font-serif text-[92px] leading-[0.95] text-pitch py-0.5" id="match-score-a">0</div>
+            <button id="btn-goal-a" onclick="openGoalModal('A')" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="btn-save-a" onclick="openSaveModal('A')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+          <div class="card p-3 flex flex-col gap-2 min-w-0">
+            <span class="text-[12px] font-semibold text-ink-2" id="team-eyebrow-b">Lado B</span>
+            <div class="flex items-center justify-between gap-1 min-w-0 h-9 px-3 rounded-xl bg-sunk">
+              <span id="team-label-b" class="font-bold text-[15px] truncate">Sem time</span>
+              <span id="team-badge-b" class="hidden text-[11px] font-extrabold text-pitch bg-butter rounded-md px-1.5 py-0.5 flex-shrink-0"></span>
+            </div>
+            <div class="text-center font-serif text-[92px] leading-[0.95] text-pitch py-0.5" id="match-score-b">0</div>
+            <button id="btn-goal-b" onclick="openGoalModal('B')" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="btn-save-b" onclick="openSaveModal('B')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+        </div>
+
+        <button id="btn-finish" onclick="finishMatchAndNextChallenger()" class="btn w-full rounded-[22px] bg-butter text-pitch border border-butter-3/60 py-3 px-4 justify-start gap-3">
+          <span class="tile bg-pitch text-butter w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
+          <span class="text-left leading-tight">
+            <span class="block font-extrabold text-[15px]">Finalizar partida</span>
+            <span class="block text-[12px] font-semibold opacity-75" id="finish-subtitle">Vencedor fica · próximo da fila entra</span>
+          </span>
+        </button>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="card p-3 min-w-0">
+            <div class="flex items-center justify-between gap-1 mb-1.5">
+              <span class="text-[13px] font-bold truncate" id="roster-title-a">Lado A</span>
+              <button onclick="switchTab('fila')" class="text-[12px] font-bold text-pitch flex items-center gap-1 flex-shrink-0"><i class="fa-solid fa-pen text-[10px]"></i> Editar</button>
+            </div>
+            <div id="match-roster-a" class="text-[13px] text-ink space-y-0.5"></div>
+          </div>
+          <div class="card p-3 min-w-0">
+            <div class="flex items-center justify-between gap-1 mb-1.5">
+              <span class="text-[13px] font-bold truncate" id="roster-title-b">Lado B</span>
+              <button onclick="switchTab('fila')" class="text-[12px] font-bold text-pitch flex items-center gap-1 flex-shrink-0"><i class="fa-solid fa-pen text-[10px]"></i> Editar</button>
+            </div>
+            <div id="match-roster-b" class="text-[13px] text-ink space-y-0.5"></div>
+          </div>
+        </div>
+
+        <div class="card p-3.5">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-list-check text-pitch"></i> Lances da partida</h4>
+            <button onclick="undoLastEvent()" id="btn-undo" class="h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
+              <i class="fa-solid fa-rotate-left"></i> Desfazer
+            </button>
+          </div>
+          <div id="match-events-log" class="space-y-1.5 text-[13px] text-ink max-h-44 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+
+      <!-- =================== LISTA =================== -->
+      <div id="tab-content-ficha" class="turma-pane hidden space-y-3">
+        <div class="card p-4 space-y-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="title">Lista de chegada</h3>
+              <p class="text-[13px] text-ink-2 mt-0.5">Chegaram <b id="sheet-active-count" class="text-pitch">0</b> · faltam <b id="sheet-waiting-count" class="text-ink">0</b></p>
+            </div>
+            <button onclick="openAddPlayerModal()" class="btn-primary px-4 h-11 text-[14px] flex-shrink-0"><i class="fa-solid fa-user-plus"></i> Atleta</button>
+          </div>
+          <p class="text-[13px] text-ink-2 leading-snug">Toque em <b class="text-ink">Chegou</b> na ordem em que a galera chega. Essa ordem monta os times e a fila: quem chega cedo joga primeiro.</p>
+          <button id="btn-check-all" onclick="checkInAll()" class="btn-soft w-full h-11 text-[14px]"><i class="fa-solid fa-check-double"></i> Marcar todos que faltam</button>
+        </div>
+
+        <div class="card p-1.5 overflow-hidden">
+          <table class="w-full text-left text-[13px]">
+            <thead>
+              <tr class="text-ink-2 font-bold text-[10.5px] uppercase tracking-wide">
+                <th class="py-2.5 px-2">Atleta</th>
+                <th class="py-2.5 px-0.5 text-center">Pos</th>
+                <th class="py-2.5 px-0.5 text-center">G</th>
+                <th class="py-2.5 px-0.5 text-center">A</th>
+                <th class="py-2.5 px-0.5 text-center">D</th>
+                <th class="py-2.5 px-0.5 text-center">J</th>
+                <th class="py-2.5 px-1 text-center"></th>
+              </tr>
+            </thead>
+            <tbody id="sheet-players-tbody" class="divide-y divide-ink/[0.07]"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- =================== TIMES =================== -->
+      <div id="tab-content-fila" class="turma-pane hidden space-y-3">
+        <div id="rules-card" class="card p-4 space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="tile bg-butter text-pitch w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
+            <h3 class="title">Regras do Rei da Quadra</h3>
+          </div>
+          <p class="text-[13px] text-ink-2 leading-snug">Quem chega primeiro joga primeiro. Quem perde volta pro fim da fila, um por um, e completa os próximos times: assim os times vão se misturando.</p>
+          <div class="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2.5">
+            <label class="block min-w-0">
+              <span class="label">No empate</span>
+              <select id="set-draw" onchange="updateSetting('drawRule', this.value)" class="select">
+                <option value="king">Sai o rei</option>
+                <option value="both">Saem os dois</option>
+                <option value="penaltis">Pênaltis decidem</option>
+              </select>
+            </label>
+            <label class="block min-w-0">
+              <span class="label">Vitórias seguidas</span>
+              <select id="set-streak" onchange="updateSetting('maxStreak', Number(this.value))" class="select">
+                <option value="0">Sem limite</option>
+                <option value="2">Máximo 2</option>
+                <option value="3">Máximo 3</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 min-[360px]:grid-cols-2 gap-2.5">
+            <label class="block min-w-0">
+              <span class="label">Ordem da fila</span>
+              <select id="set-order" onchange="updateSetting('queueOrder', this.value)" class="select">
+                <option value="chegada">Ordem de chegada</option>
+                <option value="menos-jogos">Quem jogou menos</option>
+              </select>
+            </label>
+            <label class="block min-w-0">
+              <span class="label">Régua de tempo</span>
+              <select id="set-late" onchange="updateSetting('lateAfter', Number(this.value))" class="select">
+                <option value="0">Atrasado vai pro fim</option>
+                <option value="30">Após 30 min: 1º</option>
+                <option value="60">Após 1 h: 1º</option>
+                <option value="90">Após 1h30: 1º</option>
+              </select>
+            </label>
+          </div>
+          <p class="text-[12px] text-ink-2 leading-snug -mt-1">Régua de tempo: quem chega depois desse tempo, contado do primeiro jogo, entra em 1º na fila. Antes disso, entra no fim.</p>
+          <label id="set-gk-mode-row" class="block min-w-0">
+            <span class="label">Goleiro</span>
+            <select id="set-gk-mode" onchange="updateKeeperMode(this.value)" class="select">
+              <option value="time">Do time: cada time tem o seu (N + goleiro)</option>
+              <option value="fixo">Fixo: quem é goleiro não sai do gol</option>
+              <option value="fila">Da fila: os 2 próximos vão pro gol</option>
+              <option value="sem">Sem goleiro</option>
+            </select>
+          </label>
+          <label id="set-keeper-row" class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-sunk/70 cursor-pointer">
+            <span class="min-w-0">
+              <span class="block text-[14px] font-bold">1 goleiro por time</span>
+              <span class="block text-[12px] text-ink-2 leading-snug">Se o time não tem goleiro, puxa o próximo goleiro da fila</span>
+            </span>
+            <input type="checkbox" id="set-keeper" class="peer sr-only" onchange="updateSetting('keeperBalance', this.checked)" />
+            <span class="relative w-12 h-7 flex-shrink-0 rounded-full bg-ink/15 transition peer-checked:bg-pitch after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:w-[22px] after:h-[22px] after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5"></span>
+          </label>
+        </div>
+
+        <div id="court-manager" class="space-y-3"></div>
+
+        <div id="queue-card" class="card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-users text-pitch"></i> Fila de espera</h4>
+            <span id="queue-count" class="text-[12px] font-bold text-ink-2"></span>
+          </div>
+          <div id="queue-list" class="space-y-1.5"></div>
+        </div>
+      </div>
+
+      <!-- =================== STATS =================== -->
+      <div id="tab-content-stats" class="turma-pane hidden space-y-3">
+        <div class="seg grid-cols-2">
+          <button onclick="switchStatsView('atletas')" id="btn-view-atletas" class="seg-btn is-selected">Atletas</button>
+          <button onclick="switchStatsView('jogos')" id="btn-view-jogos" class="seg-btn">Times e jogos</button>
+        </div>
+
+        <div id="stats-view-atletas" class="space-y-3">
+          <div id="stats-venue" class="hidden seg grid-cols-4"></div>
+          <div class="flex items-center gap-2">
+            <div class="seg grid-cols-2 flex-1">
+              <button onclick="switchStatsScope('today')" id="btn-scope-today" class="seg-btn is-selected">Hoje</button>
+              <button onclick="switchStatsScope('all')" id="btn-scope-all" class="seg-btn">Todos os babas</button>
+            </div>
+          </div>
+          <p id="stats-scope-note" class="hidden text-[12px] text-ink-2 px-1 -mt-1"></p>
+
+          <div class="flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4">
+            <button onclick="switchStatsCategory('goals')" id="btn-stats-goals" class="chip is-selected">Gols</button>
+            <button onclick="switchStatsCategory('assists')" id="btn-stats-assists" class="chip">Assistências</button>
+            <button onclick="switchStatsCategory('saves')" id="btn-stats-saves" class="chip">Defesas</button>
+            <button onclick="switchStatsCategory('total')" id="btn-stats-total" class="chip">G+A</button>
+            <button onclick="switchStatsCategory('wins')" id="btn-stats-wins" class="chip">Vitórias</button>
+            <button onclick="switchStatsCategory('pens')" id="btn-stats-pens" class="chip">Pênaltis</button>
+          </div>
+
+          <div class="card p-5 text-center">
+            <h3 id="stats-podium-title" class="text-[15px] font-bold mb-5">Artilharia</h3>
+            <div id="stats-podium-container" class="grid grid-cols-3 gap-2 items-end max-w-xs mx-auto"></div>
+          </div>
+
+          <div class="card overflow-hidden">
+            <table class="w-full text-left text-[13px]">
+              <thead>
+                <tr class="text-ink-2 font-bold uppercase text-[10.5px] tracking-wide border-b border-ink/[0.07]">
+                  <th class="py-2.5 px-3 w-12 text-center">#</th>
+                  <th class="py-2.5 px-2">Atleta</th>
+                  <th class="py-2.5 px-3 text-center" id="stats-col-title">Gols</th>
+                </tr>
+              </thead>
+              <tbody id="stats-ranking-tbody" class="divide-y divide-ink/[0.07]"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="stats-view-jogos" class="hidden space-y-3">
+          <div class="card p-4 space-y-3">
+            <h3 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-file-export text-pitch"></i> Exportar resumo</h3>
+            <div class="grid grid-cols-3 gap-2">
+              <button onclick="openExportSheet()" class="btn bg-sunk text-ink rounded-2xl py-3 text-[13px] flex-col gap-1"><i class="fa-solid fa-file-pdf text-[18px] text-pitch"></i> PDF + fotos</button>
+              <button onclick="generateBabaPNGCard()" class="btn bg-sunk text-ink rounded-2xl py-3 text-[13px] flex-col gap-1"><i class="fa-solid fa-image text-[18px] text-pitch"></i> Imagem</button>
+              <button onclick="exportBabaCSV()" class="btn bg-sunk text-ink rounded-2xl py-3 text-[13px] flex-col gap-1"><i class="fa-solid fa-file-excel text-[18px] text-pitch"></i> Excel</button>
+            </div>
+          </div>
+
+          <div class="card overflow-hidden">
+            <div class="px-4 pt-4 pb-2">
+              <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-table-list text-pitch"></i> Classificação dos times</h4>
+            </div>
+            <table class="w-full text-left text-[13px] table-fixed">
+              <thead>
+                <tr class="text-ink-2 font-bold text-[10.5px] uppercase tracking-wide border-b border-ink/[0.07]">
+                  <th class="py-2 px-4">Time</th>
+                  <th class="py-2 px-1 text-center w-7">J</th>
+                  <th class="py-2 px-1 text-center w-7">V</th>
+                  <th class="py-2 px-1 text-center w-7">E</th>
+                  <th class="py-2 px-1 text-center w-7">D</th>
+                  <th class="py-2 px-2 text-center w-11">SG</th>
+                </tr>
+              </thead>
+              <tbody id="daily-standings-tbody" class="divide-y divide-ink/[0.07]"></tbody>
+            </table>
+          </div>
+
+          <div class="card p-4 space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-pitch"></i> Histórico de jogos</h4>
+              <button id="btn-undo-finish" onclick="undoFinish()" class="hidden h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
+                <i class="fa-solid fa-rotate-left"></i> Desfazer última
+              </button>
+            </div>
+            <div id="match-history-timeline" class="space-y-2 max-h-[34rem] overflow-y-auto"></div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- =================== LOJINHA =================== -->
+      <div id="tab-content-loja" class="tab-content hidden space-y-5">
+        <h2 class="text-[22px] font-extrabold tracking-tight pt-2">Lojinha do Babinha</h2>
+      <section class="pitch-card p-4 pr-[128px] min-h-[150px] flex flex-col justify-center">
+        <div class="rings"></div>
+        <img src="babinha/money.webp" alt="" class="absolute right-1 bottom-0 w-[124px] babinha-bob" />
+        <p class="relative text-[12px] font-semibold text-butter/75">Seus baba points</p>
+        <p class="relative font-serif text-[52px] leading-none mt-1"><span id="shop-balance">0</span></p>
+        <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
+      </section>
+      <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
+      <section id="shop-missions" class="hidden"></section>
+      <button onclick="openAthleteCard(currentUser && currentUser.id)" class="w-full flex items-center gap-4 card p-4 text-left active:scale-[0.99] transition">
+        <span id="shop-preview-avatar"></span>
+        <div class="min-w-0 flex-1">
+          <p class="text-[12px] text-ink-2">Como a galera te vê</p>
+          <p id="shop-preview-name" class="text-[20px] font-bold truncate"></p>
+          <p id="shop-preview-sub" class="text-[12.5px] text-ink-2 truncate"></p>
+        </div>
+        <span class="text-[12px] font-bold text-pitch flex-shrink-0">Ver card <i class="fa-solid fa-chevron-right text-[10px]"></i></span>
+      </button>
+      <div id="shop-tabs" class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-0.5"></div>
+      <div id="shop-items" class="grid grid-cols-2 gap-2.5"></div>
+      <div>
+        <p class="eyebrow mb-2 px-1">Extrato</p>
+        <div id="shop-ledger" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
+      </div>
+    
+      </div>
+    </main>
+
+    <!-- Floating pill navigation -->
+    <nav class="fixed inset-x-0 bottom-0 z-40 px-3 pointer-events-none" style="padding-bottom: calc(var(--sab) + 10px);">
+      <div class="pointer-events-auto max-w-lg mx-auto h-[66px] rounded-[24px] bg-card/90 backdrop-blur-xl border border-ink/[0.07] grid grid-cols-4 gap-1 p-1.5" style="box-shadow: 0 18px 40px -18px rgba(0,54,49,.5);">
+        <button onclick="switchTab('inicio')" id="tab-nav-inicio" class="nav-tab-btn is-active rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-house text-[17px]"></i><span class="text-[10.5px] font-bold">Início</span>
+        </button>
+        <button onclick="switchTab('turmas')" id="tab-nav-turmas" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-people-group text-[17px]"></i><span class="text-[10.5px] font-bold">Turmas</span>
+        </button>
+        <button onclick="switchTab('loja')" id="tab-nav-loja" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
+          <i class="fa-solid fa-bag-shopping text-[17px]"></i><span class="text-[10.5px] font-bold">Lojinha</span>
+        </button>
+        <button id="header-profile" onclick="openProfile()" class="relative rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition" aria-label="Seu perfil">
+          <span class="relative inline-flex"><span id="header-avatar-wrap" class="inline-flex rounded-full"><span id="header-avatar" class="avatar w-[30px] h-[30px] text-[11px]">?</span></span><span id="sync-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-card"></span></span>
+          <span class="text-[10.5px] font-bold">Perfil</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+

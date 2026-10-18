@@ -1,0 +1,227 @@
+  <!-- ===================== SHEETS ===================== -->
+
+  <!-- ===================== PERFIL (página) ===================== -->
+  <div id="page-profile" class="page hidden" aria-label="Seu perfil">
+    <div class="page-head">
+      <button onclick="closeProfile()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Perfil</span>
+      <button onclick="openSupport()" class="page-head-btn" aria-label="Ajuda"><i class="fa-solid fa-circle-question"></i></button>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-6">
+
+      <section class="flex flex-col items-center text-center pt-1">
+        <button onclick="openAvatarPicker('me')" class="relative" aria-label="Trocar foto ou ícone">
+          <span id="profile-avatar-wrap" class="inline-flex rounded-full"><span id="profile-avatar" class="avatar w-24 h-24 text-[30px] ring-4 ring-card shadow-lg">?</span></span>
+          <span class="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-pitch text-butter ring-4 ring-paper flex items-center justify-center text-[12px]"><i class="fa-solid fa-camera"></i></span>
+        </button>
+        <div id="profile-name-view" class="mt-3 flex items-center justify-center gap-1.5 max-w-full">
+          <h2 id="profile-name" class="text-[24px] font-bold tracking-tight truncate"></h2>
+          <button onclick="editProfileName()" class="btn-icon w-8 h-8" aria-label="Editar nome"><i class="fa-solid fa-pen"></i></button>
+        </div>
+        <form id="profile-name-form" class="hidden mt-3 w-full flex gap-2" onsubmit="event.preventDefault(); saveProfileName();" novalidate>
+          <input id="profile-name-input" class="field" maxlength="40" autocomplete="name" autocapitalize="words" placeholder="Como a galera te chama" />
+          <button class="btn-primary h-12 px-5 text-[14px] flex-shrink-0">Salvar</button>
+        </form>
+        <p id="profile-user" class="text-[13px] text-ink-2 truncate max-w-full mt-0.5"></p>
+        <p class="text-[12px] text-ink-2 mt-1"><i class="fa-solid fa-cloud text-[10px] mr-1"></i><span id="profile-sync">Tudo sincronizado</span></p>
+      </section>
+
+      <div id="profile-mine"></div>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Seu jeito de jogar</p>
+        <div class="card p-4 space-y-4">
+          <div>
+            <p class="text-[13px] font-semibold mb-2">Posição preferida</p>
+            <div id="pf-pos" class="grid grid-cols-2 gap-1.5"></div>
+          </div>
+          <div>
+            <p class="text-[13px] font-semibold mb-2">Pé dominante</p>
+            <div id="pf-foot" class="seg grid-cols-3"></div>
+          </div>
+          <div>
+            <p class="text-[13px] font-semibold mb-2">Turma principal</p>
+            <select id="pf-turma" class="field" onchange="setProfilePref('mainTurma', this.value)"></select>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Suas estatísticas</p>
+        <div id="pf-stats" class="grid grid-cols-3 gap-2"></div>
+        <div id="pf-venues" class="mt-2.5 space-y-2"></div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Seu card</p>
+        <div class="card p-4 space-y-3">
+          <div id="pf-card" class="flex justify-center"></div>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="openProfileShop()" class="btn-outline h-11 text-[13px]"><i class="fa-solid fa-wand-magic-sparkles"></i> Mudar o visual na lojinha</button>
+            <button onclick="shareMyCard()" class="btn-primary h-11 text-[13px]"><i class="fa-solid fa-share-nodes"></i> Compartilhar card</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="page-settings" class="page hidden" aria-label="Configurações">
+    <div class="page-head">
+      <button onclick="closeSettings()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Configurações</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-6">
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Aparência</p>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <div class="px-4 py-3.5">
+            <p class="text-[15px] font-semibold mb-2.5 flex items-center gap-3"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-circle-half-stroke"></i></span>Tema</p>
+            <div id="pref-theme" class="seg grid-cols-3">
+              <button onclick="setPref('theme', 'light')" data-v="light" class="seg-btn"><i class="fa-solid fa-sun mr-1"></i>Claro</button>
+              <button onclick="setPref('theme', 'dark')" data-v="dark" class="seg-btn"><i class="fa-solid fa-moon mr-1"></i>Escuro</button>
+              <button onclick="setPref('theme', 'auto')" data-v="auto" class="seg-btn"><i class="fa-solid fa-mobile-screen mr-1"></i>Auto</button>
+            </div>
+          </div>
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-text-height"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Texto maior</span><span class="block text-[12px] font-medium text-ink-2">Aumenta letras e botões</span></span>
+            <input type="checkbox" id="pref-text" class="sr-only" onchange="setPref('textSize', this.checked ? 'big' : 'normal')" /><span class="switch"></span>
+          </label>
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-person-walking"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Menos animação</span><span class="block text-[12px] font-medium text-ink-2">Telas sem movimento</span></span>
+            <input type="checkbox" id="pref-motion" class="sr-only" onchange="setPref('reduceMotion', this.checked)" /><span class="switch"></span>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Na quadra</p>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-bullhorn"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Apito no fim do tempo</span><span class="block text-[12px] font-medium text-ink-2">Som quando o relógio zera</span></span>
+            <input type="checkbox" id="pref-sound" class="sr-only" onchange="setPref('sound', this.checked)" /><span class="switch"></span>
+          </label>
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-mobile-screen-button"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Vibrar</span><span class="block text-[12px] font-medium text-ink-2">No gol e no fim do tempo</span></span>
+            <input type="checkbox" id="pref-vibrate" class="sr-only" onchange="setPref('vibrate', this.checked)" /><span class="switch"></span>
+          </label>
+          <label class="menu-row cursor-pointer" data-v7>
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-bell"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Avisos dos babas das minhas turmas</span><span id="pref-push-sub" class="block text-[12px] font-medium text-ink-2">Início, gols, defesas e resultado, no celular</span></span>
+            <input type="checkbox" id="pref-push-turma" class="sr-only" onchange="togglePushTurma(this.checked)" /><span class="switch"></span>
+          </label>
+        </div>
+      </section>
+
+      <section id="profile-staff" class="hidden">
+        <p class="eyebrow mb-2 px-1">Equipe BABA</p>
+        <div class="card-flat overflow-hidden">
+          <a href="admin.html" class="menu-row"><span class="tile bg-pitch text-butter"><i class="fa-solid fa-user-shield"></i></span><span class="flex-1 min-w-0"><span class="block">Painel de suporte</span><span class="block text-[12px] font-medium text-ink-2">Números, pessoas, turmas, denúncias e avisos</span></span><i class="fa-solid fa-arrow-up-right-from-square text-[12px] text-ink-3"></i></a>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Segurança</p>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-pitch text-butter text-[15px]"><i class="fa-solid fa-fingerprint"></i></span>
+            <span class="flex-1 min-w-0">
+              <span class="block">Pedir digital ao abrir</span>
+              <span id="profile-bio-sub" class="block text-[12px] font-medium text-ink-2"></span>
+            </span>
+            <input type="checkbox" id="profile-bio-toggle" class="sr-only" onchange="toggleBio(this)" /><span class="switch"></span>
+          </label>
+          <button onclick="openAccountSheet('password')" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-lock"></i></span><span class="flex-1">Trocar senha</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="openAccountSheet('recovery')" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-key"></i></span><span class="flex-1 min-w-0"><span class="block">Novo código de recuperação</span><span class="block text-[12px] font-medium text-ink-2">Serve pra criar outra senha se esquecer</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="signOutEverywhere()" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-mobile-retro"></i></span><span class="flex-1 min-w-0"><span class="block">Sair dos outros aparelhos</span><span class="block text-[12px] font-medium text-ink-2">Desconecta sua conta de todo lugar</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Seu baba</p>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-chart-column"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Estatísticas detalhadas</span><span class="block text-[12px] font-medium text-ink-2">Separar números por local: Campo, Society, Futsal</span></span>
+            <input type="checkbox" id="pref-detail" class="sr-only" onchange="setPref('detailStats', this.checked)" /><span class="switch"></span>
+          </label>
+          <button onclick="closeSettings(); openDatabaseModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sage text-pitch text-[14px]"><i class="fa-solid fa-users-rectangle"></i></span><span class="flex-1">Turmas e atletas</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); openExportSheet();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-images"></i></span><span class="flex-1 min-w-0"><span class="block">PDF do baba com fotos</span><span class="block text-[12px] font-medium text-ink-2">Recordação com as estatísticas</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); openHistory();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock-rotate-left"></i></span><span class="flex-1 min-w-0"><span class="block">Babas anteriores</span><span class="block text-[12px] font-medium text-ink-2">Os babas encerrados das suas turmas, com os números de cada um</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); openBackupModal();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-import"></i></span><span class="flex-1">Backup e importar</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); offerLocalImport(true);" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-cloud-arrow-up"></i></span><span class="flex-1">Trazer dados antigos deste aparelho</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); startNewDay();" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-calendar-plus"></i></span><span class="flex-1">Começar novo baba</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="closeSettings(); confirmResetAllData();" class="menu-row !text-danger"><span class="tile w-9 h-9 rounded-xl bg-danger/10 text-danger text-[14px]"><i class="fa-solid fa-trash-arrow-up"></i></span><span class="flex-1">Zerar o baba de hoje</span></button>
+        </div>
+      </section>
+
+      <section id="settings-pwa">
+        <p class="eyebrow mb-2 px-1">Instalação</p>
+        <div class="card-flat overflow-hidden">
+          <div class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-mobile-screen-button"></i></span><span class="flex-1 min-w-0"><span class="block">Aplicativo no celular</span><span id="settings-pwa-status" class="block text-[12px] font-medium text-ink-2"></span></span></div>
+          <button id="settings-pwa-btn" onclick="installApp()" class="menu-row hidden"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-download"></i></span><span class="flex-1">Adicionar à Tela Inicial</span><i class="fa-solid fa-chevron-right text-[11px] text-ink-3"></i></button>
+        </div>
+      </section>
+
+      <section>
+        <p class="eyebrow mb-2 px-1">Ajuda</p>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <button onclick="openSupport()" class="menu-row"><img src="babinha/happy.webp" alt="" class="w-9 h-9 object-contain flex-shrink-0" /><span class="flex-1 min-w-0"><span class="block">Suporte e dúvidas</span><span class="block text-[12px] font-medium text-ink-2">Perguntas frequentes com o Babinha</span></span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="openPatchNotes()" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-butter text-pitch text-[14px]"><i class="fa-solid fa-scroll"></i></span><span class="flex-1">Novidades e notas de atualização</span><i class="fa-solid fa-chevron-right text-[11px] text-ink-3"></i></button>
+          <button onclick="openTutorialHub();" class="menu-row"><img src="babinha/coach.webp" alt="" class="w-9 h-9 object-contain flex-shrink-0" /><span class="flex-1">Tutorial do Babinha</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+          <button onclick="openTermsPage('termos')" class="menu-row"><span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-file-contract"></i></span><span class="flex-1">Termos, privacidade e conduta</span><i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i></button>
+        </div>
+      </section>
+
+      <div class="space-y-2.5">
+        <button onclick="logout()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-right-from-bracket"></i> Sair da conta</button>
+        <button onclick="openAccountSheet('delete')" class="w-full h-11 text-[13px] font-bold text-danger">Excluir minha conta</button>
+      </div>
+      <p class="text-center text-[11px] text-ink-3">BABA · Gestão Digital · <span id="settings-version"></span></p>
+    </div>
+  </div>
+
+
+  <!-- ===================== SUPORTE (página) ===================== -->
+  <div id="page-support" class="page hidden z-[57]" aria-label="Suporte">
+    <div class="page-head">
+      <button onclick="closeSupport()" class="page-head-btn" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+      <span class="text-[16px] font-extrabold">Suporte</span>
+      <span class="w-10"></span>
+    </div>
+    <div class="page-body max-w-lg mx-auto px-4 pb-12 space-y-5">
+      <section class="relative card overflow-hidden p-4 pr-[132px] min-h-[150px] flex flex-col justify-center">
+        <img src="babinha/wave.webp" alt="Babinha" class="babinha-bob absolute right-1 bottom-0 w-[132px]" />
+        <p class="eyebrow">Babinha na área</p>
+        <h2 class="text-[22px] font-bold leading-tight mt-1">Precisa de ajuda,<br><span class="font-serif italic font-normal text-pitch text-[28px]">craque?</span></h2>
+        <p class="text-[13px] text-ink-2 leading-snug mt-1.5">Procure sua dúvida aqui embaixo ou reveja o tutorial.</p>
+      </section>
+
+      <section id="tutorial-section">
+        <div class="flex items-end justify-between px-1 mb-2">
+          <p class="eyebrow">Tutorial do Babinha</p>
+          <p id="tutorial-progress" class="text-[12px] font-semibold text-ink-2"></p>
+        </div>
+        <div id="tutorial-hub" class="card-flat overflow-hidden divide-y divide-ink/[0.07]"></div>
+      </section>
+      <button onclick="openPatchNotes()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-scroll"></i> Notas de atualização</button>
+
+      <label class="relative block">
+        <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-ink-3 text-[14px]"></i>
+        <input id="faq-search" class="field pl-11" placeholder="Buscar: convite, goleiro, senha..." oninput="renderFaq(this.value)" autocomplete="off" />
+      </label>
+
+      <div id="faq-list" class="space-y-4"></div>
+
+      <div class="card-flat p-4 flex items-center gap-3">
+        <img src="babinha/money.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" />
+        <p class="text-[13px] text-ink-2 leading-snug"><b class="text-ink">O BABA é de graça.</b> O Babinha guarda a grana da vaquinha só no desenho, prometo.</p>
+      </div>
+    </div>
+  </div>
+

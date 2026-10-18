@@ -1,0 +1,20 @@
+  <!-- Confirm -->
+  <div id="modal-confirm" class="overlay hidden z-[90]" onclick="if(event.target===this) resolveConfirm(false)">
+    <div class="sheet-panel space-y-4">
+      <div class="grabber"></div>
+      <div class="flex items-start gap-3">
+        <img id="modal-confirm-img" src="babinha/worried.webp" alt="" class="w-16 h-16 object-contain flex-shrink-0 -my-1" />
+        <p id="modal-confirm-text" class="text-[15px] font-semibold leading-snug pt-1"></p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="resolveConfirm(false)" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+        <button onclick="resolveConfirm(true)" id="modal-confirm-ok" class="btn-primary flex-1 h-12 text-[14px]">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+/*APP_JS*/
+  </script>
+</body>
+</html>

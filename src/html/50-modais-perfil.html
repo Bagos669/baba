@@ -1,0 +1,86 @@
+  <!-- Foto / ícone (perfil e turma) -->
+  <div id="modal-picker" class="overlay hidden z-[62]" onclick="if(event.target===this) closeAvatarPicker()">
+    <div class="sheet-panel space-y-4 max-h-[90dvh] overflow-y-auto overscroll-contain">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between -mt-1">
+        <h3 id="picker-title" class="title">Sua foto</h3>
+        <button onclick="closeAvatarPicker()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="flex items-center gap-4">
+        <span id="picker-preview" class="avatar w-20 h-20 text-[26px]"></span>
+        <div class="flex-1 min-w-0 space-y-2">
+          <label class="btn-primary w-full h-11 text-[14px] cursor-pointer">
+            <i class="fa-solid fa-image"></i> Escolher foto
+            <input type="file" id="picker-file" accept="image/*" class="sr-only" onchange="pickerFromFile(this)" />
+          </label>
+          <button id="picker-remove" onclick="pickerChoose(null)" class="btn-outline w-full h-10 text-[13px]">Tirar foto e ícone</button>
+        </div>
+      </div>
+      <div>
+        <span class="label">Ou um ícone</span>
+        <div id="picker-emojis" class="grid grid-cols-6 gap-2"></div>
+      </div>
+      <p id="picker-note" class="text-[12px] text-ink-2 leading-snug"></p>
+    </div>
+  </div>
+
+  <!-- PDF personalizado -->
+  <div id="modal-export" class="overlay hidden" onclick="if(event.target===this) closeExportSheet()">
+    <div class="sheet-panel space-y-3.5 max-h-[92dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-start justify-between gap-2 flex-shrink-0 -mt-1">
+        <div class="min-w-0">
+          <h3 class="title">PDF do baba</h3>
+          <p id="export-sub" class="text-[13px] text-ink-2 leading-snug truncate"></p>
+        </div>
+        <button onclick="closeExportSheet()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="overflow-y-auto flex-grow pr-1 overscroll-contain space-y-3.5">
+        <label class="block">
+          <span class="label">Título</span>
+          <input id="export-title" class="field" maxlength="60" placeholder="Baba de sábado" />
+        </label>
+        <label class="block">
+          <span class="label">Recado (opcional)</span>
+          <textarea id="export-note" rows="2" maxlength="280" class="field resize-none" placeholder="Ex: Jogão! Valeu a todos, semana que vem tem mais."></textarea>
+        </label>
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="label !mb-0">Fotos da pelada</span>
+            <span id="export-count" class="text-[12px] font-semibold text-ink-2"></span>
+          </div>
+          <div id="export-photos" class="grid grid-cols-3 gap-2"></div>
+          <p class="text-[12px] text-ink-2 leading-snug mt-1.5">Até 12 fotos. Elas vão só pro PDF, não ficam guardadas no app. A primeira vira a capa.</p>
+        </div>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <label class="menu-row cursor-pointer !py-3"><span class="flex-1 text-[14px]">Destaques do dia</span><input type="checkbox" id="export-opt-highlights" class="sr-only" checked /><span class="switch"></span></label>
+          <label class="menu-row cursor-pointer !py-3" id="export-row-games"><span class="flex-1 text-[14px]">Times e histórico de jogos</span><input type="checkbox" id="export-opt-games" class="sr-only" checked /><span class="switch"></span></label>
+          <label class="menu-row cursor-pointer !py-3"><span class="flex-1 text-[14px]">Tabela de atletas</span><input type="checkbox" id="export-opt-players" class="sr-only" checked /><span class="switch"></span></label>
+        </div>
+      </div>
+      <button id="btn-export-pdf" onclick="generateBabaPDF()" class="btn-primary w-full h-14 text-[15px] flex-shrink-0"><i class="fa-solid fa-file-pdf"></i> Gerar PDF</button>
+    </div>
+  </div>
+
+  <!-- Tutorial com o Babinha -->
+  <div id="tour" class="hidden fixed inset-0 z-[97]" aria-live="polite">
+    <div id="tour-hole" class="tour-hole"></div>
+    <div id="tour-card" class="tour-card">
+      <div id="tour-demo" class="tour-demo hidden" aria-hidden="true"></div>
+      <div class="flex items-end gap-2">
+        <img id="tour-img" src="babinha/wave.webp" alt="Babinha" class="babinha-bob w-[92px] flex-shrink-0 -mb-1" />
+        <div class="tour-bubble flex-1 min-w-0">
+          <p id="tour-step" class="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-2"></p>
+          <p id="tour-title" class="text-[17px] font-bold leading-tight mt-0.5"></p>
+          <p id="tour-text" class="text-[14px] text-ink-2 leading-snug mt-1"></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 mt-3">
+        <button onclick="endTour(true)" class="h-10 px-3 text-[13px] font-bold text-ink-2">Pular</button>
+        <div id="tour-dots" class="flex-1 flex items-center justify-center gap-1"></div>
+        <button id="tour-back" onclick="tourGo(-1)" class="btn-outline h-10 w-10 text-[13px]" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+        <button id="tour-next" onclick="tourGo(1)" class="btn-primary h-10 px-5 text-[14px]">Próximo</button>
+      </div>
+    </div>
+  </div>
+

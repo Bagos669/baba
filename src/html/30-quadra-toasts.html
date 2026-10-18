@@ -1,0 +1,79 @@
+  <!-- ===================== MODO QUADRA (placar em tela cheia, paisagem) ===================== -->
+  <div id="court-mode" class="hidden fixed inset-0 z-[45]" aria-label="Placar em tela cheia">
+    <div class="pitch-card cm-frame absolute inset-0 flex flex-col">
+      <div class="rings cm-rings"></div>
+
+      <!-- Top bar: status · clock · rules + exit -->
+      <div class="cm-top relative grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-white/10">
+        <div class="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.12em] text-butter/75 min-w-0">
+          <span id="cm-dot" class="live-dot hidden"></span><span id="cm-dot-idle" class="w-[7px] h-[7px] rounded-full bg-butter/40"></span>
+          <span id="cm-status" class="truncate">Pronto</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="cm-timer" class="cm-timer font-serif text-butter">07:00</span>
+          <span id="cm-added" class="hidden text-[12px] font-extrabold text-pitch bg-butter rounded-md px-1.5 py-1 leading-none"></span>
+          <button onclick="toggleMatchTimer()" class="cm-play rounded-full bg-butter text-pitch flex items-center justify-center active:scale-95 transition" aria-label="Iniciar ou pausar"><i id="cm-play-icon" class="fa-solid fa-play"></i></button>
+        </div>
+        <div class="flex items-center justify-end gap-2 min-w-0">
+          <select id="cm-rule" onchange="updateGoalLimitRule(this.value); renderMatchView();" class="select-dark !w-auto !py-2 !text-[13px]" aria-label="Fim de jogo">
+            <option value="none">Só no tempo</option>
+            <option value="2">2 gols</option>
+            <option value="3">3 gols</option>
+            <option value="5">5 gols</option>
+            <option value="diff2">Dif. de 2</option>
+          </select>
+          <select id="cm-duration" onchange="setMatchDuration(Number(this.value))" class="select-dark !w-auto !py-2 !text-[13px]" aria-label="Tempo total">
+            <option value="180">3 min</option>
+            <option value="300">5 min</option>
+            <option value="420">7 min</option>
+            <option value="480">8 min</option>
+            <option value="600">10 min</option>
+            <option value="720">12 min</option>
+            <option value="900">15 min</option>
+            <option value="1200">20 min</option>
+            <option value="1500">25 min</option>
+            <option value="1800">30 min</option>
+          </select>
+          <button id="cm-qr" onclick="openQr()" class="hidden w-10 h-10 flex-shrink-0 rounded-full bg-butter text-pitch flex items-center justify-center active:scale-95" aria-label="QR do jogo ao vivo"><i class="fa-solid fa-qrcode"></i></button>
+          <button onclick="exitCourtMode()" class="w-10 h-10 flex-shrink-0 rounded-full bg-white/10 border border-white/20 text-butter flex items-center justify-center active:scale-95" aria-label="Sair da tela cheia"><i class="fa-solid fa-compress"></i></button>
+        </div>
+      </div>
+
+      <!-- Scoreboard halves -->
+      <div class="relative flex-1 min-h-0 grid grid-cols-2">
+        <div class="cm-half flex flex-col items-center justify-center min-w-0 border-r border-white/10">
+          <p class="text-[12px] font-bold uppercase tracking-[0.14em] text-butter/70 truncate max-w-full px-3"><span id="cm-role-a">Lado A</span> · <span id="cm-label-a" class="text-butter">Time 1</span></p>
+          <div id="cm-score-a" class="cm-score font-serif text-butter">0</div>
+          <div class="flex gap-2">
+            <button id="cm-goal-a" onclick="openGoalModal('A')" class="btn-butter cm-btn"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="cm-save-a" onclick="openSaveModal('A')" class="btn cm-btn rounded-full border border-white/25 text-butter bg-white/5"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+        </div>
+        <div class="cm-half flex flex-col items-center justify-center min-w-0">
+          <p class="text-[12px] font-bold uppercase tracking-[0.14em] text-butter/70 truncate max-w-full px-3"><span id="cm-role-b">Lado B</span> · <span id="cm-label-b" class="text-butter">Time 2</span></p>
+          <div id="cm-score-b" class="cm-score font-serif text-butter">0</div>
+          <div class="flex gap-2">
+            <button id="cm-goal-b" onclick="openGoalModal('B')" class="btn-butter cm-btn"><i class="fa-solid fa-futbol"></i> Gol</button>
+            <button id="cm-save-b" onclick="openSaveModal('B')" class="btn cm-btn rounded-full border border-white/25 text-butter bg-white/5"><i class="fa-solid fa-hand"></i> Defesa</button>
+          </div>
+        </div>
+        <span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-11 h-11 rounded-full border border-white/20 bg-pitch flex items-center justify-center font-serif italic text-[18px] text-butter/80">vs</span>
+      </div>
+
+      <!-- Bottom bar: extra time · undo · finish -->
+      <div class="cm-bottom relative flex items-center justify-between gap-3 bg-black/15 border-t border-white/10">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-[12px] font-bold text-butter/65 mr-1 hidden sm:inline">Acréscimo</span>
+          <button onclick="addExtraTime(1)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+1</button>
+          <button onclick="addExtraTime(2)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+2</button>
+          <button onclick="addExtraTime(3)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+3</button>
+          <button id="cm-undo" onclick="undoLastEvent()" class="h-9 px-3 rounded-xl text-butter/75 text-[13px] font-bold flex items-center gap-1.5 active:scale-95"><i class="fa-solid fa-rotate-left"></i> Desfazer</button>
+        </div>
+        <button id="cm-finish" onclick="finishMatchAndNextChallenger()" class="btn-butter h-11 px-5 text-[14px] flex-shrink-0">Finalizar partida <i class="fa-solid fa-arrow-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts (above everything, auth screens included) -->
+  <div id="toast-container" class="toast-area fixed inset-x-4 z-[95] max-w-lg mx-auto flex flex-col gap-2 pointer-events-none"></div>
+
