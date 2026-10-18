@@ -44,7 +44,9 @@ async def main():
         await a.screenshot(path=f'{OUT}/turma_events_empty.png')
         await a.evaluate(f"closeTurmaEditor(); openEventEdit('{tid}')"); await a.wait_for_timeout(300)
         today = datetime.datetime.now()
-        await a.fill('#eve-date', today.strftime('%Y-%m-%d')); await a.fill('#eve-time', (today + datetime.timedelta(hours=2)).strftime('%H%M'))
+        # Later today (the close-presence step needs today's list), capped at 23:59 so it never rolls into tomorrow.
+        when = min(today + datetime.timedelta(hours=2), today.replace(hour=23, minute=59, second=0, microsecond=0))
+        await a.fill('#eve-date', when.strftime('%Y-%m-%d')); await a.fill('#eve-time', when.strftime('%H%M'))
         if await a.evaluate("document.getElementById('eve-time').type") != 'text' or ':' not in await a.evaluate("document.getElementById('eve-time').value"): bad.append('time mask')
         await a.fill('#eve-place', 'Quadra do Zé, Asa Norte'); await a.fill('#eve-max', '8'); await a.fill('#eve-note', 'Leva colete')
         await a.screenshot(path=f'{OUT}/event_edit.png')

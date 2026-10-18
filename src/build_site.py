@@ -122,9 +122,9 @@ open(f'{OUT}/.nojekyll', 'w').write('')
 total = sum(os.path.getsize(f'{OUT}/{f}') for f in files)
 print('site ok', version, len(files), 'files', round(total / 1024), 'KB', 'icons', len(found))
 
-# --- publish into the repo root (keeps .git, src, README)
+# --- publish into the repo root (keeps .git, src, README, CLAUDE.md)
 for name in os.listdir(ROOT):
-    if name in ('.git', 'src', 'README.md'): continue
+    if name in ('.git', 'src', 'README.md', 'CLAUDE.md'): continue
     path = os.path.join(ROOT, name)
     shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
 for name in os.listdir(OUT):
