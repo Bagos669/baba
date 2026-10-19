@@ -426,9 +426,15 @@
       </div>
       </div>
 
-      <!-- =================== LOJINHA =================== -->
+      <!-- =================== RESENHA (antiga Lojinha): Palpites, Missões e a Lojinha =================== -->
       <div id="tab-content-loja" class="tab-content hidden space-y-5">
-        <h2 class="text-[22px] font-extrabold tracking-tight pt-2">Lojinha do Babinha</h2>
+        <div class="flex items-end justify-between gap-3 pt-2">
+          <h2 class="text-[22px] font-extrabold tracking-tight">Resenha</h2>
+          <span class="ev-tag bg-butter text-pitch flex-shrink-0 mb-1"><i class="fa-solid fa-coins mr-1"></i><span id="resenha-balance">0</span> pts</span>
+        </div>
+      <section id="shop-palpites" class="hidden" style="scroll-margin-top: 76px"></section>
+      <section id="shop-missions" class="hidden"></section>
+      <h3 id="shop-lojinha-title" class="text-[19px] font-extrabold tracking-tight pt-1">Lojinha do Babinha</h3>
       <section class="pitch-card p-4 pr-[128px] min-h-[150px] flex flex-col justify-center">
         <div class="rings"></div>
         <img src="babinha/money.webp" alt="" class="absolute right-1 bottom-0 w-[124px] babinha-bob" />
@@ -437,8 +443,6 @@
         <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
       </section>
       <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
-      <section id="shop-palpites" class="hidden" style="scroll-margin-top: 76px"></section>
-      <section id="shop-missions" class="hidden"></section>
       <button onclick="openAthleteCard(currentUser && currentUser.id)" class="w-full flex items-center gap-4 card p-4 text-left active:scale-[0.99] transition">
         <span id="shop-preview-avatar"></span>
         <div class="min-w-0 flex-1">
@@ -468,7 +472,7 @@
           <i class="fa-solid fa-people-group text-[17px]"></i><span class="text-[10.5px] font-bold">Turmas</span>
         </button>
         <button onclick="switchTab('loja')" id="tab-nav-loja" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <i class="fa-solid fa-bag-shopping text-[17px]"></i><span class="text-[10.5px] font-bold">Lojinha</span>
+          <i class="fa-solid fa-bag-shopping text-[17px]"></i><span class="text-[10.5px] font-bold">Resenha</span>
         </button>
         <button id="header-profile" onclick="openProfile()" class="relative rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition" aria-label="Seu perfil">
           <span class="relative inline-flex"><span id="header-avatar-wrap" class="inline-flex rounded-full"><span id="header-avatar" class="avatar w-[30px] h-[30px] text-[11px]">?</span></span><span id="sync-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-card"></span></span>

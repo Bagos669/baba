@@ -10,7 +10,7 @@
     const PRES_CLS = { bronze: 'bg-[#ecd3b8] text-[#6b3f17]', prata: 'bg-[#e3e7eb] text-[#47525d]', ouro: 'bg-[#f8e394] text-[#6a5200]', diamante: 'bg-[#d3effb] text-[#0b5d7a]' };
     const METRICS = [['goals', 'Gols'], ['assists', 'Assist.'], ['part', 'Particip.'], ['wins', 'Vitórias'], ['matches', 'Jogos'], ['saves', 'Defesas']];
     const KIND_LABEL = { amistoso_fechado: 'Amistoso fechado', amistoso_aberto: 'Amistoso aberto', campeonato: 'Campeonato' };
-    const TROPHY_ICON = { artilheiro: 'fa-futbol', garcom: 'fa-handshake', craque: 'fa-star', vencedor: 'fa-fire', paredao: 'fa-hand', campeonato: 'fa-trophy' };
+    const TROPHY_ICON = { artilheiro: 'fa-futbol', garcom: 'fa-handshake', craque: 'fa-star', vencedor: 'fa-fire', paredao: 'fa-hand', campeonato: 'fa-trophy', pe_quente: 'fa-shoe-prints', mae_dina: 'fa-hat-wizard' };
     const hubErr = e => {
       if (isNetworkError(e)) return 'Precisa de internet.';
       const m = String((e && e.message) || '');
@@ -156,7 +156,7 @@
         d.atletas.forEach(a => { (bySeason[a.season] = bySeason[a.season] || []).push(a); });
         body.innerHTML = `
           <div><p class="section-tag">Troféus da turma</p>${d.turma.length ? `<div class="space-y-2 mt-1.5">${d.turma.map(x => card(x.kind, x.title, escapeHtml(sName(x.season)), true)).join('')}</div>` : '<p class="text-[13px] text-ink-2 mt-1">Ainda sem troféu de turma. Campeonatos ganhos aparecem aqui.</p>'}</div>
-          ${Object.keys(bySeason).sort().reverse().map(s => `<div><p class="section-tag">Temporada ${escapeHtml(sName(s))}</p><div class="space-y-2 mt-1.5">${bySeason[s].map(a => card(a.kind, a.title, `${escapeHtml(a.name)} · ${a.value}`, false)).join('')}</div></div>`).join('')}
+          ${Object.keys(bySeason).sort().reverse().map(s => `<div><p class="section-tag">Temporada ${escapeHtml(sName(s))}</p><div class="space-y-2 mt-1.5">${bySeason[s].map(a => card(a.kind, a.title, `${escapeHtml(a.name)} · ${a.kind === 'pe_quente' || a.kind === 'mae_dina' ? escapeHtml(trophyValueText(a)) : a.value}`, false)).join('')}</div></div>`).join('')}
           ${d.atletas.length ? '' : '<p class="text-[13px] text-ink-2">Os troféus de atleta saem no fim de cada temporada de 6 meses (precisa de pelo menos 3 babas nela).</p>'}`;
         return;
       }
@@ -773,7 +773,7 @@
       const pts = wallet ? `
         <button onclick="openShop()" class="card w-full p-3.5 flex items-center gap-3 text-left">
           <img src="babinha/money.webp" alt="" class="w-11 h-11 object-contain flex-shrink-0" />
-          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${missionsReady() ? `${missionsReady()} missão${missionsReady() > 1 ? 'ões' : ''} pronta${missionsReady() > 1 ? 's' : ''} pra resgatar` : wallet.daily ? 'Bônus do dia esperando · missões da semana' : missionsCache && missionsCache.length ? 'Missões da semana e lojinha' : 'Molduras e nomes na lojinha'}</span></span>
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${missionsReady() ? `${missionsReady()} missão${missionsReady() > 1 ? 'ões' : ''} pronta${missionsReady() > 1 ? 's' : ''} pra resgatar` : wallet.daily ? 'Bônus do dia esperando · missões da semana' : missionsCache && missionsCache.length ? 'Missões da semana e palpites na Resenha' : 'Palpites e lojinha na Resenha'}</span></span>
           ${missionsReady() ? `<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">${missionsReady()}</span>` : wallet.daily ? '<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">+100</span>' : '<i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>'}
         </button>` : '';
       const st = status8 || {};

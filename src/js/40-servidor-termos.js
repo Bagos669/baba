@@ -60,6 +60,8 @@
       adjustPropLine: (market, line) => rpc('adjust_prop_line', { market, line }),
       suspendPropMarket: market => rpc('suspend_prop_market', { market }),
       propEventBets: event => rpc('prop_event_bets', { event }),
+      propLeaderboard: (t, season) => rpc('prop_leaderboard', { t, season: season || null }),
+      userTrophies: u => rpc('user_trophies', { u: u || null }),
       setPrivacy: (t, pub) => rpc('set_turma_privacy', { t, pub }),
       turmaRanking: (t, period, metric, lim) => rpc('turma_ranking', { t, period, metric, lim }),
       turmaTrophies: t => rpc('turma_trophies', { t }),
@@ -154,9 +156,17 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.4.2';
+    const APP_VERSION = '11.5';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.5', date: '19/10/2026', title: 'Resenha: palpites novos e ranking', items: [
+        'A aba Lojinha virou Resenha. Ela abre pelos Palpites; depois vêm as missões da semana e, no fim, a Lojinha de sempre.',
+        'Duelos: dois atletas parecidos, quem faz mais gols + assistências no dia. Empate devolve o palpite.',
+        'Destaque do dia: palpite em quem vai ser o Artilheiro, o Garçom e o Paredão. Se der empate no topo, o pagamento é dividido entre os empatados.',
+        'Total do baba: Mais ou Menos de partidas e de gols no dia, com a linha tirada do histórico da turma.',
+        'Ranking de palpiteiros: na sub-aba Ranking, os melhores da turma na temporada por lucro, com ROI, acertos e cravadas. Entra quem tem 10 palpites resolvidos.',
+        'Troféus novos no fim da temporada: Pé-quente (quem mais lucrou) e Mãe Diná (quem mais acertou cravadas). Seus troféus agora aparecem no Perfil e no seu card.'
+      ] },
       { v: '11.4.2', date: '19/10/2026', title: 'Avisos no celular', items: [
         'Lista aberta: quando a turma puxa a lista de um baba, você recebe um aviso, mesmo com o app fechado. Quem puxou a lista não recebe.',
         'Lembrete de resposta: um dia antes do baba, quem ainda não respondeu Vou, Talvez ou Não vou recebe um lembrete.',

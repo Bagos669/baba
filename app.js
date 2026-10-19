@@ -1125,7 +1125,7 @@
             offerLocalImport();
             const lc = takePendingLive();
             if (lc) openLive(lc);
-            // Toque num aviso de palpites com o app fechado: a Lojinha só abre depois de o servidor responder (v7 conhecido).
+            // Toque num aviso de palpites com o app fechado: a Resenha só abre depois de o servidor responder (v7 conhecido).
             else openPendingPalpites();
           }));
         });
@@ -1981,10 +1981,15 @@
         if (!v || !(v.matches || v.goals || v.assists || v.saves)) return '';
         return `<div class="card-flat p-3"><p class="text-[12px] font-extrabold text-pitch mb-1.5">${l}</p><div class="grid grid-cols-4 text-center">${[[v.matches, 'Jogos'], [v.goals, 'Gols'], [v.assists, 'Assist.'], [v.saves, 'Defesas']].map(([n, t]) => `<div><p class="font-serif text-[22px] leading-none">${Number(n) || 0}</p><p class="text-[10.5px] font-semibold text-ink-2 mt-0.5">${t}</p></div>`).join('')}</div></div>`;
       }).join('') : '';
-      const cardBox = document.getElementById('pf-card');
-      if (currentUser) cardBox.innerHTML = `<button onclick="openAthleteCard(currentUser.id)" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics || {} }, mine || {}, { small: true })}</button>`;
+      renderProfileCard(mine);
       const box = document.getElementById('profile-mine');
       if (box) box.innerHTML = mine ? '' : '<p class="text-[12.5px] text-ink-2 text-center leading-snug">Ligue seu nome numa turma pra seus números aparecerem aqui.</p>';
+      renderProfileTrophies();
+    }
+
+    function renderProfileCard(mine) {
+      const cardBox = document.getElementById('pf-card');
+      if (cardBox && currentUser) cardBox.innerHTML = `<button onclick="openAthleteCard(currentUser.id)" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics || {} }, mine || myStats() || {}, { small: true, trophies: userTrophyCache.get(currentUser.id) })}</button>`;
     }
 
     async function shareMyCard() {
@@ -2103,7 +2108,9 @@
       ['Baba points', 'Como funciona o anúncio de gol?', 'Compre um <b>Anúncio de gol</b> (e, se quiser, um <b>Som de gol</b>) na lojinha, aba Gol. Quando você marcar com o nome ligado à conta, o celular de quem organiza mostra seu cartão e toca seu som, e quem assiste ao vivo vê o cartão.'],
       ['Baba points', 'O que é a pipoca?', 'Uma zoeira de 150 pontos: abra o card de alguém da sua turma e toque em <b>Jogar pipoca</b>. Ela fica 24 h no card e na foto da pessoa. Uma por vez em cada card, até 3 por dia.'],
       ['Ao vivo', 'Como recebo os gols no celular?', 'No jogo ao vivo, toque em <b>Avisar gols</b>. Pra todos os babas das suas turmas, ligue em Configurações → <b>Avisos dos babas das minhas turmas</b>. No iPhone, os avisos só funcionam com o BABA instalado na tela de início.'],
-      ['Baba points', 'Como ganho baba points?', 'No bônus do dia, nas <b>Missões da semana</b> (na Lojinha) e acertando palpites. As missões renovam toda segunda.'],
+      ['Baba points', 'Como ganho baba points?', 'No bônus do dia, nas <b>Missões da semana</b> (na Resenha) e acertando palpites. As missões renovam toda segunda.'],
+      ['Baba points', 'O que é a Resenha?', 'É a aba que era a Lojinha. Ela abre pelos <b>Palpites</b> (Mais/Menos de cada atleta, Duelos, Destaque do dia e Total do baba) e pelo <b>Ranking</b> dos palpiteiros da turma. Depois vêm as missões da semana e, no fim, a Lojinha de molduras, nomes e cia.'],
+      ['Baba points', 'Como funciona o ranking de palpiteiros?', 'Na Resenha, toque em <b>Ranking</b>. Vale o lucro na temporada (o que você recebeu menos o que palpitou), com desempate pelo ROI. Entra quem tem 10 palpites resolvidos; devolvidos não contam. No fim da temporada, o 1º com lucro leva o <b>Pé-quente</b> e quem mais acertou cravadas leva a <b>Mãe Diná</b>.'],
       ['Turmas e convites', 'Como chamo a galera pra turma?', 'Abra a turma e toque em <b>Convidar</b>. Mande o link no grupo: quem entrar vê a turma e o histórico, e toca no próprio nome pra ligar à conta.'],
       ['Turmas e convites', 'Qual a diferença entre dono e adm?', 'O <b>adm</b> adiciona e remove atletas, marca goleiro, convida e tira pessoas. O <b>dono</b> faz tudo isso e ainda escolhe os adms, passa a turma pra outra pessoa e é o único que pode excluir a turma.'],
       ['Turmas e convites', 'Como dou adm pra alguém?', 'O dono abre a turma → <b>Pessoas e cargos</b> → toca na pessoa → <b>Tornar adm</b>. A pessoa precisa ter entrado pelo convite.'],
@@ -2203,10 +2210,11 @@
         { img: 'arrogante', tab: 'inicio', title: 'Desafio 1v1', text: 'Quer provocar o amigo? Desafie direto: quem vence ou quem faz mais gols. Os dois põem os mesmos pontos e quem acertar leva tudo. Empate devolve.' },
         { img: 'shhh', tab: 'inicio', title: 'Chat da turma e do jogo', text: 'Cada turma tem chat, e cada jogo ao vivo também, com figurinhas do Babinha na carinha ao lado da mensagem. Mensagem ofensiva? Toque no ⋯ e denuncie: com 3 denúncias ela some e o suporte fica sabendo.' }
       ] },
-      { id: 'pontos', title: 'Baba points e lojinha', img: 'dancinha', desc: 'Bônus do dia, missões da semana, lojinha e exclusivos.', steps: [
-        { img: 'money', tab: 'inicio', target: '#tab-nav-loja', title: 'Seus baba points', text: 'Toda conta começa com 1.000 pontos. Ganha mais no bônus do dia, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.' },
-        { img: 'calculante', tab: 'inicio', title: 'Missões da semana', text: 'Na Lojinha: abrir o app 3 dias, jogar um baba, marcar gols, organizar... Cada missão vale pontos. Cumpriu? Toque em Pegar. Renova toda segunda.' },
-        { img: 'dancinha', tab: 'inicio', title: 'Lojinha', text: 'Troque pontos por molduras, nomes coloridos, brilhos, títulos, codinome, mascote, fundo do card e até o anúncio e o som do seu gol. Tudo aparece no seu card de atleta.' },
+      { id: 'pontos', title: 'Baba points e Resenha', img: 'dancinha', desc: 'Palpites, ranking, missões da semana, lojinha e exclusivos.', steps: [
+        { img: 'money', tab: 'inicio', target: '#tab-nav-loja', title: 'Seus baba points', text: 'Toda conta começa com 1.000 pontos, e eles ficam na aba Resenha. Ganha mais no bônus do dia, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.' },
+        { img: 'calculante', tab: 'inicio', target: '#tab-nav-loja', title: 'Palpites e ranking', text: 'A Resenha abre pelos palpites antes do jogo (só 18+): Mais ou Menos de cada atleta, Duelos, Destaque do dia e Total do baba. Na sub-aba Ranking, os melhores palpiteiros da turma na temporada.' },
+        { img: 'calculante', tab: 'inicio', title: 'Missões da semana', text: 'Na Resenha, logo depois dos palpites: abrir o app 3 dias, jogar um baba, marcar gols, organizar... Cada missão vale pontos. Cumpriu? Toque em Pegar. Renova toda segunda.' },
+        { img: 'dancinha', tab: 'inicio', title: 'Lojinha', text: 'No fim da Resenha fica a Lojinha. Troque pontos por molduras, nomes coloridos, brilhos, títulos, codinome, mascote, fundo do card e até o anúncio e o som do seu gol. Tudo aparece no seu card de atleta.' },
         { img: 'siuu', tab: 'inicio', target: '#header-profile', title: 'Card de atleta e pipoca', text: 'Seu card fica no Perfil, e a galera abre tocando em você na turma ou no chat. No card de um amigo dá pra jogar pipoca: 150 pontos e ela fica lá 24 h.' },
         { img: 'aura', tab: 'inicio', title: 'Itens exclusivos', text: 'Alguns itens não estão à venda: a Aura de Fogo Azul é dos 100 primeiros do BABA. Ficam com o selo Fundador na lojinha.' }
       ] },
@@ -2948,6 +2956,8 @@
       adjustPropLine: (market, line) => rpc('adjust_prop_line', { market, line }),
       suspendPropMarket: market => rpc('suspend_prop_market', { market }),
       propEventBets: event => rpc('prop_event_bets', { event }),
+      propLeaderboard: (t, season) => rpc('prop_leaderboard', { t, season: season || null }),
+      userTrophies: u => rpc('user_trophies', { u: u || null }),
       setPrivacy: (t, pub) => rpc('set_turma_privacy', { t, pub }),
       turmaRanking: (t, period, metric, lim) => rpc('turma_ranking', { t, period, metric, lim }),
       turmaTrophies: t => rpc('turma_trophies', { t }),
@@ -3042,9 +3052,17 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.4.2';
+    const APP_VERSION = '11.5';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.5', date: '19/10/2026', title: 'Resenha: palpites novos e ranking', items: [
+        'A aba Lojinha virou Resenha. Ela abre pelos Palpites; depois vêm as missões da semana e, no fim, a Lojinha de sempre.',
+        'Duelos: dois atletas parecidos, quem faz mais gols + assistências no dia. Empate devolve o palpite.',
+        'Destaque do dia: palpite em quem vai ser o Artilheiro, o Garçom e o Paredão. Se der empate no topo, o pagamento é dividido entre os empatados.',
+        'Total do baba: Mais ou Menos de partidas e de gols no dia, com a linha tirada do histórico da turma.',
+        'Ranking de palpiteiros: na sub-aba Ranking, os melhores da turma na temporada por lucro, com ROI, acertos e cravadas. Entra quem tem 10 palpites resolvidos.',
+        'Troféus novos no fim da temporada: Pé-quente (quem mais lucrou) e Mãe Diná (quem mais acertou cravadas). Seus troféus agora aparecem no Perfil e no seu card.'
+      ] },
       { v: '11.4.2', date: '19/10/2026', title: 'Avisos no celular', items: [
         'Lista aberta: quando a turma puxa a lista de um baba, você recebe um aviso, mesmo com o app fechado. Quem puxou a lista não recebe.',
         'Lembrete de resposta: um dia antes do baba, quem ainda não respondeu Vou, Talvez ou Não vou recebe um lembrete.',
@@ -3546,6 +3564,7 @@
           <div class="acard-name">${styledName(person.name || '?', c)}</div>
           <div class="acard-nick">${nick ? `“${escapeHtml(nick)}”` : '&nbsp;'}</div>
           <div class="acard-stats">${cell(st.goals, 'gols')}${cell(st.assists, 'assist.')}${cell(st.saves, 'def.')}${cell(st.matches, 'jogos')}${cell(st.wins, 'vit.')}</div>
+          ${cardTrophiesHtml(opts.trophies)}
           ${pip ? `<div class="acard-pipoca" title="Pipoca de ${escapeHtml(pip.from || 'alguém')}"><span>🍿</span><small>de ${escapeHtml(firstName(pip.from || 'alguém'))}</small></div>` : ''}
         </div>`;
     }
@@ -3576,7 +3595,8 @@
       const me = currentUser && uid === currentUser.id;
       const person = personFor(uid);
       const pip = pipocaOf(person.cosmetics);
-      document.getElementById('acard-box').innerHTML = athleteCardHtml(person, statsForUser(uid));
+      document.getElementById('acard-box').innerHTML = athleteCardHtml(person, statsForUser(uid), { trophies: userTrophyCache.get(uid) });
+      if (!userTrophyCache.has(uid)) loadUserTrophies(uid).then(l => { if (l && acardOpen && acardOpen.uid === uid) renderAthleteCard(); });
       const t = turmaId ? turmaById(turmaId) : null;
       const tp = t && (t.people || []).find(x => x.id === uid);
       const canManage = !!(tp && !me && (t.role === 'owner' || (t.role === 'admin' && tp.role === 'member')));
@@ -3829,22 +3849,26 @@
     let shopKind = 'frame';
 
     async function openShop(tab) {
-      if (v7 !== true) { showToast('A lojinha chega quando o servidor for atualizado.', 'warning'); return; }
-      if (typeof tab === 'string' && SHOP_TABS.some(t => t[0] === tab)) shopKind = tab;
+      if (v7 !== true) { showToast('A Resenha chega quando o servidor for atualizado.', 'warning'); return; }
+      const toCatalog = typeof tab === 'string' && SHOP_TABS.some(t => t[0] === tab);
+      if (toCatalog) shopKind = tab;
       switchTab('loja');
+      // v11.5: o catálogo fica no fim da Resenha; quem veio "mudar o visual" desce direto até a Lojinha.
+      if (toCatalog) setTimeout(() => { const el = document.getElementById('shop-lojinha-title'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
     }
     async function enterShop() {
-      if (v7 !== true) { showToast('A lojinha chega quando o servidor for atualizado.', 'warning'); switchTab('inicio'); return; }
+      if (v7 !== true) { showToast('A Resenha chega quando o servidor for atualizado.', 'warning'); switchTab('inicio'); return; }
       renderShop();
       try {
         const [items] = await Promise.all([shopItemsCache ? Promise.resolve(shopItemsCache) : api.shopItems(), refreshWallet()]);
         shopItemsCache = items;
       } catch (e) {
-        if (isNetworkError(e)) showToast('A lojinha precisa de internet.', 'warning');
+        if (isNetworkError(e)) showToast('A Resenha precisa de internet.', 'warning');
       }
       renderShop();
       renderMissions();
       loadProp(true);
+      if (propSub === 'rank') loadPropRank(true);
       loadMissions().then(loadLedger);
     }
     function closeShop() {
@@ -3893,7 +3917,7 @@
     function renderShop() {
       const me = currentUser || {};
       const cos = cosOf(me.cosmetics);
-      document.getElementById('shop-balance').innerText = wallet ? fmtPts(wallet.balance) : '...';
+      paintBalance();
       const daily = document.getElementById('shop-daily');
       daily.disabled = !(wallet && wallet.daily);
       daily.innerHTML = wallet && wallet.daily ? '<i class="fa-solid fa-gift"></i> Pegar bônus do dia (+100)' : '<i class="fa-solid fa-clock"></i> Bônus de hoje já pego';
@@ -3986,7 +4010,7 @@
        Mais/Menos por atleta confirmado na lista e cravada de gols. Linha, cotação,
        trava e pagamento são do servidor (prop_markets, place_prop_bet...); aqui só se mostra.
        =================================================================== */
-    let propEventId = null;            // lista aberta na seção Palpites (Lojinha)
+    let propEventId = null;            // lista aberta na seção Palpites (Resenha)
     let propForced = null;             // evento vindo do toque num aviso: abre mesmo que já tenha passado ou sido cancelado
     const propCache = new Map();       // eventId -> resposta de prop_markets
     let propCounts = {};               // eventId -> palpites abertos (chip do Início)
@@ -4004,6 +4028,7 @@
     const propReady = () => cloudOn() && v7 === true && propOff !== true;
 
     function propSelLabel(m, key, line) {
+      if (!isPlayerMarket(m)) return propOptLabel(m, key, line);   // v11.5: duelo, destaque e total
       if (m.kind === 'ou') return `${key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(line != null ? line : m.line)}`;
       return key === '6+' ? '6 ou mais' : `${key} gol${key === '1' ? '' : 's'}`;
     }
@@ -4036,6 +4061,7 @@
     }
     function openPalpites(eventId) {
       propEventId = eventId;
+      propSub = 'palpites';
       switchTab('loja');
       setTimeout(() => { const el = document.getElementById('shop-palpites'); if (el && !el.classList.contains('hidden')) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
     }
@@ -4059,7 +4085,7 @@
       if (!box) return;
       if (!propReady()) { box.classList.add('hidden'); return; }
       const id = propPickEvent();
-      if (!id) { box.classList.add('hidden'); return; }
+      if (!id) { renderPropSection(); return; }   // sem lista: a seção fica com a sub-aba Ranking (o evento de um aviso continua guardado)
       propEventId = id;
       if (propLoading && !force) return;
       propLoading = true;
@@ -4068,7 +4094,7 @@
         propCache.set(id, data || { markets: [] });
         propCounts[id] = ((data || {}).markets || []).filter(m => m.status === 'open').length;
         // Pagamentos e devoluções mexem no saldo: confere de novo.
-        if (((data || {}).markets || []).some(m => m.bet && m.bet.status !== 'open')) refreshWallet().then(() => { const b = document.getElementById('shop-balance'); if (b && wallet) b.innerText = fmtPts(wallet.balance); });
+        if (((data || {}).markets || []).some(m => m.bet && m.bet.status !== 'open')) refreshWallet().then(paintBalance);
       } catch (e) {
         if (isMissingFn(e)) propOff = true;
         else if (isNetworkError(e) && !propCache.has(id)) { box.classList.remove('hidden'); box.innerHTML = '<p class="text-[13px] text-ink-2 px-1">Os palpites precisam de internet.</p>'; propLoading = false; return; }
@@ -4080,44 +4106,55 @@
     function renderPropSection() {
       const box = document.getElementById('shop-palpites');
       if (!box) return;
+      // v11.5: a seção fica no topo da Resenha com as sub-abas Palpites e Ranking (some só sem servidor ou sem turma na nuvem).
+      if (!propReady() || !propCloudTurmas().length) { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      box.innerHTML = `
+        <p class="eyebrow px-1 mb-2">Palpites</p>
+        <div class="seg grid-cols-2 mb-3" id="prop-subtabs">
+          <button onclick="propSubTab('palpites')" class="seg-btn ${propSub !== 'rank' ? 'is-selected' : ''}">Palpites</button>
+          <button onclick="propSubTab('rank')" class="seg-btn ${propSub === 'rank' ? 'is-selected' : ''}"><i class="fa-solid fa-ranking-star mr-1"></i>Ranking</button>
+        </div>
+        ${propSub === 'rank' ? `<div id="prop-rank">${propRankHtml()}</div>` : `<div id="prop-palpites">${propPalpitesHtml()}</div>`}`;
+    }
+
+    function propPalpitesHtml() {
       const id = propEventId;
       const data = id && propCache.get(id);
       const e = id && eventsCache.find(x => x.id === id);
-      if (!propReady() || !e || !data || !data.markets.length) {
-        // Sem mercados: só mostra um aviso quando a lista existe (menos de 4 confirmados, por exemplo).
-        if (propReady() && e && data && !data.markets.length) {
-          box.classList.remove('hidden');
-          box.innerHTML = `<p class="eyebrow">Palpites</p><div class="card p-4 mt-2"><p class="text-[14px] font-bold">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p>
+      if (!e) return '<div class="card p-4"><p class="text-[13px] text-ink-2 leading-snug">Nenhuma lista com palpites agora. Eles abrem quando a lista de um baba da sua turma chega a 4 confirmados.</p></div>';
+      if (!data) return '<p class="text-[13px] text-ink-2 py-4 text-center">Carregando os palpites...</p>';
+      if (!data.markets.length) {
+        // Sem mercados: só um aviso (menos de 4 confirmados, por exemplo).
+        return `<div class="card p-4"><p class="text-[14px] font-bold">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p>
             <p class="text-[13px] text-ink-2 mt-1 leading-snug">Os palpites abrem quando a lista chega a 4 confirmados.</p></div>`;
-        } else box.classList.add('hidden');
-        return;
       }
-      box.classList.remove('hidden');
       const locked = propIsLocked(data);
       const adult = !!data.adult;
       const chooser = propCandidates();
       const mine = data.markets.filter(m => m.bet);
       const byPlayer = new Map();
-      data.markets.forEach(m => { if (!byPlayer.has(m.player_id)) byPlayer.set(m.player_id, []); byPlayer.get(m.player_id).push(m); });
+      data.markets.filter(isPlayerMarket).forEach(m => { if (!byPlayer.has(m.player_id)) byPlayer.set(m.player_id, []); byPlayer.get(m.player_id).push(m); });
       const open = data.markets.filter(m => m.status === 'open').length;
-      box.innerHTML = `
+      const fase2 = propFase2Html(data);
+      return `
         <div class="flex items-end justify-between gap-3 px-1 mb-2">
-          <div class="min-w-0"><p class="eyebrow">Palpites</p>
-            <p class="text-[13px] text-ink-2 mt-0.5 truncate">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p></div>
+          <p class="text-[13px] text-ink-2 truncate min-w-0">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p>
           <span class="ev-tag flex-shrink-0 ${locked ? 'bg-sunk text-ink-2' : 'bg-leaf/10 text-leaf'}">${locked ? 'Palpites encerrados' : `${open} aberto${open === 1 ? '' : 's'}`}</span>
         </div>
         ${chooser.length > 1 ? `<div class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2">${chooser.map(c => `<button onclick="propChoose('${c.id}')" class="chip ${c.id === id ? 'is-selected' : ''}">${escapeHtml(evTurma(c).name)} · ${escapeHtml(evWhen(c))}</button>`).join('')}</div>` : ''}
-        <p class="text-[12px] text-ink-2 leading-snug px-1 mb-2.5">Escolha Mais ou Menos, o valor e confirme. A cotação fica congelada na hora do palpite. Trava no horário da lista ou no primeiro apito, e paga quando o baba é finalizado.${adult ? '' : ' <b class="text-ink">Palpitar é só para maiores de 18 anos; você pode ver as cotações.</b>'}</p>
+        <p class="text-[12px] text-ink-2 leading-snug px-1 mb-2.5">Escolha o palpite, o valor e confirme. A cotação fica congelada na hora do palpite. Trava no horário da lista ou no primeiro apito, e paga quando o baba é finalizado.${adult ? '' : ' <b class="text-ink">Palpitar é só para maiores de 18 anos; você pode ver as cotações.</b>'}</p>
         ${mine.length ? `<div class="card-flat overflow-hidden divide-y divide-ink/[0.07] mb-3">
           <p class="eyebrow px-4 pt-3 pb-1.5">Meus palpites</p>
           ${mine.map(m => { const st = propMyState(m, locked); return `
             <div class="flex items-center justify-between gap-3 px-4 py-2.5 text-[13.5px]">
-              <span class="min-w-0"><span class="block font-semibold truncate">${escapeHtml(m.player)} · ${PROP_METRIC[m.metric]}</span>
-                <span class="block text-[12px] text-ink-2">${escapeHtml(propSelLabel(m, m.bet.selection))} · ${fmtPts(m.bet.stake)} pts · cotação ${fmtCot(m.bet.odd)}</span></span>
+              <span class="min-w-0"><span class="block font-semibold truncate">${escapeHtml(isPlayerMarket(m) ? `${m.player} · ${PROP_METRIC[m.metric]}` : propKindTitle(m))}</span>
+                <span class="block text-[12px] text-ink-2">${escapeHtml(propSelLabel(m, m.bet.selection, m.bet.line))} · ${fmtPts(m.bet.stake)} pts · cotação ${fmtCot(m.bet.odd)}</span></span>
               <span class="ev-tag ${st[1]} flex-shrink-0">${st[0]}${m.bet.status === 'won' ? ` +${fmtPts(m.bet.payout)}` : ''}</span>
             </div>`; }).join('')}
         </div>` : ''}
-        <div class="space-y-2.5">${[...byPlayer.values()].map(ms => propPlayerHtml(ms, data)).join('')}</div>
+        ${fase2 ? `<div class="space-y-4 mb-4">${fase2}</div>` : ''}
+        ${byPlayer.size ? `${fase2 ? '<p class="section-tag px-1 mb-2">Por atleta</p>' : ''}<div class="space-y-2.5">${[...byPlayer.values()].map(ms => propPlayerHtml(ms, data)).join('')}</div>` : ''}
         ${data.admin ? propAdminHtml(id) : ''}`;
     }
 
@@ -4211,7 +4248,7 @@
           ${a ? `<div class="card-flat overflow-hidden divide-y divide-ink/[0.07] mt-1.5">${a.length ? a.map(r => `
             <div class="px-4 py-2.5 text-[13px] flex items-center justify-between gap-3">
               <span class="min-w-0"><span class="block font-semibold truncate">${escapeHtml(r.name || 'Alguém')}${r.recorder ? ' <span class="ev-tag bg-butter text-pitch ml-1">registra os lances</span>' : ''}</span>
-                <span class="block text-[12px] text-ink-2 truncate">${escapeHtml(r.player)} · ${PROP_METRIC[r.metric]} · ${escapeHtml(r.kind === 'ou' ? (r.selection === 'mais' ? 'Mais ' : 'Menos ') + fmtLinha(r.line) : r.selection)} · ${fmtPts(r.stake)} pts</span></span>
+                <span class="block text-[12px] text-ink-2 truncate">${r.label ? escapeHtml(r.label) : `${escapeHtml(r.player)} · ${PROP_METRIC[r.metric]} · ${escapeHtml(r.kind === 'ou' ? (r.selection === 'mais' ? 'Mais ' : 'Menos ') + fmtLinha(r.line) : r.selection)}`} · ${fmtPts(r.stake)} pts</span></span>
               <span class="ev-tag flex-shrink-0 ${r.status === 'won' ? 'bg-leaf/15 text-leaf' : r.status === 'lost' ? 'bg-danger/10 text-danger' : 'bg-sunk text-ink-2'}">${{ open: 'aberto', won: 'ganhou', lost: 'perdeu', void: 'devolvido' }[r.status]}</span>
             </div>`).join('') : '<p class="px-4 py-3 text-[13px] text-ink-2">Ninguém palpitou ainda.</p>'}</div>` : ''}
         </div>`;
@@ -4232,6 +4269,7 @@
         : m.includes('market_closed') ? 'Esse palpite não está mais aberto.'
         : m.includes('self_under') ? 'Menos em si mesmo não vale.'
         : m.includes('self_exact') ? 'Cravada de gols em si mesmo não vale.'
+        : m.includes('self_against') ? 'No seu duelo você só palpita em você mesmo.'
         : m.includes('bad_line') ? 'Essa linha não está disponível. Escolha outra.'
         : m.includes('bad_stake') ? 'O mínimo é 10 pontos.'
         : m.includes('no_points') ? 'Faltam pontos. Pegue o bônus do dia aqui na lojinha.'
@@ -4259,10 +4297,10 @@
         odd = Number(s.odd);
       }
       propDraft = { event: propEventId, market: m.id, key, line: ln, odd, stake: 10 };
-      document.getElementById('pb-player').innerText = `${m.player} · ${m.kind === 'exact' ? 'Cravada de gols' : PROP_METRIC[m.metric]}`;
+      document.getElementById('pb-player').innerText = propKindTitle(m);
       document.getElementById('pb-label').innerText = propSelLabel(m, key, ln);
       document.getElementById('pb-odd').innerText = 'x' + fmtCot(odd);
-      document.getElementById('pb-note').innerText = m.rookie ? 'Estreante: ainda sem histórico na turma, então a cotação vem da média da turma.' : '';
+      document.getElementById('pb-note').innerText = m.rookie && isPlayerMarket(m) ? 'Estreante: ainda sem histórico na turma, então a cotação vem da média da turma.' : propBilheteNote(m);
       document.getElementById('pb-error').classList.add('hidden');
       renderBilhete();
       document.getElementById('modal-pbilhete').classList.remove('hidden');
@@ -4309,7 +4347,7 @@
       setBusy(btn, true, 'Enviando...');
       try {
         const r = await api.placePropBet(d.market, d.key, d.stake, d.line);
-        if (wallet && r) { wallet.balance = r.balance; renderV7Bits(); const b = document.getElementById('shop-balance'); if (b) b.innerText = fmtPts(r.balance); }
+        if (wallet && r) { wallet.balance = r.balance; renderV7Bits(); paintBalance(); }
         closeBilhete();
         buzz([20, 30]);
         showToast(`Palpite feito! Se acertar, volta ${fmtPts(r ? r.payout : Math.floor(d.stake * d.odd))} pts.`);
@@ -4328,7 +4366,8 @@
       const data = propCache.get(propEventId);
       const m = data && data.markets.find(x => x.id === marketId);
       if (!m) return;
-      if (!(await askConfirm(`Suspender ${PROP_METRIC[m.metric] ? PROP_METRIC[m.metric].toLowerCase() : 'o palpite'} de ${m.player}? O palpite é anulado e os pontos de todo mundo voltam.`, 'Suspender'))) return;
+      const what = isPlayerMarket(m) ? `${PROP_METRIC[m.metric] ? PROP_METRIC[m.metric].toLowerCase() : 'o palpite'} de ${m.player}` : propKindTitle(m);
+      if (!(await askConfirm(`Suspender ${what}? O palpite é anulado e os pontos de todo mundo voltam.`, 'Suspender'))) return;
       try { await api.suspendPropMarket(marketId); await loadProp(true); showToast('Palpite suspenso e pontos devolvidos.'); if (propAudit) { propAudit = null; await propToggleAudit(propEventId); } }
       catch (e) { showToast(propError(e), 'warning'); loadProp(true); }
     }
@@ -4427,6 +4466,300 @@
       }
     }
 
+    /* ===================================================================
+       RESENHA (v11.5): a aba que era a Lojinha. Palpites no topo (sub-abas
+       Palpites e Ranking), depois as missões e por último a Lojinha.
+       Palpites fase 2: Duelos, Destaque do dia e Total do baba. Ranking de
+       palpiteiros e troféus Pé-quente / Mãe Diná no Perfil e no card.
+       Regras, cotações e pagamentos são do servidor; aqui só se mostra.
+       =================================================================== */
+    let propSub = 'palpites';            // sub-aba da seção Palpites: 'palpites' | 'rank'
+    let propRankTurma = null;            // turma escolhida no ranking
+    let propRankSeason = null;           // temporada escolhida (null = atual)
+    const propRankCache = new Map();     // `${turma}|${season}` -> resposta de prop_leaderboard
+    let propRankLoading = false;
+    let propRankOff = false;             // servidor ainda sem a v11.5
+    const propLeaderAll = new Set();     // Destaques com "ver todos" aberto
+    const LEADER_TITLE = { goals: 'Artilheiro', assists: 'Garçom', saves: 'Paredão' };
+    const LEADER_SUB = { goals: 'Quem faz mais gols no baba', assists: 'Quem dá mais assistências no baba', saves: 'Quem faz mais defesas no baba' };
+    const LEADER_ICON = { goals: 'fa-futbol', assists: 'fa-handshake', saves: 'fa-hand' };
+    const TOTAL_TITLE = { matches: 'Partidas no dia', goals: 'Gols no dia' };
+    const isPlayerMarket = m => m.kind === 'ou' || m.kind === 'exact';
+
+    function paintBalance() {
+      const v = wallet ? fmtPts(wallet.balance) : '...';
+      ['shop-balance', 'resenha-balance'].forEach(id => { const el = document.getElementById(id); if (el) el.innerText = v; });
+    }
+
+    /* Textos dos mercados novos (meus palpites, bilhete e extrato). */
+    function propOptName(m, key) {
+      const s = (m.selections || []).find(x => x.key === key);
+      return s && s.label ? s.label : '?';
+    }
+    function propKindTitle(m) {
+      if (m.kind === 'duel') return `Duelo ${m.player || '?'} x ${m.player2 || '?'}`;
+      if (m.kind === 'leader') return `${LEADER_TITLE[m.metric] || 'Destaque'} do dia`;
+      if (m.kind === 'baba_total') return `Total do baba · ${TOTAL_TITLE[m.metric] || ''}`;
+      return `${m.player} · ${m.kind === 'exact' ? 'Cravada de gols' : PROP_METRIC[m.metric]}`;
+    }
+    function propOptLabel(m, key, line) {
+      if (m.kind === 'baba_total') return `${key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(line != null ? line : m.line)}`;
+      return propOptName(m, key);
+    }
+    function propBilheteNote(m) {
+      if (m.kind === 'duel') return 'Vale gols + assistências no baba. Empate devolve o palpite; se um dos dois não jogar, também.';
+      if (m.kind === 'leader') return 'Se der empate no topo, o pagamento é dividido entre os empatados. Atleta que não jogar: palpite devolvido.';
+      if (m.kind === 'baba_total') return Number(m.line) % 1 === 0 ? 'Se der exatamente a linha, o palpite é devolvido.' : '';
+      return '';
+    }
+
+    /* Botão de mercado fechado (anulado, liquidado ou travado). null = mercado aberto. */
+    function propClosedHtml(m, data) {
+      const locked = propIsLocked(data) || m.status === 'locked';
+      const dis = t => `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">${t}</button>`;
+      if (m.status === 'void') return dis(m.void_reason === 'suspenso' ? 'Suspenso pelo adm · pontos devolvidos'
+        : m.void_reason === 'zero' ? 'Ninguém pontuou · pontos devolvidos'
+        : m.void_reason === 'ausente' ? 'Alguém não jogou · pontos devolvidos' : 'Anulado · pontos devolvidos');
+      if (m.status === 'settled') {
+        const r = m.result || {};
+        if (m.kind === 'duel') return dis(r.win === 'empate' ? `Empate ${r.value} x ${r.value2} · devolvido` : `${escapeHtml(m.player)} ${r.value} x ${r.value2} ${escapeHtml(m.player2)}`);
+        if (m.kind === 'leader') return dis(`Deu ${(r.win || []).map(k => escapeHtml(propOptName(m, k))).join(', ')} (${r.value})`);
+        return dis(r.win === 'empate' ? `Deu ${r.value} · devolvido` : `Deu ${r.value}`);
+      }
+      if (locked || m.status !== 'open') return dis('Palpites encerrados');
+      return null;
+    }
+    function propTagsHtml(m, data) {
+      const s = propMyState(m, propIsLocked(data) || m.status === 'locked');
+      return [m.adjusted && m.kind === 'baba_total' ? '<span class="ev-tag bg-sunk text-ink-2">linha ajustada pelo adm</span>' : '', s ? `<span class="ev-tag ${s[1]}">${s[0]}</span>` : ''].join('');
+    }
+    function propBetLine(m) {
+      if (!m.bet) return '';
+      const st = m.bet.status;
+      const back = st === 'won' ? `ganhou ${fmtPts(m.bet.payout)}` : st === 'void' ? 'devolvido' : st === 'lost' ? 'não deu' : `volta ${fmtPts(Math.floor(m.bet.stake * m.bet.odd))}${m.kind === 'leader' ? ' (dividido se empatar)' : ''}`;
+      return `<p class="text-[12px] text-ink-2 mt-1.5">Seu palpite: <b class="text-ink">${escapeHtml(propOptLabel(m, m.bet.selection, m.bet.line))}</b> · ${fmtPts(m.bet.stake)} pts · ${back}</p>`;
+    }
+    function propSuspendHtml(m, data) {
+      return data.admin && (m.status === 'open' || m.status === 'locked')
+        ? `<div class="flex items-center gap-1.5 mt-1.5"><button onclick="propSuspend('${m.id}')" class="chip !h-8 !px-3 text-[12px] !text-danger ml-auto">Suspender</button></div>` : '';
+    }
+    function propOptBtn(m, data, key, label, odd, opts = {}) {
+      const picked = m.bet && m.bet.selection === key;
+      const off = !data.adult || !!m.bet || opts.block;
+      return `<button ${off ? 'disabled' : ''} onclick="openBilhete('${m.id}', '${key}')" ${opts.title ? `title="${opts.title}"` : ''}
+        class="prop-btn ${opts.cls || 'h-11'} rounded-xl border text-[13px] font-extrabold transition active:scale-[0.97] ${picked ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'} ${off && !picked ? 'opacity-40' : ''}">${label}</button>`;
+    }
+
+    /* Os três blocos novos. Bloco sem mercado não aparece. */
+    function propFase2Html(data) {
+      const ms = data.markets || [];
+      const duels = ms.filter(m => m.kind === 'duel'), leaders = ms.filter(m => m.kind === 'leader'), totals = ms.filter(m => m.kind === 'baba_total');
+      const block = (id, title, sub, inner) => `<div data-prop-block="${id}"><p class="section-tag px-1">${title}</p><p class="text-[12px] text-ink-2 px-1 mt-0.5 mb-2 leading-snug">${sub}</p>${inner}</div>`;
+      const order = { goals: 1, assists: 2, saves: 3, matches: 1 };
+      return [
+        duels.length ? block('duelos', 'Duelos', 'Quem faz mais gols + assistências no baba. Empate devolve.', `<div class="space-y-2.5">${duels.map(m => propDuelHtml(m, data)).join('')}</div>`) : '',
+        leaders.length ? block('destaque', 'Destaque do dia', 'Palpite em quem vai liderar o baba. Empate no topo divide o pagamento.',
+          `<div class="space-y-2.5">${leaders.slice().sort((a, b) => (order[a.metric] || 9) - (order[b.metric] || 9)).map(m => propLeaderHtml(m, data)).join('')}</div>`) : '',
+        totals.length ? block('total', 'Total do baba', 'Mais ou Menos do baba inteiro, pelo histórico da turma.',
+          `<div class="card p-3.5 divide-y divide-ink/[0.07]">${totals.slice().sort((a, b) => (a.metric === 'matches' ? 0 : 1) - (b.metric === 'matches' ? 0 : 1)).map(m => propTotalHtml(m, data)).join('')}</div>`) : ''
+      ].filter(Boolean).join('');
+    }
+
+    function propDuelHtml(m, data) {
+      const closed = propClosedHtml(m, data);
+      const a = (m.selections || [])[0] || {}, b = (m.selections || [])[1] || {};
+      const side = (s, other) => {
+        const blockMe = (m.mine && s.key === m.player2_id) || (m.mine2 && s.key === m.player_id);   // atleta do duelo não palpita no adversário
+        return propOptBtn(m, data, s.key, `<span class="block truncate">${escapeHtml(s.label || '?')}${s.mine ? ' <span class="text-[10.5px] font-bold opacity-70">(você)</span>' : ''}</span><span class="block text-[12px] font-bold opacity-80">${fmtCot(s.odd)}</span>`,
+          s.odd, { cls: 'h-14 px-2', block: blockMe, title: blockMe ? 'Você não palpita no seu adversário' : '' });
+      };
+      return `
+        <div class="card p-3.5" data-market2="${m.id}" data-kind="duel">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <p class="text-[13px] font-extrabold truncate min-w-0"><i class="fa-solid fa-bolt text-pitch mr-1"></i>${escapeHtml(m.player || '?')} <span class="text-ink-3 font-bold">x</span> ${escapeHtml(m.player2 || '?')}</p>
+            <span class="flex items-center gap-1 flex-shrink-0">${propTagsHtml(m, data)}</span>
+          </div>
+          ${closed || `<div class="grid grid-cols-2 gap-1.5">${side(a, b)}${side(b, a)}</div>`}
+          ${propBetLine(m)}${propSuspendHtml(m, data)}
+        </div>`;
+    }
+
+    function propLeaderHtml(m, data) {
+      const closed = propClosedHtml(m, data);
+      const sels = m.selections || [];
+      const all = propLeaderAll.has(m.id);
+      let shown = all ? sels : sels.slice(0, 6);
+      if (!all && m.bet && !shown.some(s => s.key === m.bet.selection)) shown = shown.concat(sels.filter(s => s.key === m.bet.selection));
+      const rows = shown.map(s => propOptBtn(m, data, s.key,
+        `<span class="flex items-center justify-between gap-2 w-full"><span class="truncate text-left">${escapeHtml(s.label || '?')}${s.mine ? ' <span class="text-[10.5px] font-bold opacity-70">(você)</span>' : ''}</span><span class="flex-shrink-0">${fmtCot(s.odd)}</span></span>`,
+        s.odd, { cls: 'h-10 px-3 w-full' })).join('');
+      return `
+        <div class="card p-3.5" data-market2="${m.id}" data-kind="leader">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="tile bg-butter text-pitch flex-shrink-0 !w-9 !h-9 text-[14px]"><i class="fa-solid ${LEADER_ICON[m.metric] || 'fa-star'}"></i></span>
+            <span class="min-w-0 flex-1"><span class="block text-[15px] font-extrabold leading-tight">${LEADER_TITLE[m.metric] || 'Destaque'}</span><span class="block text-[11.5px] text-ink-2">${LEADER_SUB[m.metric] || ''}</span></span>
+            <span class="flex items-center gap-1 flex-shrink-0">${propTagsHtml(m, data)}</span>
+          </div>
+          ${closed || `<div class="space-y-1.5">${rows}</div>
+          ${sels.length > 6 ? `<button onclick="propToggleLeader('${m.id}')" class="mt-2 text-[12.5px] font-bold text-pitch">${all ? 'ver menos' : `ver todos (${sels.length})`} <i class="fa-solid fa-chevron-${all ? 'up' : 'down'} text-[9px]"></i></button>` : ''}`}
+          ${propBetLine(m)}${propSuspendHtml(m, data)}
+        </div>`;
+    }
+    function propToggleLeader(id) { if (propLeaderAll.has(id)) propLeaderAll.delete(id); else propLeaderAll.add(id); renderPropSection(); }
+
+    function propTotalHtml(m, data) {
+      const closed = propClosedHtml(m, data);
+      const sel = k => (m.selections || []).find(s => s.key === k) || {};
+      const mv = data.admin && m.status === 'open' && !m.has_bets && !propIsLocked(data) ? `
+        <div class="flex items-center gap-1.5 mt-1.5">
+          <span class="text-[11.5px] text-ink-3">Linha (adm)</span>
+          <button onclick="propMoveTotal('${m.id}', -0.5)" ${Number(m.line) <= 0.5 ? 'disabled' : ''} aria-label="Linha menor" class="chip !h-8 !px-3 text-[12px] disabled:opacity-30"><i class="fa-solid fa-minus text-[10px]"></i></button>
+          <button onclick="propMoveTotal('${m.id}', 0.5)" aria-label="Linha maior" class="chip !h-8 !px-3 text-[12px]"><i class="fa-solid fa-plus text-[10px]"></i></button>
+        </div>` : '';
+      return `
+        <div class="py-2.5 first:pt-0 last:pb-0" data-market2="${m.id}" data-kind="baba_total">
+          <div class="flex items-center justify-between gap-2 mb-1.5"><p class="text-[13px] font-extrabold">${TOTAL_TITLE[m.metric] || ''} <span class="text-ink-2 font-bold">· linha ${fmtLinha(m.line)}</span></p><span class="flex items-center gap-1 flex-wrap justify-end">${propTagsHtml(m, data)}</span></div>
+          ${closed || `<div class="grid grid-cols-2 gap-1.5">${propOptBtn(m, data, 'mais', `Mais ${fmtLinha(m.line)} · ${fmtCot(sel('mais').odd)}`, sel('mais').odd)}${propOptBtn(m, data, 'menos', `Menos ${fmtLinha(m.line)} · ${fmtCot(sel('menos').odd)}`, sel('menos').odd)}</div>`}
+          ${propBetLine(m)}${mv}${propSuspendHtml(m, data)}
+        </div>`;
+    }
+    async function propMoveTotal(id, step) {
+      const data = propCache.get(propEventId);
+      const m = data && data.markets.find(x => x.id === id);
+      if (!m) return;
+      try { await api.adjustPropLine(id, Math.round((Number(m.line) + step) * 2) / 2); await loadProp(true); }
+      catch (e) { showToast(propError(e), 'warning'); loadProp(true); }
+    }
+
+    function propSubTab(t) {
+      propSub = t === 'rank' ? 'rank' : 'palpites';
+      renderPropSection();
+      if (propSub === 'rank') loadPropRank();
+    }
+
+    /* ---------- Ranking de palpiteiros (por turma e temporada) ---------- */
+    const propCloudTurmas = () => state.turmas.filter(t => t.cloud && t.name);
+    function propRankTurmaId() {
+      const ts = propCloudTurmas();
+      if (propRankTurma && ts.some(t => t.id === propRankTurma)) return propRankTurma;
+      const ev = propEventId && eventsCache.find(x => x.id === propEventId);
+      const pick = (ev && ts.find(t => t.id === ev.turma_id)) || ts.find(t => t.id === prefs.mainTurma) || ts[0];
+      return pick ? pick.id : null;
+    }
+    const seasonLabel = s => String(s || '').replace(/^(\d{4})-S1$/, '$1 · jan a jun').replace(/^(\d{4})-S2$/, '$1 · jul a dez');
+    async function loadPropRank(force) {
+      const t = propRankTurmaId();
+      if (!t || propRankOff) { renderPropRank(); return; }
+      const key = `${t}|${propRankSeason || ''}`;
+      if (propRankCache.has(key) && !force) { renderPropRank(); return; }
+      if (propRankLoading) return;
+      propRankLoading = true; renderPropRank();
+      try {
+        const d = await api.propLeaderboard(t, propRankSeason);
+        propRankCache.set(key, d || { rows: [], seasons: [] });
+        const ids = ((d || {}).rows || []).map(r => r.user_id);
+        if (ids.length && typeof ensurePeople === 'function') await ensurePeople(ids);
+      } catch (e) {
+        if (isMissingFn(e)) propRankOff = true;
+        else propRankCache.set(key, { error: isNetworkError(e) ? 'O ranking precisa de internet.' : 'Não deu para carregar o ranking agora.' });
+      }
+      propRankLoading = false;
+      renderPropRank();
+    }
+    function renderPropRank() {
+      const el = document.getElementById('prop-rank');
+      if (el) el.innerHTML = propRankHtml();
+    }
+    function propRankChoose(field, v) {
+      if (field === 'turma') { propRankTurma = v; propRankSeason = null; } else propRankSeason = v || null;
+      loadPropRank();
+    }
+    function propRankHtml() {
+      if (propRankOff) return '<div class="card p-4"><p class="text-[13px] text-ink-2">O ranking chega quando o servidor for atualizado.</p></div>';
+      const ts = propCloudTurmas(), t = propRankTurmaId();
+      if (!t) return '<div class="card p-4"><p class="text-[13px] text-ink-2">Entre numa turma para ver o ranking de palpiteiros.</p></div>';
+      const d = propRankCache.get(`${t}|${propRankSeason || ''}`);
+      const turmaChips = ts.length > 1 ? `<div class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2">${ts.map(x => `<button onclick="propRankChoose('turma', '${x.id}')" class="chip flex-shrink-0 ${x.id === t ? 'is-selected' : ''}">${escapeHtml(x.name)}</button>`).join('')}</div>` : '';
+      if (!d) return turmaChips + '<p class="text-[13px] text-ink-2 py-6 text-center">Carregando o ranking...</p>';
+      if (d.error) return turmaChips + `<p class="text-[13px] text-ink-2 py-6 text-center">${escapeHtml(d.error)}</p>`;
+      const cur = d.season || d.current;
+      const seasons = (d.seasons && d.seasons.length ? d.seasons : [cur]);
+      const seasonChips = `<div class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2">${seasons.map(s => `<button onclick="propRankChoose('season', '${escapeHtml(s)}')" class="chip flex-shrink-0 ${s === cur ? 'is-selected' : ''}">${s === d.current ? 'Temporada atual' : escapeHtml(seasonLabel(s))}</button>`).join('')}</div>`;
+      const medal = i => i === 1 ? 'bg-[#f3c93a] text-pitch' : i === 2 ? 'bg-[#cfd5db] text-pitch' : i === 3 ? 'bg-[#d9a273] text-pitch' : 'bg-sunk text-ink-2';
+      const pct = v => v == null ? '–' : `${Math.round(Number(v) * 100)}%`;
+      const signed = v => (Number(v) > 0 ? '+' : Number(v) < 0 ? '−' : '') + fmtPts(Math.abs(Number(v) || 0));
+      const me = d.me || {};
+      const rows = d.rows || [];
+      const avatarOf = r => {
+        const p = currentUser && r.user_id === currentUser.id ? { avatar: currentUser.avatar, name: currentUser.name, cosmetics: currentUser.cosmetics } : (peopleCache.get(r.user_id) || { name: r.name });
+        return framedAvatar(p.avatar, p.name || r.name, 'w-7 h-7 text-[10px] flex-shrink-0', cosOf(p.cosmetics));
+      };
+      const grid = 'grid grid-cols-[22px_minmax(0,1fr)_44px_36px_46px_34px] items-center gap-1';
+      const table = rows.length ? `
+        <div class="card-flat overflow-hidden">
+          <div class="${grid} px-3 pt-2.5 pb-1.5 text-[9.5px] font-bold text-ink-3 uppercase">
+            <span>#</span><span>Pessoa</span><span class="text-right">Lucro</span><span class="text-right">ROI</span><span class="text-right">Acertos</span><span class="text-right" title="Cravadas certas">Crav.</span>
+          </div>
+          <div class="divide-y divide-ink/[0.07]">${rows.map(r => `
+            <div class="${grid} px-3 py-2 ${r.me ? 'bg-butter/40' : ''}" data-rank-row="${r.rank}">
+              <span class="w-6 h-6 rounded-full ${medal(r.rank)} text-[11px] font-extrabold flex items-center justify-center">${r.rank}</span>
+              <span class="flex items-center gap-1.5 min-w-0">${avatarOf(r)}<span class="text-[13px] font-bold truncate">${escapeHtml(r.name || 'Alguém')}</span></span>
+              <span class="text-right text-[13px] font-extrabold tabular ${Number(r.lucro) > 0 ? 'text-leaf' : Number(r.lucro) < 0 ? 'text-danger' : ''}">${signed(r.lucro)}</span>
+              <span class="text-right text-[12.5px] font-bold tabular text-ink-2">${pct(r.roi)}</span>
+              <span class="text-right text-[12.5px] font-bold tabular">${r.wins}/${r.total}</span>
+              <span class="text-right text-[12.5px] font-bold tabular">${r.cravadas}</span>
+            </div>`).join('')}</div>
+        </div>` : `<div class="card p-4"><p class="text-[13px] text-ink-2 leading-snug">Ninguém tem ${d.min || 10} palpites resolvidos nesta temporada ainda.</p></div>`;
+      const meLine = me.qualified ? '' : `<p class="text-[13px] font-semibold text-ink-2 px-1 mt-2.5" data-rank-me>Você tem ${me.total || 0} de ${me.need || 10} palpites para entrar no ranking.</p>`;
+      return `${turmaChips}${seasonChips}
+        <p class="text-[12px] text-ink-2 leading-snug px-1 mb-2.5">Crav. = cravadas certas. Lucro = o que você recebeu menos o que palpitou. Contam os palpites pré-jogo ganhos e perdidos das listas da turma; devolvidos não contam. Desempate pelo ROI (lucro ÷ pontos palpitados).</p>
+        ${table}${meLine}`;
+    }
+
+    /* ---------- Troféus de uma conta (Perfil e card) ---------- */
+    const userTrophyCache = new Map();   // uid -> lista (de user_trophies)
+    let trophiesOff = false;
+    async function loadUserTrophies(uid, force) {
+      if (!uid || trophiesOff || !cloudOn() || v7 !== true) return userTrophyCache.get(uid) || null;
+      if (userTrophyCache.has(uid) && !force) return userTrophyCache.get(uid);
+      try { userTrophyCache.set(uid, (await api.userTrophies(uid)) || []); }
+      catch (e) { if (isMissingFn(e)) trophiesOff = true; }
+      return userTrophyCache.get(uid) || null;
+    }
+    function trophyValueText(x) {
+      const v = Number(x.value) || 0;
+      if (x.kind === 'pe_quente') return `+${fmtPts(v)} pts de lucro`;
+      if (x.kind === 'mae_dina') return `${v} cravada${v === 1 ? '' : 's'} certa${v === 1 ? '' : 's'}`;
+      const unit = { artilheiro: 'gol', garcom: 'assistência', craque: 'G+A', vencedor: 'vitória', paredao: 'defesa' }[x.kind];
+      return unit ? (unit === 'G+A' ? `${v} G+A` : `${v} ${unit}${v === 1 ? '' : 's'}`) : String(v);
+    }
+    function trophyCardHtml(x) {
+      return `<div class="rounded-2xl bg-card border border-ink/10 p-3 flex items-center gap-3" data-trophy="${escapeHtml(x.kind)}">
+        <span class="tile bg-butter text-pitch flex-shrink-0"><i class="fa-solid ${TROPHY_ICON[x.kind] || 'fa-trophy'}"></i></span>
+        <span class="min-w-0"><span class="block text-[14px] font-bold leading-tight">${escapeHtml(x.title)}</span>
+          <span class="block text-[12px] text-ink-2 truncate">${escapeHtml(x.turma || '')} · ${escapeHtml(seasonLabel(x.season))} · ${escapeHtml(trophyValueText(x))}</span></span>
+      </div>`;
+    }
+    async function renderProfileTrophies() {
+      const sec = document.getElementById('pf-trophies-sec'), box = document.getElementById('pf-trophies');
+      if (!sec || !box || !currentUser) return;
+      const paint = list => {
+        if (!list) { sec.classList.add('hidden'); return; }
+        sec.classList.remove('hidden');
+        box.innerHTML = list.length ? list.map(trophyCardHtml).join('')
+          : '<p class="text-[12.5px] text-ink-2 leading-snug px-1">Ainda sem troféu. No fim de cada temporada (jan a jun e jul a dez) saem os troféus da turma, inclusive Pé-quente e Mãe Diná para os palpiteiros.</p>';
+      };
+      paint(userTrophyCache.get(currentUser.id) || null);
+      const before = JSON.stringify(userTrophyCache.get(currentUser.id) || null);
+      paint(await loadUserTrophies(currentUser.id, true));
+      if (JSON.stringify(userTrophyCache.get(currentUser.id) || null) !== before) renderProfileCard();   // a faixa de troféus do card
+    }
+    /* Faixa de troféus no card de atleta. */
+    function cardTrophiesHtml(list) {
+      if (!list || !list.length) return '';
+      const kinds = [...new Set(list.map(x => x.kind))].slice(0, 5);
+      return `<div class="acard-trophies">${kinds.map(k => `<i class="fa-solid ${TROPHY_ICON[k] || 'fa-trophy'}"></i>`).join('')}<span>${list.length} troféu${list.length === 1 ? '' : 's'}</span></div>`;
+    }
     /* ===================================================================
        JOGO AO VIVO · quem organiza
        The organizer's phone publishes the scoreboard (and the palpite
@@ -4729,7 +5062,7 @@
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
     }
-    /* Toque num aviso: a lista abre em Turmas → Lista; os palpites abrem na Lojinha → Palpites, no evento do aviso. */
+    /* Toque num aviso: a lista abre em Turmas → Lista; os palpites abrem na Resenha → Palpites, no evento do aviso. */
     function openListaFromAviso(id) {
       switchTab('ficha');
       openEventSheet(id);
@@ -5977,7 +6310,7 @@
     const PRES_CLS = { bronze: 'bg-[#ecd3b8] text-[#6b3f17]', prata: 'bg-[#e3e7eb] text-[#47525d]', ouro: 'bg-[#f8e394] text-[#6a5200]', diamante: 'bg-[#d3effb] text-[#0b5d7a]' };
     const METRICS = [['goals', 'Gols'], ['assists', 'Assist.'], ['part', 'Particip.'], ['wins', 'Vitórias'], ['matches', 'Jogos'], ['saves', 'Defesas']];
     const KIND_LABEL = { amistoso_fechado: 'Amistoso fechado', amistoso_aberto: 'Amistoso aberto', campeonato: 'Campeonato' };
-    const TROPHY_ICON = { artilheiro: 'fa-futbol', garcom: 'fa-handshake', craque: 'fa-star', vencedor: 'fa-fire', paredao: 'fa-hand', campeonato: 'fa-trophy' };
+    const TROPHY_ICON = { artilheiro: 'fa-futbol', garcom: 'fa-handshake', craque: 'fa-star', vencedor: 'fa-fire', paredao: 'fa-hand', campeonato: 'fa-trophy', pe_quente: 'fa-shoe-prints', mae_dina: 'fa-hat-wizard' };
     const hubErr = e => {
       if (isNetworkError(e)) return 'Precisa de internet.';
       const m = String((e && e.message) || '');
@@ -6123,7 +6456,7 @@
         d.atletas.forEach(a => { (bySeason[a.season] = bySeason[a.season] || []).push(a); });
         body.innerHTML = `
           <div><p class="section-tag">Troféus da turma</p>${d.turma.length ? `<div class="space-y-2 mt-1.5">${d.turma.map(x => card(x.kind, x.title, escapeHtml(sName(x.season)), true)).join('')}</div>` : '<p class="text-[13px] text-ink-2 mt-1">Ainda sem troféu de turma. Campeonatos ganhos aparecem aqui.</p>'}</div>
-          ${Object.keys(bySeason).sort().reverse().map(s => `<div><p class="section-tag">Temporada ${escapeHtml(sName(s))}</p><div class="space-y-2 mt-1.5">${bySeason[s].map(a => card(a.kind, a.title, `${escapeHtml(a.name)} · ${a.value}`, false)).join('')}</div></div>`).join('')}
+          ${Object.keys(bySeason).sort().reverse().map(s => `<div><p class="section-tag">Temporada ${escapeHtml(sName(s))}</p><div class="space-y-2 mt-1.5">${bySeason[s].map(a => card(a.kind, a.title, `${escapeHtml(a.name)} · ${a.kind === 'pe_quente' || a.kind === 'mae_dina' ? escapeHtml(trophyValueText(a)) : a.value}`, false)).join('')}</div></div>`).join('')}
           ${d.atletas.length ? '' : '<p class="text-[13px] text-ink-2">Os troféus de atleta saem no fim de cada temporada de 6 meses (precisa de pelo menos 3 babas nela).</p>'}`;
         return;
       }
@@ -6740,7 +7073,7 @@
       const pts = wallet ? `
         <button onclick="openShop()" class="card w-full p-3.5 flex items-center gap-3 text-left">
           <img src="babinha/money.webp" alt="" class="w-11 h-11 object-contain flex-shrink-0" />
-          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${missionsReady() ? `${missionsReady()} missão${missionsReady() > 1 ? 'ões' : ''} pronta${missionsReady() > 1 ? 's' : ''} pra resgatar` : wallet.daily ? 'Bônus do dia esperando · missões da semana' : missionsCache && missionsCache.length ? 'Missões da semana e lojinha' : 'Molduras e nomes na lojinha'}</span></span>
+          <span class="min-w-0 flex-1"><span class="block text-[15px] font-bold">${fmtPts(wallet.balance)} baba points</span><span class="block text-[12.5px] text-ink-2">${missionsReady() ? `${missionsReady()} missão${missionsReady() > 1 ? 'ões' : ''} pronta${missionsReady() > 1 ? 's' : ''} pra resgatar` : wallet.daily ? 'Bônus do dia esperando · missões da semana' : missionsCache && missionsCache.length ? 'Missões da semana e palpites na Resenha' : 'Palpites e lojinha na Resenha'}</span></span>
           ${missionsReady() ? `<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">${missionsReady()}</span>` : wallet.daily ? '<span class="text-[11px] font-extrabold bg-butter text-pitch rounded-full px-2 py-1">+100</span>' : '<i class="fa-solid fa-chevron-right text-[12px] text-ink-3"></i>'}
         </button>` : '';
       const st = status8 || {};

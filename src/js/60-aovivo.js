@@ -300,7 +300,7 @@
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
     }
-    /* Toque num aviso: a lista abre em Turmas → Lista; os palpites abrem na Lojinha → Palpites, no evento do aviso. */
+    /* Toque num aviso: a lista abre em Turmas → Lista; os palpites abrem na Resenha → Palpites, no evento do aviso. */
     function openListaFromAviso(id) {
       switchTab('ficha');
       openEventSheet(id);

@@ -262,10 +262,15 @@
         if (!v || !(v.matches || v.goals || v.assists || v.saves)) return '';
         return `<div class="card-flat p-3"><p class="text-[12px] font-extrabold text-pitch mb-1.5">${l}</p><div class="grid grid-cols-4 text-center">${[[v.matches, 'Jogos'], [v.goals, 'Gols'], [v.assists, 'Assist.'], [v.saves, 'Defesas']].map(([n, t]) => `<div><p class="font-serif text-[22px] leading-none">${Number(n) || 0}</p><p class="text-[10.5px] font-semibold text-ink-2 mt-0.5">${t}</p></div>`).join('')}</div></div>`;
       }).join('') : '';
-      const cardBox = document.getElementById('pf-card');
-      if (currentUser) cardBox.innerHTML = `<button onclick="openAthleteCard(currentUser.id)" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics || {} }, mine || {}, { small: true })}</button>`;
+      renderProfileCard(mine);
       const box = document.getElementById('profile-mine');
       if (box) box.innerHTML = mine ? '' : '<p class="text-[12.5px] text-ink-2 text-center leading-snug">Ligue seu nome numa turma pra seus números aparecerem aqui.</p>';
+      renderProfileTrophies();
+    }
+
+    function renderProfileCard(mine) {
+      const cardBox = document.getElementById('pf-card');
+      if (cardBox && currentUser) cardBox.innerHTML = `<button onclick="openAthleteCard(currentUser.id)" aria-label="Abrir seu card">${athleteCardHtml({ name: currentUser.name, avatar: currentUser.avatar, cosmetics: currentUser.cosmetics || {} }, mine || myStats() || {}, { small: true, trophies: userTrophyCache.get(currentUser.id) })}</button>`;
     }
 
     async function shareMyCard() {

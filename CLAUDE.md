@@ -1,7 +1,7 @@
 # BABA · mapa do projeto
 
 PWA de gestão de pelada (baba): lista de presença, times e fila Rei da Quadra, placar/cronômetro, stats, turmas,
-ao vivo com palpites, lojinha de Baba Points. Dono: Gabriel Marini. **Responda sempre em português.**
+ao vivo com palpites, aba Resenha (palpites pré-jogo, ranking de palpiteiros, missões e a lojinha de Baba Points). Dono: Gabriel Marini. **Responda sempre em português.**
 
 - Site: https://bagos669.github.io/baba/ (GitHub Pages da branch `main` do repo `Bagos669/baba`)
 - Banco: Supabase, projeto `gwndkwnodlfgbcpesenr`. O usuário roda os SQL à mão no SQL Editor; **nunca aplique migração sozinho**.
@@ -11,7 +11,7 @@ ao vivo com palpites, lojinha de Baba Points. Dono: Gabriel Marini. **Responda s
 
 ```
 /            site PUBLICADO (gerado pelo build). Não edite app.js, index.html, sw.js, app.css aqui.
-src/js/*.js        todo o JavaScript do app, em 16 módulos (564 funções, vanilla, sem bundler). Índice abaixo
+src/js/*.js        todo o JavaScript do app, em 17 módulos (564 funções, vanilla, sem bundler). Índice abaixo
 src/html/*.html    todo o HTML + CSS próprio + config do Tailwind, em 11 partes (viram index.html)
                    O build junta os arquivos de cada pasta em ordem alfabética do nome (00-, 10-, ...) por simples
                    concatenação: sem import/export. A ordem é a ordem de execução do app; não renumere sem necessidade.
@@ -57,6 +57,10 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
   baba_delete, turma_sync, turma_delete, turma_leave, player_rename, profile_update, live_settle, live_end`.
 - Mudou a forma do `state`? Ajustar `migrate()` e `defaultState()`; o teste sim2 recarrega a página e exige estado idêntico.
 
+> v11.5: a aba `loja` se chama **Resenha** na tela (o id continua `loja`). Ordem: `#shop-palpites` (sub-abas Palpites/Ranking, `propSub`),
+> `#shop-missions`, `#shop-lojinha-title` + catálogo ("Lojinha do Babinha"), extrato. Saldo: `paintBalance()` (`#shop-balance` e `#resenha-balance`).
+> Duelos/Destaque/Total, ranking e troféus no Perfil/card ficam em `src/js/52-resenha-palpites2.js` (`propFase2Html`, `propDuelHtml`, `propLeaderHtml`,
+> `propTotalHtml`, `propMoveTotal`, `loadPropRank`/`propRankHtml`, `loadUserTrophies`, `renderProfileTrophies`, `cardTrophiesHtml`).
 > v11.4: seção `PALPITES PRÉ-JOGO (v11.4)` fica em `src/js/50-visual-loja.js` (`loadPropCounts`, `propChipHtml`, `openPalpites`, `loadProp`/`renderPropSection` em `#shop-palpites`, `openBilhete`/`confirmBilhete` em `#modal-pbilhete`, `propStepLine` (escolher linha), `propSlide`/`propAll` (barra de valor), `propSuspend` do adm).
 
 ## Módulos do JavaScript (src/js, na ordem de execução)
@@ -73,7 +77,8 @@ Cada módulo guarda funções inteiras; a ordem dos arquivos é a mesma de antes
 | `25-suporte-tutorial` | SUPORTE, TUTORIAL DO BABINHA | `openSupport`, FAQ, `TUTORIAL` (6 capítulos, alvos por seletor), `startTour` |
 | `30-pessoas-pdf` | PESSOAS DA TURMA, PDF DO BABA | dono/adm/membro, `openPersonActions`, `openExportSheet`, `generateBabaPDF` (jsPDF) |
 | `40-servidor-termos` | V7 · SERVIDOR, POP-UPS, TERMOS, MOLDURAS E NOMES | `API7` = RPCs do Supabase (termos, pontos, loja, ao vivo, palpites, chat, eventos, turmas v11.2), `PATCH_NOTES`, `APP_VERSION`, `maybePopups`, `openPatchNotes`, `applyFrame` (moldura no **wrapper** do avatar, nunca no botão), `framedAvatar`, `styledName` |
-| `50-visual-loja` | VISUAL DO ATLETA, LOJINHA, MISSÕES | `athleteCardHtml`, `openAthleteCard`, push do ao vivo, `openShop` → `switchTab('loja')` → `enterShop`, `renderShop`, `claimDaily` |
+| `50-visual-loja` | VISUAL DO ATLETA, LOJINHA (aba Resenha), MISSÕES, PALPITES PRÉ-JOGO | `athleteCardHtml`, `openAthleteCard`, push do ao vivo, `openShop` → `switchTab('loja')` → `enterShop`, `renderShop`, `claimDaily` |
+| `52-resenha-palpites2` | RESENHA (v11.5): Duelos, Destaque do dia, Total do baba, ranking de palpiteiros, troféus no Perfil e no card | `propFase2Html`, `propSubTab`, `loadPropRank`, `propRankHtml`, `loadUserTrophies`, `renderProfileTrophies`, `paintBalance` |
 | `60-aovivo` | JOGO AO VIVO (organiza / assiste) | `playerRates`, `oddFrom` (0,9/p), `liveMarkets`, `openLive`, palpites ao vivo, duelos |
 | `70-compromisso` | COMPROMISSO (v11) | eventos/lista: `openEventEdit/saveEventEdit`, `openEventSheet`, `answerEvent`, colar lista, convidados, presença |
 | `80-turmas-chat` | TURMAS (v11.2), CHAT | `openTurmaHub` (ranking, troféus, prestígio), desafios, `openExplore`, campeonatos, `openForm`, `openTurmaChat`, `todaysEvent`, `renderHomeV7`, `renderHomeBabinha` (mascote contextual), `renderBattery` |
@@ -92,7 +97,7 @@ os vizinhos (ex.: `65-...`) e confira com `cat src/js/*.js | node --check /dev/s
 |---|---|
 | `00-head` | `<head>`: meta, config do Tailwind, componentes Tailwind e todo o CSS próprio (`<style>`) |
 | `10-auth` | `<body>` e `#auth-root` (login, cadastro, recuperação, demo) |
-| `20-app` | `#app-root`: cabeçalho, abas, Início, Turmas (Lista, Times, Placar, Stats), Lojinha, barra de baixo |
+| `20-app` | `#app-root`: cabeçalho, abas, Início, Turmas (Lista, Times, Placar, Stats), Resenha (Palpites, Missões, Lojinha), barra de baixo |
 | `30-quadra-toasts` | `#court-mode` (placar em tela cheia) e `#toast-container` |
 | `40-paginas` | `page-profile`, `page-settings`, `page-support` |
 | `50-modais-perfil` | `modal-picker` (foto), `modal-export` (PDF), `#tour` (tutorial) |
@@ -115,8 +120,8 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos
-(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2).
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2
+(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2; `v11_5_palpites_fase2.sql` é a 11.5).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
 - Pontos: `wallets` + `points_ledger` (motivo em `reason`). Palpites ao vivo: `live_games.markets` + `palpites`.
@@ -135,17 +140,20 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   em Configurações → Avisos no celular (`setAviso`, `ensureAvisoPush` em `50-visual-loja.js`). O toque abre `#lista=<id>` (Turmas → Lista) ou `#palpites=<id>`
   (Lojinha → Palpites; `openListaFromAviso`/`openPalpitesFromAviso` em `60-aovivo.js`). O tick também devolve palpites de lista cancelada/expirada sem esperar alguém abrir a Lojinha.
   O aviso de cancelamento (`event_cancel`) continua saindo do celular do adm via `eventPush`; o push antigo de "puxou a lista" saiu (o servidor manda a Lista aberta).
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
-(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
-- Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
-  (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
-- Pontos: `wallets` + `points_ledger` (motivo em `reason`). Palpites ao vivo: `live_games.markets` + `palpites`.
+- v11.5 (palpites fase 2): `prop_markets.kind` ganha `duel` (player_id = A, `player2_id` = B, métrica `ga`), `leader` (sem atleta; métrica goals/assists/saves;
+  opções = ids dos atletas em `selections`, quem confirma depois entra enquanto aberto) e `baba_total` (sem atleta; métrica matches/goals; linha do histórico
+  ponderado da turma, `private.total_sel`/`total_pick_line`). λ por atleta em `private.prop_rates(ev)` (a mesma conta da v11.4). Geração em
+  `generate_prop_markets` → `gen_duels`/`gen_leaders`/`gen_totals`; liquidação em `settle_event` → `settle_fase2` (empate de duelo/total devolve,
+  destaque divide o pagamento entre empatados, `void_reason` `ausente`/`zero`). Duelo: `self_against`. O adm move a linha do Total de 0,5 em 0,5
+  (`adjust_prop_line`, só sem palpites). Ranking: `prop_leaderboard(t, season)` (só membros; ≥10 palpites ganhos/perdidos; `private.prop_season_stats`).
+  Troféus `pe_quente`/`mae_dina` em `private.award_seasons` (com `turma_trophies.user_id`); `user_trophies(u)` alimenta Perfil e card.
 - Pendente do usuário: segredos `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` em Edge Functions → Secrets (nunca commitar a privada).
 
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
-configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
+configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), v115 (Resenha, palpites fase 2, ranking, troféus; liga
+`fake.v115_enabled`), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 
 ## Armadilhas conhecidas

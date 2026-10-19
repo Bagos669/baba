@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=26edd4453b" />
+  <link rel="stylesheet" href="app.css?v=a635232b08" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -373,6 +373,11 @@
     .acard-nick { width: 100%; text-align: center; font-family: 'Instrument Serif', serif; font-style: italic; font-size: 17px; line-height: 1.2; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .acard-stats { margin-top: 8px; width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; border-radius: 12px; background: rgba(0,0,0,.22); padding: 7px 4px; }
     .acard-stat { text-align: center; min-width: 0; }
+    .acard-trophies { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; background: rgba(0,0,0,.22); padding: 3px 10px; font-size: 11px; font-weight: 800; position: relative; }
+    .acard-trophies i { font-size: 10.5px; color: #F3C93A; }
+    .acard-retro .acard-trophies { background: rgba(120,80,20,.14); }
+    .acard-ouro .acard-trophies { background: rgba(80,50,0,.16); }
+    .acard-ouro .acard-trophies i, .acard-retro .acard-trophies i { color: inherit; }
     .acard-stat b { display: block; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 21px; line-height: 1; }
     .acard-sm .acard-stat b { font-size: 17px; }
     .acard-stat span { display: block; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; opacity: .75; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; }
@@ -1165,9 +1170,15 @@
       </div>
       </div>
 
-      <!-- =================== LOJINHA =================== -->
+      <!-- =================== RESENHA (antiga Lojinha): Palpites, Missões e a Lojinha =================== -->
       <div id="tab-content-loja" class="tab-content hidden space-y-5">
-        <h2 class="text-[22px] font-extrabold tracking-tight pt-2">Lojinha do Babinha</h2>
+        <div class="flex items-end justify-between gap-3 pt-2">
+          <h2 class="text-[22px] font-extrabold tracking-tight">Resenha</h2>
+          <span class="ev-tag bg-butter text-pitch flex-shrink-0 mb-1"><i class="fa-solid fa-coins mr-1"></i><span id="resenha-balance">0</span> pts</span>
+        </div>
+      <section id="shop-palpites" class="hidden" style="scroll-margin-top: 76px"></section>
+      <section id="shop-missions" class="hidden"></section>
+      <h3 id="shop-lojinha-title" class="text-[19px] font-extrabold tracking-tight pt-1">Lojinha do Babinha</h3>
       <section class="pitch-card p-4 pr-[128px] min-h-[150px] flex flex-col justify-center">
         <div class="rings"></div>
         <img src="babinha/money.webp" alt="" class="absolute right-1 bottom-0 w-[124px] babinha-bob" />
@@ -1176,8 +1187,6 @@
         <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
       </section>
       <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
-      <section id="shop-palpites" class="hidden" style="scroll-margin-top: 76px"></section>
-      <section id="shop-missions" class="hidden"></section>
       <button onclick="openAthleteCard(currentUser && currentUser.id)" class="w-full flex items-center gap-4 card p-4 text-left active:scale-[0.99] transition">
         <span id="shop-preview-avatar"></span>
         <div class="min-w-0 flex-1">
@@ -1207,7 +1216,7 @@
           <i class="fa-solid fa-people-group text-[17px]"></i><span class="text-[10.5px] font-bold">Turmas</span>
         </button>
         <button onclick="switchTab('loja')" id="tab-nav-loja" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <i class="fa-solid fa-bag-shopping text-[17px]"></i><span class="text-[10.5px] font-bold">Lojinha</span>
+          <i class="fa-solid fa-bag-shopping text-[17px]"></i><span class="text-[10.5px] font-bold">Resenha</span>
         </button>
         <button id="header-profile" onclick="openProfile()" class="relative rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition" aria-label="Seu perfil">
           <span class="relative inline-flex"><span id="header-avatar-wrap" class="inline-flex rounded-full"><span id="header-avatar" class="avatar w-[30px] h-[30px] text-[11px]">?</span></span><span id="sync-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-card"></span></span>
@@ -1348,6 +1357,11 @@
         <p class="eyebrow mb-2 px-1">Suas estatísticas</p>
         <div id="pf-stats" class="grid grid-cols-3 gap-2"></div>
         <div id="pf-venues" class="mt-2.5 space-y-2"></div>
+      </section>
+
+      <section id="pf-trophies-sec" class="hidden">
+        <p class="eyebrow mb-2 px-1">Seus troféus</p>
+        <div id="pf-trophies" class="space-y-2"></div>
       </section>
 
       <section>
@@ -2406,6 +2420,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=bf5d9da6d0"></script>
+  <script src="app.js?v=38dcc2dd37"></script>
 </body>
 </html>

@@ -1267,3 +1267,261 @@ def _replace_stats_p(self, uid, bid, rows):
         if b and b.get('event_id') and b['event_id'] in self.events: self._p_settle(b['event_id'])
     return r
 Fake.f_replaceStats = _replace_stats_p
+
+# ---- v11.5: Duelo, Destaque do dia, Total do baba, ranking de palpiteiros e troféus (o banco de verdade é testado em supabase/test/v11_5_rules.sql)
+# Só liga com fake.v115_enabled = True (os smokes antigos continuam vendo só os mercados da v11.4).
+def _p_rates(self, e):
+    eid = e['id']
+    conf = [r for (x, k), r in self.rsvps.items() if x == eid and r['status'] == 'vou']
+    if not conf: return []
+    wins = sorted([b for b in self.babas.values() if b.get('finished') and e['turma_id'] in (b.get('turma_ids') or [])], key=lambda b: (b['played_on'], b.get('updated', 0)), reverse=True)[:10]
+    pl = {p['id']: p for p in self.players.values() if p['turma_id'] == e['turma_id']}
+    def pid_of(s): return s.get('turma_player_id') or next((p['id'] for p in pl.values() if p['name'].strip().lower() == s['name'].strip().lower()), None)
+    ath = {}
+    for age, b in enumerate(wins):
+        w = 0.5 ** (age / 4.0); per = {}
+        for s in self.stats.get(b['id'], []):
+            pid = pid_of(s)
+            if not pid: continue
+            d = per.setdefault(pid, {'g': 0, 'a': 0, 'sv': 0, 'm': 0})
+            d['g'] += s.get('goals', 0); d['a'] += s.get('assists', 0); d['sv'] += s.get('saves', 0); d['m'] += s.get('matches', 0)
+        for pid, d in per.items():
+            a = ath.setdefault(pid, {'n': 0, 'wm': 0, 'wg': 0, 'wa': 0, 'wsv': 0})
+            if d['m'] > 0: a['n'] += 1
+            a['wm'] += d['m'] * w; a['wg'] += d['g'] * w; a['wa'] += d['a'] * w; a['wsv'] += d['sv'] * w
+    grp = {}
+    for pid, a in ath.items():
+        g = grp.setdefault(bool(pl[pid].get('is_goalkeeper')), {'wm': 0, 'wg': 0, 'wa': 0, 'wsv': 0})
+        for k in ('wm', 'wg', 'wa', 'wsv'): g[k] += a[k]
+    pavg = (sum(b.get('matches', 0) for b in wins) / len(wins)) if wins else 0
+    ej = 2 * (pavg or 6) * 5 / len(conf)
+    out = []
+    for r in conf:
+        pid = r.get('turma_player_id')
+        if not pid or pid not in pl: continue
+        gk = bool(pl[pid].get('is_goalkeeper')); g = grp.get(gk)
+        if not g or g['wm'] <= 0: continue
+        a = ath.get(pid, {'n': 0, 'wm': 0, 'wg': 0, 'wa': 0, 'wsv': 0}); n = a['n']
+        def adj(x):
+            r_ath = a[x] / a['wm'] if a['wm'] > 0 else 0
+            return (n * r_ath + 3 * (g[x] / g['wm'])) / (n + 3)
+        out.append({'pid': pid, 'gk': gk, 'n': n, 'lg': round(adj('wg') * ej, 4), 'la': round(adj('wa') * ej, 4), 'lga': round((adj('wg') + adj('wa')) * ej, 4), 'ls': round(adj('wsv') * ej, 4)})
+    return out
+def _duel_p(la, lb):
+    win = sum(_pmf(la, a) * _pmf(lb, b) for a in range(16) for b in range(16) if a > b)
+    lose = sum(_pmf(la, a) * _pmf(lb, b) for a in range(16) for b in range(16) if b > a)
+    return None if win + lose <= 0 else win / (win + lose)
+def _leader_sel(opts):
+    cdf = {o['key']: [sum(_pmf(o['lam'], x) for x in range(k + 1)) for k in range(16)] for o in opts}
+    out = []
+    for o in opts:
+        p = 0
+        for k in range(16):
+            prod = 1
+            for j in opts:
+                if j['key'] != o['key']: prod *= cdf[j['key']][k]
+            p += _pmf(o['lam'], k) * prod
+        out.append({'key': o['key'], 'lam': o['lam'], 'p': round(p, 4), 'odd': _codd(p)})
+    return sorted(out, key=lambda x: (-x['p'], x['key']))
+def _total_hist(self, t):
+    wins = sorted([b for b in self.babas.values() if b.get('finished') and t in (b.get('turma_ids') or [])], key=lambda b: (b['played_on'], b.get('updated', 0)), reverse=True)[:10]
+    return [{'w': 0.5 ** (age / 4.0), 'matches': b.get('matches', 0), 'goals': sum(s.get('goals', 0) for s in self.stats.get(b['id'], []))} for age, b in enumerate(wins)]
+def _total_sel(self, t, metric, line):
+    h = _total_hist(self, t); sw = sum(x['w'] for x in h)
+    om = sum(x['w'] for x in h if x[metric] > line); ou = sum(x['w'] for x in h if x[metric] < line)
+    pm = (om + 0.5) / (sw + 1); pu = (ou + 0.5) / (sw + 1); s = pm + pu; pm, pu = pm / s, pu / s
+    return [{'key': 'mais', 'label': 'Mais ' + _fl(line), 'odd': _codd(pm), 'p': round(pm, 4)}, {'key': 'menos', 'label': 'Menos ' + _fl(line), 'odd': _codd(pu), 'p': round(pu, 4)}]
+def _total_line(self, t, metric):
+    h = _total_hist(self, t)
+    if len(h) < 5: return None
+    best, bd = None, 9
+    for g in range(int(max(x[metric] for x in h)) + 1):
+        l = g + 0.5; p = _total_sel(self, t, metric, l)[0]['p']
+        if 0.35 <= p <= 0.65 and abs(p - 0.5) < bd: best, bd = l, abs(p - 0.5)
+    return best
+def _new_market(self, e, kind, metric, sels, pid=None, pid2=None, line=None, lam=None):
+    mid = str(uuid.uuid4())
+    self.pmk[mid] = {'id': mid, 'event_id': e['id'], 'turma_id': e['turma_id'], 'player_id': pid, 'player2_id': pid2, 'kind': kind, 'metric': metric, 'line': line, 'selections': sels,
+                     'lambda': lam, 'rookie': False, 'status': 'open', 'result': None, 'void_reason': None, 'edited_by': None}
+_old_generate = Fake._p_generate
+def _p_generate2(self, e):
+    _old_generate(self, e)
+    if not getattr(self, 'v115_enabled', False) or e['status'] != 'open' or self._p_locked(e): return
+    if sum(1 for (x, k), r in self.rsvps.items() if x == e['id'] and r['status'] == 'vou') < 4: return
+    eid = e['id']; rates = _p_rates(self, e); mk = [m for m in self.pmk.values() if m['event_id'] == eid]
+    duels = [m for m in mk if m['kind'] == 'duel']; used = {x for m in duels for x in (m['player_id'], m['player2_id'])}
+    prev = None
+    for r in sorted([r for r in rates if not r['gk'] and r['n'] > 0 and r['lga'] > 0 and r['pid'] not in used], key=lambda r: (-r['lga'], r['pid'])):
+        if len(duels) >= 3: break
+        if prev is None: prev = r; continue
+        p = _duel_p(prev['lga'], r['lga'])
+        if p is not None and 0.35 <= p <= 0.65:
+            _new_market(self, e, 'duel', 'ga', [{'key': prev['pid'], 'lam': prev['lga'], 'odd': _codd(p), 'p': round(p, 4)}, {'key': r['pid'], 'lam': r['lga'], 'odd': _codd(1 - p), 'p': round(1 - p, 4)}], prev['pid'], r['pid'], lam=prev['lga'])
+            duels.append(1); prev = None
+        else: prev = r
+    for metric, key, mn in (('goals', 'lg', 4), ('assists', 'la', 4), ('saves', 'ls', 2)):
+        cand = [{'key': r['pid'], 'lam': r[key]} for r in rates if r['gk'] == (metric == 'saves')]
+        m = next((m for m in mk if m['kind'] == 'leader' and m['metric'] == metric), None)
+        if not m:
+            if len(cand) >= mn: _new_market(self, e, 'leader', metric, _leader_sel(cand))
+        elif m['status'] == 'open':
+            have = {s['key'] for s in m['selections']}
+            extra = [c for c in cand if c['key'] not in have]
+            if extra: m['selections'] = _leader_sel([{'key': s['key'], 'lam': s['lam']} for s in m['selections']] + extra)
+    for metric in ('matches', 'goals'):
+        if any(m['kind'] == 'baba_total' and m['metric'] == metric for m in mk): continue
+        ln = _total_line(self, e['turma_id'], metric)
+        if ln is not None: _new_market(self, e, 'baba_total', metric, _total_sel(self, e['turma_id'], metric, ln), line=ln)
+Fake._p_generate = _p_generate2
+def _pstat(self, bid, pid):
+    pl = self.players.get(pid) or {}; pn = (pl.get('name') or '').strip().lower()
+    rows = [s for s in self.stats.get(bid, []) if s.get('turma_player_id') == pid or (not s.get('turma_player_id') and s['name'].strip().lower() == pn)]
+    return {'g': sum(s.get('goals', 0) for s in rows), 'a': sum(s.get('assists', 0) for s in rows), 'sv': sum(s.get('saves', 0) for s in rows), 'mt': sum(s.get('matches', 0) for s in rows)}
+_old_settle = Fake._p_settle
+def _p_settle2(self, eid):
+    # os mercados por atleta ficam com a liquidação de antes (que não conhece os tipos novos)
+    novos = {k: m for k, m in self.pmk.items() if m['kind'] in ('duel', 'leader', 'baba_total')}
+    for k in novos: del self.pmk[k]
+    try: _old_settle(self, eid)
+    finally: self.pmk.update(novos)
+    done = [b for b in self.babas.values() if b.get('event_id') == eid and b.get('finished')]
+    if not done or not self.stats.get(done[0]['id']): return
+    bb = done[0]; bid = bb['id']
+    for m in [m for m in novos.values() if m['event_id'] == eid and m['status'] in ('open', 'locked')]:
+        win, tops, absent, why = None, [], [], None
+        if m['kind'] == 'duel':
+            a, b = _pstat(self, bid, m['player_id']), _pstat(self, bid, m['player2_id'])
+            if not a['mt'] or not b['mt']: why = 'ausente'
+            else:
+                va, vb = a['g'] + a['a'], b['g'] + b['a']; win = m['player_id'] if va > vb else m['player2_id'] if vb > va else None
+                res = {'value': va, 'value2': vb, 'win': win or 'empate'}
+        elif m['kind'] == 'leader':
+            played = []
+            for s in m['selections']:
+                st = _pstat(self, bid, s['key'])
+                if not st['mt']: absent.append(s['key'])
+                else: played.append((s['key'], {'goals': st['g'], 'assists': st['a'], 'saves': st['sv']}[m['metric']]))
+            top = max([v for _, v in played], default=0)
+            if not top: why = 'zero'
+            else: tops = sorted(k for k, v in played if v == top); res = {'value': top, 'win': tops, 'absent': sorted(absent)}
+        else:
+            val = bb.get('matches', 0) if m['metric'] == 'matches' else sum(s.get('goals', 0) for s in self.stats[bid])
+            win = 'mais' if val > m['line'] else 'menos' if val < m['line'] else None; res = {'value': val, 'win': win or 'empate'}
+        if why: m['status'] = 'locked'; self._p_void(m, why); continue
+        m['status'] = 'settled'; m['result'] = res
+        for b in self.pbets:
+            if b['market'] != m['id'] or b['status'] != 'open': continue
+            if (m['kind'] != 'leader' and win is None) or (m['kind'] == 'leader' and b['selection'] in absent):
+                b['status'] = 'void'; b['payout'] = b['stake']; self._add(b['user'], b['stake'], 'palpite-pre-devolvido', str(b['id'])); continue
+            if (b['selection'] in tops) if m['kind'] == 'leader' else (b['selection'] == win):
+                b['status'] = 'won'; b['payout'] = math.floor(b['stake'] * b['odd'] / (len(tops) if m['kind'] == 'leader' else 1)); self._add(b['user'], b['payout'], 'palpite-pre-ganho', str(b['id']))
+            else: b['status'] = 'lost'
+Fake._p_settle = _p_settle2
+def _mjson(self, m, uid):
+    pl = self.players.get(m['player_id']) or {}; p2 = self.players.get(m.get('player2_id')) or {}
+    mine = next((b for b in self.pbets if b['market'] == m['id'] and b['user'] == uid), None)
+    sels = m['selections']
+    if m['kind'] in ('duel', 'leader'):
+        sels = [dict(s, label=(self.players.get(s['key']) or {}).get('name', '?'), mine=(self.players.get(s['key']) or {}).get('user_id') == uid) for s in sels]
+    return {'id': m['id'], 'player_id': m['player_id'], 'player': pl.get('name'), 'keeper': bool(pl.get('is_goalkeeper')), 'mine': bool(pl) and pl.get('user_id') == uid, 'kind': m['kind'], 'metric': m['metric'],
+            'player2_id': m.get('player2_id'), 'player2': p2.get('name'), 'mine2': bool(p2) and p2.get('user_id') == uid,
+            'line': m['line'], 'selections': sels, 'ladder': _ladder(m['lambda']) if m['kind'] == 'ou' else None, 'rookie': m['rookie'], 'status': m['status'], 'result': m['result'], 'void_reason': m['void_reason'],
+            'adjusted': m['edited_by'] is not None, 'has_bets': any(b['market'] == m['id'] for b in self.pbets),
+            'bet': dict({k: mine[k] for k in ('selection', 'stake', 'odd', 'status', 'payout')}, line=mine.get('line') or m['line']) if mine else None}
+@_preg
+def f_propMarkets(self, uid, eid):
+    e = self.events.get(eid)
+    if not e or not self.is_member(e['turma_id'], uid): raise PermissionError('not_member')
+    self._p_refresh(e)
+    locked = self._p_locked(e) or e['status'] != 'open'
+    rank = {'ou': 0, 'exact': 0, 'duel': 1, 'leader': 2, 'baba_total': 3}
+    key = lambda m: (rank[m['kind']], (self.players.get(m['player_id']) or {}).get('name', ''), {'goals': 1, 'assists': 2, 'ga': 3, 'saves': 4, 'matches': 5}.get(m['metric'], 6), 0 if m['kind'] == 'ou' else 1)
+    ms = [_mjson(self, m, uid) for m in sorted([m for m in self.pmk.values() if m['event_id'] == eid], key=key)]
+    return self.ok({'event_id': eid, 'turma_id': e['turma_id'], 'starts_at': e['starts_at'], 'locked': locked, 'admin': self._is_adm(e['turma_id'], uid), 'adult': self._adult(uid),
+                    'confirmed': sum(1 for (x, k), r in self.rsvps.items() if x == eid and r['status'] == 'vou'), 'markets': ms})
+_old_place = Fake.f_placePropBet
+def f_placePropBet(self, uid, mid, selection, stake, p_line=None):
+    m = (getattr(self, 'pmk', {}) or {}).get(mid)
+    if not m or m['kind'] in ('ou', 'exact'): return _old_place(self, uid, mid, selection, stake, p_line)
+    try:
+        self._pinit(); self._need(uid)
+        e = self.events[m['event_id']]
+        if not self.is_member(m['turma_id'], uid): raise PermissionError('not_member')
+        if not self._adult(uid): raise PermissionError('not_adult')
+        self._p_refresh(e); m = self.pmk[mid]
+        if m['status'] == 'locked': raise PermissionError('locked')
+        if m['status'] != 'open' or e['status'] != 'open': raise PermissionError('market_closed')
+        if not isinstance(stake, int) or stake < 10: raise PermissionError('bad_stake')
+        sel = next((s for s in m['selections'] if s['key'] == selection), None)
+        if not sel: raise PermissionError('bad_selection')
+        if m['kind'] == 'duel':
+            ua = (self.players.get(m['player_id']) or {}).get('user_id'); ub = (self.players.get(m['player2_id']) or {}).get('user_id')
+            if (ua == uid and selection == m['player2_id']) or (ub == uid and selection == m['player_id']): raise PermissionError('self_against')
+        if any(b['market'] == mid and b['user'] == uid for b in self.pbets): raise PermissionError('already_bet')
+        self.f_myWallet(uid); bid = len(self.pbets) + 1
+        bal = self._add(uid, -stake, 'palpite-pre', str(bid))
+        self.pbets.append({'id': bid, 'market': mid, 'user': uid, 'selection': selection, 'line': m['line'] if m['kind'] == 'baba_total' else None, 'stake': stake, 'odd': sel['odd'], 'status': 'open', 'payout': 0})
+        return self.ok({'bet_id': bid, 'balance': bal, 'odd': sel['odd'], 'payout': math.floor(stake * sel['odd'])})
+    except PermissionError as ex: return self.err('P0001', str(ex))
+Fake.f_placePropBet = f_placePropBet
+_old_adjust = Fake.f_adjustPropLine
+def f_adjustPropLine(self, uid, mid, line):
+    m = (getattr(self, 'pmk', {}) or {}).get(mid)
+    if not m or m['kind'] != 'baba_total': return _old_adjust(self, uid, mid, line)
+    if not self._is_adm(m['turma_id'], uid): return self.err('P0001', 'not_allowed')
+    if m['status'] != 'open': return self.err('P0001', 'market_closed')
+    if any(b['market'] == mid for b in self.pbets): return self.err('P0001', 'has_bets')
+    if line < 0.5 or abs(line - m['line']) != 0.5: return self.err('P0001', 'bad_line')
+    m['line'] = line; m['selections'] = _total_sel(self, m['turma_id'], m['metric'], line); m['edited_by'] = uid
+    return self.ok({'line': line})
+Fake.f_adjustPropLine = f_adjustPropLine
+@_preg
+def f_propEventBets(self, uid, eid):
+    e = self.events.get(eid)
+    if not e or not self._is_adm(e['turma_id'], uid): raise PermissionError('not_allowed')
+    linked = _ev_linked(self, eid); rec = linked[-1]['created_by'] if linked else e['created_by']
+    nm = lambda pid: (self.players.get(pid) or {}).get('name', '?')
+    rows = []
+    for b in self.pbets:
+        m = self.pmk[b['market']]
+        if m['event_id'] != eid: continue
+        label = None
+        if m['kind'] == 'duel': label = f"Duelo {nm(m['player_id'])} x {nm(m['player2_id'])} · {nm(b['selection'])}"
+        elif m['kind'] == 'leader': label = {'goals': 'Artilheiro', 'assists': 'Garçom', 'saves': 'Paredão'}[m['metric']] + ' · ' + nm(b['selection'])
+        elif m['kind'] == 'baba_total': label = ('Partidas no dia' if m['metric'] == 'matches' else 'Gols no dia') + ' · ' + ('Mais ' if b['selection'] == 'mais' else 'Menos ') + _fl(b.get('line') or m['line'])
+        rows.append({'user_id': b['user'], 'name': self.profiles.get(b['user'], {}).get('name'), 'player': nm(m['player_id']) if m['player_id'] else None, 'metric': m['metric'], 'kind': m['kind'], 'line': b.get('line') or m['line'],
+                     'selection': b['selection'], 'stake': b['stake'], 'odd': b['odd'], 'status': b['status'], 'payout': b['payout'], 'recorder': b['user'] == rec, 'label': label})
+    return self.ok(rows)
+def _season_of(d):
+    d = str(d)[:10]; return d[:4] + ('-S1' if int(d[5:7]) <= 6 else '-S2')
+@_preg
+def f_propLeaderboard(self, uid, t, season=None):
+    if not getattr(self, 'v115_enabled', False): raise LookupError()
+    if not self.is_member(t, uid): raise PermissionError('not_member')
+    cur = _season_of(_dt.date.today().isoformat()); s = season or cur
+    agg = {}; seasons = {cur}
+    for b in self.pbets:
+        m = self.pmk[b['market']]; e = self.events.get(m['event_id'])
+        if m['turma_id'] != t or b['status'] not in ('won', 'lost') or not e: continue
+        es = _season_of(e['starts_at']); seasons.add(es)
+        if es != s: continue
+        a = agg.setdefault(b['user'], {'total': 0, 'wins': 0, 'staked': 0, 'paid': 0, 'cravadas': 0})
+        a['total'] += 1; a['staked'] += b['stake']
+        if b['status'] == 'won': a['wins'] += 1; a['paid'] += b['payout']; a['cravadas'] += m['kind'] == 'exact'
+    rows = []
+    for u, a in agg.items():
+        if a['total'] < 10: continue
+        lucro = a['paid'] - a['staked']
+        rows.append({'user_id': u, 'name': self.profiles.get(u, {}).get('name', 'Alguém'), 'lucro': lucro, 'roi': round(lucro / a['staked'], 4) if a['staked'] else None,
+                     'wins': a['wins'], 'total': a['total'], 'cravadas': a['cravadas'], 'me': u == uid})
+    rows.sort(key=lambda r: (-r['lucro'], -(r['roi'] or 0), r['name']))
+    for i, r in enumerate(rows): r['rank'] = i + 1
+    me = agg.get(uid, {'total': 0})
+    return self.ok({'turma_id': t, 'season': s, 'current': cur, 'seasons': sorted(seasons, reverse=True), 'min': 10, 'rows': rows,
+                    'me': {'total': me['total'], 'qualified': me['total'] >= 10, 'need': 10, 'rank': next((r['rank'] for r in rows if r['me']), None)}})
+@_preg
+def f_userTrophies(self, uid, u=None):
+    if not getattr(self, 'v115_enabled', False): raise LookupError()
+    who = u or uid
+    return self.ok([dict(x, turma=(self.turmas.get(x['turma_id']) or {}).get('name')) for x in getattr(self, 'trophies', [])
+                    if x.get('scope') == 'atleta' and x.get('user_id') == who and self._can_see(x['turma_id'], uid)])

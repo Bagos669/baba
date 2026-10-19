@@ -268,7 +268,7 @@
             offerLocalImport();
             const lc = takePendingLive();
             if (lc) openLive(lc);
-            // Toque num aviso de palpites com o app fechado: a Lojinha só abre depois de o servidor responder (v7 conhecido).
+            // Toque num aviso de palpites com o app fechado: a Resenha só abre depois de o servidor responder (v7 conhecido).
             else openPendingPalpites();
           }));
         });
