@@ -843,7 +843,9 @@
         const d = e.data || {};
         if (d.type !== 'open') return;
         const l = String(d.url || '').match(/lista=([0-9a-f-]{36})/);
-        if (l && currentUser) { openEventSheet(l[1]); return; }
+        if (l && currentUser) { openListaFromAviso(l[1]); return; }
+        const pa = String(d.url || '').match(/palpites=([0-9a-f-]{36})/);
+        if (pa && currentUser) { openPalpitesFromAviso(pa[1]); return; }
         const m = String(d.url || '').match(/ao-vivo=([A-Za-z0-9]{4,12})/);
         if (m && currentUser !== undefined) openLive(m[1].toUpperCase());
       });
@@ -1123,6 +1125,8 @@
             offerLocalImport();
             const lc = takePendingLive();
             if (lc) openLive(lc);
+            // Toque num aviso de palpites com o app fechado: a Lojinha só abre depois de o servidor responder (v7 conhecido).
+            else openPendingPalpites();
           }));
         });
       });
@@ -1719,7 +1723,7 @@
        and in the profile, so a new phone picks them up.
        =================================================================== */
     const PREFS_KEY = 'baba_prefs_v1';
-    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '', detailStats: false };
+    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '', detailStats: false, avisoLista: true, avisoLembrete: true, avisoPalpites: true };
     const SYNCED_PREFS = Object.keys(DEFAULT_PREFS);
     let prefs = loadPrefs();
     let prefsPulledFor = null;
@@ -1747,6 +1751,9 @@
       set('pref-sound', prefs.sound);
       set('pref-vibrate', prefs.vibrate);
       set('pref-detail', prefs.detailStats);
+      set('pref-aviso-lista', prefs.avisoLista);
+      set('pref-aviso-lembrete', prefs.avisoLembrete);
+      set('pref-aviso-palpites', prefs.avisoPalpites);
       renderVenueUI();
     }
 
@@ -3035,9 +3042,15 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.4.1';
+    const APP_VERSION = '11.4.2';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.4.2', date: '19/10/2026', title: 'Avisos no celular', items: [
+        'Lista aberta: quando a turma puxa a lista de um baba, você recebe um aviso, mesmo com o app fechado. Quem puxou a lista não recebe.',
+        'Lembrete de resposta: um dia antes do baba, quem ainda não respondeu Vou, Talvez ou Não vou recebe um lembrete.',
+        'Palpites liquidados: quando seus palpites são pagos você vê quantos acertou e quanto ganhou ou perdeu. Se foram devolvidos, o aviso diz isso.',
+        'Em Configurações → Avisos no celular, cada aviso tem seu interruptor. Tocar no aviso abre direto a lista ou os palpites daquele baba.'
+      ] },
       { v: '11.4.1', date: '19/10/2026', title: 'Palpites mais livres', items: [
         'Agora você escolhe a linha do palpite (Mais 1,5, Mais 2,5, Mais 3,5...) e a cotação muda junto.',
         'O valor do palpite vai de 10 até o seu saldo todo: arraste a barra ou toque em "Tudo".',
@@ -3741,6 +3754,7 @@
       const input = document.getElementById('pref-push-turma');
       const sub = document.getElementById('pref-push-sub');
       if (!input) return;
+      renderAvisosUI();
       input.checked = lsGet('baba_push_turma_v1') === '1';
       if (!pushSupported()) { sub.innerText = isIos() && !isStandalone() ? 'No iPhone, instale o BABA na tela de início' : 'Este navegador não recebe avisos'; input.disabled = true; return; }
       input.disabled = false;
@@ -3751,6 +3765,35 @@
         const r = await api.pushStatus(s.endpoint, null);
         input.checked = !!(r && r.turma_on);
       } catch (e) {}
+    }
+
+    /* v11.4.2 · Avisos do servidor (lista aberta, lembrete de resposta, palpites liquidados): um interruptor para cada. */
+    async function ensureAvisoPush(explicit) {
+      try {
+        const k = subKeys(await pushSubscription(true));
+        await api.savePush(k.endpoint, k.p256dh, k.auth, null, null);
+        if (explicit) showToast('Pronto! Os avisos chegam neste celular.');
+      } catch (e) { showToast(pushError(e), 'warning'); }
+      renderAvisosUI();
+    }
+    function setAviso(key, on) {
+      setPref(key, !!on);
+      if (on) ensureAvisoPush(false);
+    }
+    async function renderAvisosUI() {
+      const box = document.getElementById('avisos-permit');
+      if (!box) return;
+      const msg = document.getElementById('avisos-permit-msg'), btn = document.getElementById('avisos-permit-btn');
+      let has = false;
+      if (!pushSupported()) {
+        msg.innerText = isIos() && !isStandalone() ? 'No iPhone, instale o BABA na tela de início para receber avisos.' : 'Este navegador não recebe avisos.';
+        btn.classList.add('hidden'); box.classList.remove('hidden'); return;
+      }
+      btn.classList.remove('hidden');
+      try { has = Notification.permission === 'granted' && !!(await pushSubscription(false)); } catch (e) {}
+      msg.innerText = Notification.permission === 'denied' ? 'Os avisos estão bloqueados. Libere as notificações do BABA nas configurações do navegador.' : 'Para os avisos chegarem, este celular precisa de permissão.';
+      box.classList.toggle('hidden', has);
+      if (Notification.permission === 'denied') btn.classList.add('hidden');
     }
 
     /* The organizer's phone tells the server; it pushes to everyone following. Never queued:
@@ -3944,6 +3987,7 @@
        trava e pagamento são do servidor (prop_markets, place_prop_bet...); aqui só se mostra.
        =================================================================== */
     let propEventId = null;            // lista aberta na seção Palpites (Lojinha)
+    let propForced = null;             // evento vindo do toque num aviso: abre mesmo que já tenha passado ou sido cancelado
     const propCache = new Map();       // eventId -> resposta de prop_markets
     let propCounts = {};               // eventId -> palpites abertos (chip do Início)
     let propCountsAt = 0;
@@ -4004,7 +4048,7 @@
     }
     function propPickEvent() {
       const c = propCandidates();
-      if (propEventId && c.some(e => e.id === propEventId)) return propEventId;
+      if (propEventId && (c.some(e => e.id === propEventId) || (propForced === propEventId && eventsCache.some(e => e.id === propEventId)))) return propEventId;
       const withMarkets = c.find(e => (propCounts[e.id] || 0) > 0) || c.find(e => (propCache.get(e.id) || { markets: [] }).markets.length);
       const pick = withMarkets || c.find(evUpcoming) || null;
       return pick ? pick.id : null;
@@ -4674,16 +4718,35 @@
         try { sessionStorage.setItem('baba_pending_list', l[1]); } catch (e) {}
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
+      const pa = (location.hash + '&' + location.search).match(/palpites=([0-9a-f-]{36})/);
+      if (pa) {
+        try { sessionStorage.setItem('baba_pending_palpites', pa[1]); } catch (e) {}
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      }
       const m = (location.hash + '&' + location.search).match(/ao-vivo=([A-Za-z0-9]{4,12})/);
       if (m) {
         try { sessionStorage.setItem('baba_pending_live', m[1].toUpperCase()); } catch (e) {}
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
     }
+    /* Toque num aviso: a lista abre em Turmas → Lista; os palpites abrem na Lojinha → Palpites, no evento do aviso. */
+    function openListaFromAviso(id) {
+      switchTab('ficha');
+      openEventSheet(id);
+    }
+    function openPalpitesFromAviso(id) {
+      propForced = id;
+      openPalpites(id);
+    }
     function openPendingList() {
       let id = null;
       try { id = sessionStorage.getItem('baba_pending_list'); sessionStorage.removeItem('baba_pending_list'); } catch (e) {}
-      if (id && currentUser) openEventSheet(id);
+      if (id && currentUser) openListaFromAviso(id);
+    }
+    function openPendingPalpites() {
+      let id = null;
+      try { id = sessionStorage.getItem('baba_pending_palpites'); sessionStorage.removeItem('baba_pending_palpites'); } catch (e) {}
+      if (id && currentUser) openPalpitesFromAviso(id);
     }
     function takePendingLive() {
       let code = null;

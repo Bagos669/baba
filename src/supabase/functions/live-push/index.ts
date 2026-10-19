@@ -1,7 +1,10 @@
 // BABA live-push: the organizer's phone calls this when a match starts, a goal or a save happens,
 // or a match ends; an adm's phone calls it when a list is pulled or canceled in a turma (v11). It checks the caller owns the live game (srv_push_claim also drops repeats and
 // caps it at 120 an hour), then sends a Web Push to whoever follows that game or is in its turmas.
-// Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT).
+// v11.4.2: the same function also sends the server's own notices (list opened, eve-of-game reminder, bets settled).
+// The database clock (pg_cron, every minute) calls it with the header x-avisos-secret; srv_avisos_pendentes() picks who
+// gets what and records each send first, so a retry never repeats a notice. Deploy with "Verify JWT" OFF (this file checks the login itself).
+// Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (and optionally VAPID_SUBJECT), AVISOS_SECRET (same value as private.avisos_cfg.secret).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import webpush from "npm:web-push@3.6.7";
@@ -22,12 +25,44 @@ const CORS = {
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+const AVISOS_SECRET = Deno.env.get("AVISOS_SECRET") ?? "";
+const safeEq = (a: string, b: string) => {
+  if (!a || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+};
+// Notices sent by the database clock. Never throws: a failed send only loses that one notice.
+async function sendAvisos() {
+  const { data, error } = await admin.rpc("srv_avisos_pendentes");
+  if (error) return json({ error: "server" }, 500);
+  const gone: string[] = [];
+  let sent = 0;
+  await Promise.allSettled((data || []).map(async (r: { tipo: string; event_id: string; endpoint: string; p256dh: string; auth: string; title: string; body: string }) => {
+    const payload = JSON.stringify({
+      title: clip(r.title, 80), body: clip(r.body, 160), kind: "aviso", tag: `baba-aviso-${r.tipo}-${r.event_id}`,
+      url: r.tipo === "palpites" ? `./#palpites=${r.event_id}` : `./#lista=${r.event_id}`,
+    });
+    try {
+      await webpush.sendNotification({ endpoint: r.endpoint, keys: { p256dh: r.p256dh, auth: r.auth } }, payload,
+        { TTL: r.tipo === "palpites" ? 86400 : 21600, urgency: "high" });
+      sent++;
+    } catch (e) {
+      const s = (e as { statusCode?: number }).statusCode;
+      if (s === 404 || s === 410) gone.push(r.endpoint);
+    }
+  }));
+  if (gone.length) await admin.rpc("srv_push_gone", { endpoints: gone });
+  return json({ sent, gone: gone.length });
+}
 const KINDS = new Set(["start", "goal", "save", "end", "event", "event_cancel"]);
 const clip = (v: unknown, n: number) => String(v ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "method" }, 405);
+  const avisosKey = req.headers.get("x-avisos-secret");
+  if (avisosKey !== null) return safeEq(avisosKey, AVISOS_SECRET) ? await sendAvisos() : json({ error: "unauthorized" }, 401);
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   const { data: who } = await admin.auth.getUser(token);
   if (!who?.user) return json({ error: "unauthorized" }, 401);

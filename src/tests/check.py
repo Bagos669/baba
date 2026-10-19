@@ -22,6 +22,7 @@ TESTS = [
     ('v112',     ['v112_smoke.py'],        'turmas: privacidade, ranking, troféus, desafios, campeonato'),
     ('v113',     ['v113_smoke.py'],        'navegação 3 abas + perfil na barra, configurações, local, lances, moldura'),
     ('v114',     ['v114_smoke.py'],        'palpites pré-jogo: chip, seção, bilhete, travas, adm, menor, liquidação'),
+    ('v1142',    ['v1142_smoke.py'],       'avisos no celular: interruptores, registro do aparelho, toque abre lista/palpites'),
     ('tutorial', ['tutorial_test.py'],     'os 6 capítulos do tutorial e seus alvos na tela'),
     ('sim2',     ['runsim2.py', 'sim2.js'], 'simulação de babas: times, fila, rotação, stats, reload'),
 ]

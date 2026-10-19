@@ -4,7 +4,7 @@
        and in the profile, so a new phone picks them up.
        =================================================================== */
     const PREFS_KEY = 'baba_prefs_v1';
-    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '', detailStats: false };
+    const DEFAULT_PREFS = { theme: 'light', textSize: 'normal', reduceMotion: false, sound: true, vibrate: true, tutorialDone: false, tutorialChapters: [], tutorialCardHidden: false, position: '', foot: '', mainTurma: '', detailStats: false, avisoLista: true, avisoLembrete: true, avisoPalpites: true };
     const SYNCED_PREFS = Object.keys(DEFAULT_PREFS);
     let prefs = loadPrefs();
     let prefsPulledFor = null;
@@ -32,6 +32,9 @@
       set('pref-sound', prefs.sound);
       set('pref-vibrate', prefs.vibrate);
       set('pref-detail', prefs.detailStats);
+      set('pref-aviso-lista', prefs.avisoLista);
+      set('pref-aviso-lembrete', prefs.avisoLembrete);
+      set('pref-aviso-palpites', prefs.avisoPalpites);
       renderVenueUI();
     }
 

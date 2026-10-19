@@ -289,16 +289,35 @@
         try { sessionStorage.setItem('baba_pending_list', l[1]); } catch (e) {}
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
+      const pa = (location.hash + '&' + location.search).match(/palpites=([0-9a-f-]{36})/);
+      if (pa) {
+        try { sessionStorage.setItem('baba_pending_palpites', pa[1]); } catch (e) {}
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      }
       const m = (location.hash + '&' + location.search).match(/ao-vivo=([A-Za-z0-9]{4,12})/);
       if (m) {
         try { sessionStorage.setItem('baba_pending_live', m[1].toUpperCase()); } catch (e) {}
         try { history.replaceState(null, '', location.pathname); } catch (e) {}
       }
     }
+    /* Toque num aviso: a lista abre em Turmas → Lista; os palpites abrem na Lojinha → Palpites, no evento do aviso. */
+    function openListaFromAviso(id) {
+      switchTab('ficha');
+      openEventSheet(id);
+    }
+    function openPalpitesFromAviso(id) {
+      propForced = id;
+      openPalpites(id);
+    }
     function openPendingList() {
       let id = null;
       try { id = sessionStorage.getItem('baba_pending_list'); sessionStorage.removeItem('baba_pending_list'); } catch (e) {}
-      if (id && currentUser) openEventSheet(id);
+      if (id && currentUser) openListaFromAviso(id);
+    }
+    function openPendingPalpites() {
+      let id = null;
+      try { id = sessionStorage.getItem('baba_pending_palpites'); sessionStorage.removeItem('baba_pending_palpites'); } catch (e) {}
+      if (id && currentUser) openPalpitesFromAviso(id);
     }
     function takePendingLive() {
       let code = null;

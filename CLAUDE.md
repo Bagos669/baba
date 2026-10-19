@@ -115,8 +115,8 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres
-(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1).
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos
+(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
 - Pontos: `wallets` + `points_ledger` (motivo em `reason`). Palpites ao vivo: `live_games.markets` + `palpites`.
@@ -127,6 +127,13 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
 - v11.4.1: quem palpita escolhe a linha (`private.prop_ladder`: 0,5 a 5,5 com cotação por lado; só lados com chance de 5% a 85%),
   `place_prop_bet(market, selection, stake, p_line)` grava `prop_bets.line`; valor de 10 até o saldo (sem tetos); cravada de gols em si mesmo
   = `self_exact`; o adm só suspende (`adjust_prop_line` ficou sem uso no app).
+- v11.4.2 (avisos no celular, tudo no servidor): `pg_cron` roda `private.avisos_tick()` a cada minuto → se há aviso a mandar, `pg_net` chama a Edge Function
+  `live-push` com o cabeçalho `x-avisos-secret` (segredo `AVISOS_SECRET`, o mesmo valor de `private.avisos_cfg.secret`; função publicada com Verify JWT desligado).
+  A função chama `srv_avisos_pendentes()`, que escolhe quem recebe (`private.avisos_candidatos(agora)`: `lista`, `vespera`, `palpites`) e GRAVA em
+  `private.aviso_envios` (único por tipo + evento + usuário) antes de devolver os endereços de `push_subs`: retentativa nunca duplica, e criar evento/liquidar
+  palpites não chamam nada disso (falha de envio não trava nada). Interruptores = `profiles.prefs` (`avisoLista`, `avisoLembrete`, `avisoPalpites`; sem valor = ligado),
+  em Configurações → Avisos no celular (`setAviso`, `ensureAvisoPush` em `50-visual-loja.js`). O toque abre `#lista=<id>` (Turmas → Lista) ou `#palpites=<id>`
+  (Lojinha → Palpites; `openListaFromAviso`/`openPalpitesFromAviso` em `60-aovivo.js`). O tick também devolve palpites de lista cancelada/expirada sem esperar alguém abrir a Lojinha.
 Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
@@ -137,7 +144,7 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
-configurações, local, lances, moldura), v114 (palpites pré-jogo), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
+configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 
 ## Armadilhas conhecidas

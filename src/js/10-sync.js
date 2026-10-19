@@ -551,7 +551,9 @@
         const d = e.data || {};
         if (d.type !== 'open') return;
         const l = String(d.url || '').match(/lista=([0-9a-f-]{36})/);
-        if (l && currentUser) { openEventSheet(l[1]); return; }
+        if (l && currentUser) { openListaFromAviso(l[1]); return; }
+        const pa = String(d.url || '').match(/palpites=([0-9a-f-]{36})/);
+        if (pa && currentUser) { openPalpitesFromAviso(pa[1]); return; }
         const m = String(d.url || '').match(/ao-vivo=([A-Za-z0-9]{4,12})/);
         if (m && currentUser !== undefined) openLive(m[1].toUpperCase());
       });

@@ -118,6 +118,31 @@
         </div>
       </section>
 
+      <section data-v7 id="settings-avisos">
+        <p class="eyebrow mb-2 px-1">Avisos no celular</p>
+        <div class="card-flat overflow-hidden divide-y divide-ink/[0.07]">
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clipboard-list"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Lista aberta</span><span class="block text-[12px] font-medium text-ink-2">Quando a turma puxa a lista de um baba</span></span>
+            <input type="checkbox" id="pref-aviso-lista" class="sr-only" onchange="setAviso('avisoLista', this.checked)" /><span class="switch"></span>
+          </label>
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-clock"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Lembrete de resposta</span><span class="block text-[12px] font-medium text-ink-2">Na véspera, se você ainda não respondeu a lista</span></span>
+            <input type="checkbox" id="pref-aviso-lembrete" class="sr-only" onchange="setAviso('avisoLembrete', this.checked)" /><span class="switch"></span>
+          </label>
+          <label class="menu-row cursor-pointer">
+            <span class="tile w-9 h-9 rounded-xl bg-sunk text-pitch text-[14px]"><i class="fa-solid fa-bullseye"></i></span>
+            <span class="flex-1 min-w-0"><span class="block">Palpites liquidados</span><span class="block text-[12px] font-medium text-ink-2">Quando seus palpites forem pagos ou devolvidos</span></span>
+            <input type="checkbox" id="pref-aviso-palpites" class="sr-only" onchange="setAviso('avisoPalpites', this.checked)" /><span class="switch"></span>
+          </label>
+          <div id="avisos-permit" class="hidden p-3.5">
+            <p id="avisos-permit-msg" class="text-[12.5px] font-medium text-ink-2 leading-snug mb-2.5"></p>
+            <button id="avisos-permit-btn" onclick="ensureAvisoPush(true)" class="btn-outline w-full h-11 text-[13.5px]"><i class="fa-solid fa-bell"></i> Permitir avisos neste celular</button>
+          </div>
+        </div>
+      </section>
+
       <section id="profile-staff" class="hidden">
         <p class="eyebrow mb-2 px-1">Equipe BABA</p>
         <div class="card-flat overflow-hidden">

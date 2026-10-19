@@ -154,9 +154,15 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.4.1';
+    const APP_VERSION = '11.4.2';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.4.2', date: '19/10/2026', title: 'Avisos no celular', items: [
+        'Lista aberta: quando a turma puxa a lista de um baba, você recebe um aviso, mesmo com o app fechado. Quem puxou a lista não recebe.',
+        'Lembrete de resposta: um dia antes do baba, quem ainda não respondeu Vou, Talvez ou Não vou recebe um lembrete.',
+        'Palpites liquidados: quando seus palpites são pagos você vê quantos acertou e quanto ganhou ou perdeu. Se foram devolvidos, o aviso diz isso.',
+        'Em Configurações → Avisos no celular, cada aviso tem seu interruptor. Tocar no aviso abre direto a lista ou os palpites daquele baba.'
+      ] },
       { v: '11.4.1', date: '19/10/2026', title: 'Palpites mais livres', items: [
         'Agora você escolhe a linha do palpite (Mais 1,5, Mais 2,5, Mais 3,5...) e a cotação muda junto.',
         'O valor do palpite vai de 10 até o seu saldo todo: arraste a barra ou toque em "Tudo".',

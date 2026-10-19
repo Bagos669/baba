@@ -287,6 +287,7 @@
       const input = document.getElementById('pref-push-turma');
       const sub = document.getElementById('pref-push-sub');
       if (!input) return;
+      renderAvisosUI();
       input.checked = lsGet('baba_push_turma_v1') === '1';
       if (!pushSupported()) { sub.innerText = isIos() && !isStandalone() ? 'No iPhone, instale o BABA na tela de início' : 'Este navegador não recebe avisos'; input.disabled = true; return; }
       input.disabled = false;
@@ -297,6 +298,35 @@
         const r = await api.pushStatus(s.endpoint, null);
         input.checked = !!(r && r.turma_on);
       } catch (e) {}
+    }
+
+    /* v11.4.2 · Avisos do servidor (lista aberta, lembrete de resposta, palpites liquidados): um interruptor para cada. */
+    async function ensureAvisoPush(explicit) {
+      try {
+        const k = subKeys(await pushSubscription(true));
+        await api.savePush(k.endpoint, k.p256dh, k.auth, null, null);
+        if (explicit) showToast('Pronto! Os avisos chegam neste celular.');
+      } catch (e) { showToast(pushError(e), 'warning'); }
+      renderAvisosUI();
+    }
+    function setAviso(key, on) {
+      setPref(key, !!on);
+      if (on) ensureAvisoPush(false);
+    }
+    async function renderAvisosUI() {
+      const box = document.getElementById('avisos-permit');
+      if (!box) return;
+      const msg = document.getElementById('avisos-permit-msg'), btn = document.getElementById('avisos-permit-btn');
+      let has = false;
+      if (!pushSupported()) {
+        msg.innerText = isIos() && !isStandalone() ? 'No iPhone, instale o BABA na tela de início para receber avisos.' : 'Este navegador não recebe avisos.';
+        btn.classList.add('hidden'); box.classList.remove('hidden'); return;
+      }
+      btn.classList.remove('hidden');
+      try { has = Notification.permission === 'granted' && !!(await pushSubscription(false)); } catch (e) {}
+      msg.innerText = Notification.permission === 'denied' ? 'Os avisos estão bloqueados. Libere as notificações do BABA nas configurações do navegador.' : 'Para os avisos chegarem, este celular precisa de permissão.';
+      box.classList.toggle('hidden', has);
+      if (Notification.permission === 'denied') btn.classList.add('hidden');
     }
 
     /* The organizer's phone tells the server; it pushes to everyone following. Never queued:
@@ -490,6 +520,7 @@
        trava e pagamento são do servidor (prop_markets, place_prop_bet...); aqui só se mostra.
        =================================================================== */
     let propEventId = null;            // lista aberta na seção Palpites (Lojinha)
+    let propForced = null;             // evento vindo do toque num aviso: abre mesmo que já tenha passado ou sido cancelado
     const propCache = new Map();       // eventId -> resposta de prop_markets
     let propCounts = {};               // eventId -> palpites abertos (chip do Início)
     let propCountsAt = 0;
@@ -550,7 +581,7 @@
     }
     function propPickEvent() {
       const c = propCandidates();
-      if (propEventId && c.some(e => e.id === propEventId)) return propEventId;
+      if (propEventId && (c.some(e => e.id === propEventId) || (propForced === propEventId && eventsCache.some(e => e.id === propEventId)))) return propEventId;
       const withMarkets = c.find(e => (propCounts[e.id] || 0) > 0) || c.find(e => (propCache.get(e.id) || { markets: [] }).markets.length);
       const pick = withMarkets || c.find(evUpcoming) || null;
       return pick ? pick.id : null;
