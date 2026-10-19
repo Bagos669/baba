@@ -54,7 +54,8 @@ async def main():
         ev = list(fake.events.values())[0]
         if not (ev['place'] == 'Quadra do Zé, Asa Norte' and ev['max_players'] == 8): bad.append('event saved')
         pushes = [x for x in getattr(fake, 'pushes', []) if x.get('event')]
-        if not (pushes and 'puxou a lista' in pushes[0]['title']): bad.append('push on pull: ' + json.dumps(pushes, ensure_ascii=False))
+        # v11.4.2: o aviso de lista aberta sai do servidor; o celular de quem puxa não manda mais push (senão chegava em dobro).
+        if pushes: bad.append('o celular de quem puxa a lista não deve mandar push: ' + json.dumps(pushes, ensure_ascii=False))
         if not any(c['body'] == ':ev:' + ev['id'] + ':' for c in fake.chat): bad.append('chat card message')
         await a.screenshot(path=f'{OUT}/event_sheet_adm.png')
         # paste a list

@@ -345,8 +345,7 @@
           const id = await api.createEvent(turmaId, starts.toISOString(), place, note, max);
           if (place) lsSet('baba_last_place_' + turmaId, place);
           closeEventEdit();
-          const ev = { id, turma_id: turmaId, starts_at: starts.toISOString(), place };
-          eventPush(ev, 'event', `📋 ${firstName(currentUser.name)} puxou a lista pra ${evWhen(ev).toLowerCase()}! Bora?`, `${(turmaById(turmaId) || {}).name || ''}${place ? ' · ' + place : ''}`);
+          // v11.4.2: o aviso de lista aberta sai do servidor (Configurações → Avisos no celular); o push do celular de quem puxa saiu para não chegar em dobro.
           await loadEvents(true);
           openEventSheet(id);
           showToast('Lista puxada! A turma recebeu o aviso e o card no chat.');

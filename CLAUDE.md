@@ -134,6 +134,7 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   palpites não chamam nada disso (falha de envio não trava nada). Interruptores = `profiles.prefs` (`avisoLista`, `avisoLembrete`, `avisoPalpites`; sem valor = ligado),
   em Configurações → Avisos no celular (`setAviso`, `ensureAvisoPush` em `50-visual-loja.js`). O toque abre `#lista=<id>` (Turmas → Lista) ou `#palpites=<id>`
   (Lojinha → Palpites; `openListaFromAviso`/`openPalpitesFromAviso` em `60-aovivo.js`). O tick também devolve palpites de lista cancelada/expirada sem esperar alguém abrir a Lojinha.
+  O aviso de cancelamento (`event_cancel`) continua saindo do celular do adm via `eventPush`; o push antigo de "puxou a lista" saiu (o servidor manda a Lista aberta).
 Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
