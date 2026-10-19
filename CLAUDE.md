@@ -57,6 +57,8 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
   baba_delete, turma_sync, turma_delete, turma_leave, player_rename, profile_update, live_settle, live_end`.
 - Mudou a forma do `state`? Ajustar `migrate()` e `defaultState()`; o teste sim2 recarrega a página e exige estado idêntico.
 
+> v11.4: seção `PALPITES PRÉ-JOGO (v11.4)` fica em `src/js/50-visual-loja.js` (`loadPropCounts`, `propChipHtml`, `openPalpites`, `loadProp`/`renderPropSection` em `#shop-palpites`, `openBilhete`/`confirmBilhete` em `#modal-pbilhete`, `propMoveLine`/`propSuspend` do adm).
+
 ## Módulos do JavaScript (src/js, na ordem de execução)
 
 Cada módulo guarda funções inteiras; a ordem dos arquivos é a mesma de antes da divisão (v11.3.4). Procure a função por nome
@@ -113,8 +115,13 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas
-(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1).
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
+(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
+- Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
+  (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
+- Pontos: `wallets` + `points_ledger` (motivo em `reason`). Palpites ao vivo: `live_games.markets` + `palpites`.
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
+(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
 - Pontos: `wallets` + `points_ledger` (motivo em `reason`). Palpites ao vivo: `live_games.markets` + `palpites`.
@@ -123,7 +130,7 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
-configurações, local, lances, moldura), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
+configurações, local, lances, moldura), v114 (palpites pré-jogo), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 
 ## Armadilhas conhecidas

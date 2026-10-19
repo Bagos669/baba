@@ -100,8 +100,8 @@
     }
 
     /* ---- Início: próximos babas ---- */
-    function renderHomeEvents() {
-      renderHomeExplore();
+    function renderHomeEvents(noCounts) {
+      if (!noCounts) renderHomeExplore();
       const box = document.getElementById('home-events');
       if (!box) return;
       const list = eventsCache.filter(evUpcoming).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).slice(0, 3);
@@ -112,6 +112,7 @@
           <h2 class="title mt-0.5 mb-3">Próximos babas</h2>
           <div class="space-y-2.5">${list.map(eventCardHtml).join('')}</div>
         </section>`;
+      if (!noCounts) loadPropCounts(list.map(e => e.id));
     }
     function eventCardHtml(e) {
       const me = myPlayerIn(e.turma_id);
@@ -130,6 +131,7 @@
             </div>
             <i class="fa-solid fa-chevron-right text-[12px] text-ink-3 mt-1"></i>
           </div>
+          ${propChipHtml(e)}
           ${me ? `<div class="grid grid-cols-3 gap-1.5 mt-3">${btn('vou', 'Vou')}${btn('talvez', 'Talvez')}${btn('nao', 'Não vou')}</div>`
             : `<p class="text-[12px] text-ink-2 mt-2.5 leading-snug">Pra responder, ligue seu nome na turma (abra a turma e toque no seu nome).</p>`}
         </div>`;

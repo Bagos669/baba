@@ -300,6 +300,7 @@
         matches: state.matchHistory.length,
         owner: true,
         turmaIds: [...state.selectedTeams],
+        eventId: state.eventId || null,
         venue: state.settings.venue || '',
         games: state.matchHistory.slice().reverse(),
         players: state.players.filter(hasStats).map(p => {

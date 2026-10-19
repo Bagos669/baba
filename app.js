@@ -87,6 +87,8 @@
         v: STATE_VERSION,
         turmas: [],
         babaId: null,
+        // Lista (turma_events) a que este baba está ligado: os palpites pré-jogo da lista são liquidados com ele (v11.4).
+        eventId: null,
         startedAt: null,
         savedAt: 0,
         selectedTeams: [],
@@ -328,6 +330,7 @@
     let schemaV2 = null;         // server has owners/pictures/prefs (null = not checked yet)
     let femaleCol = null;        // server keeps "jogadora" on turma players (v9.5)
     let penCol = null;           // server keeps penalty numbers (v10)
+    let eventCol = null;         // server links babas to lists (v11.4)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -474,7 +477,17 @@
       async setRole(id, member, role) { const { error } = await sb.rpc('set_member_role', { t: id, member, new_role: role }); if (error) throw error; },
       async transfer(id, member) { const { error } = await sb.rpc('transfer_turma', { t: id, member }); if (error) throw error; },
       async removeMember(id, member) { const { error } = await sb.rpc('remove_member', { t: id, member }); if (error) throw error; },
-      upsertBaba: row => q(sb.from('babas').upsert(row)),
+      // event_id chega com o SQL da v11.4; até lá o baba segue sem a ligação com a lista.
+      async upsertBaba(row) {
+        if (!('event_id' in row)) return q(sb.from('babas').upsert(row));
+        const plain = Object.assign({}, row); delete plain.event_id;
+        if (eventCol === false) return q(sb.from('babas').upsert(plain));
+        const { error } = await sb.from('babas').upsert(row);
+        if (!error) { eventCol = true; return; }
+        if (!isMissingColumn(error)) throw error;
+        eventCol = false;
+        await q(sb.from('babas').upsert(plain));
+      },
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
@@ -671,10 +684,11 @@
       pushTimer = setTimeout(() => {
         if (!cloudOn() || !hasBabaContent()) return;
         if (!state.babaId) { state.babaId = uuid(); cacheState(); }
-        enqueue({
-          type: 'baba_upsert', id: state.babaId,
-          row: { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length }
-        });
+        // O baba que começa a partir da lista do dia fica ligado a ela (palpites pré-jogo).
+        if (!state.eventId) { const te = todaysEvent(); if (te) { state.eventId = te.id; cacheState(); try { renderSheetTable(); } catch (e) {} } }
+        const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
+        if (state.eventId) row.event_id = state.eventId;
+        enqueue({ type: 'baba_upsert', id: state.babaId, row });
       }, 1200);
     }
 
@@ -690,7 +704,8 @@
       const id = summary.id;
       enqueue({
         type: 'baba_finish', id,
-        row: { id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: { venue: summary.venue || '', games: summary.games || [] }, finished: true, matches: summary.matches },
+        row: Object.assign({ id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: { venue: summary.venue || '', games: summary.games || [] }, finished: true, matches: summary.matches },
+          summary.eventId ? { event_id: summary.eventId } : {}),
         stats: summary.players.map(p => ({
           baba_id: id, turma_player_id: p.cloudId || null, name: p.name,
           goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0, matches: p.matches || 0, wins: p.wins || 0,
@@ -2920,6 +2935,12 @@
       updateEvent: (event, starts, place, note, max, status) => rpc('update_event', { event, starts, place, note, max_players: max, new_status: status }),
       rsvpEvent: (event, answer, player, name, inviter) => rpc('rsvp_event', Object.assign({ event, answer, player, player_name: name }, inviter ? { invited_by: inviter } : {})),
       relinkMyStats: () => rpc('relink_my_stats'),
+      propMarkets: event => rpc('prop_markets', { event }),
+      propOpenCounts: events => rpc('prop_open_counts', { events }),
+      placePropBet: async (market, selection, stake) => ((await rpc('place_prop_bet', { market, selection, stake })) || [])[0],
+      adjustPropLine: (market, line) => rpc('adjust_prop_line', { market, line }),
+      suspendPropMarket: market => rpc('suspend_prop_market', { market }),
+      propEventBets: event => rpc('prop_event_bets', { event }),
       setPrivacy: (t, pub) => rpc('set_turma_privacy', { t, pub }),
       turmaRanking: (t, period, metric, lim) => rpc('turma_ranking', { t, period, metric, lim }),
       turmaTrophies: t => rpc('turma_trophies', { t }),
@@ -3014,9 +3035,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.3.4';
+    const APP_VERSION = '11.4';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.4', date: '19/10/2026', title: 'Palpites antes do jogo', items: [
+        'Quando a lista do baba chega a 4 confirmados, abrem os palpites pré-jogo: Mais ou Menos de gols, assistências, gols + assistências e defesas de cada atleta, e a cravada de gols.',
+        'No Início, o card do próximo baba mostra “N palpites abertos” e leva direto para a seção Palpites da Lojinha.',
+        'Toque no palpite, escolha 10, 25, 50 ou 100 pontos e confirme. A cotação fica congelada na hora e o servidor calcula tudo, sem depender do celular de ninguém.',
+        'Os palpites travam no horário da lista ou no primeiro apito e são pagos quando o baba é finalizado. Atleta que não apareceu, baba cancelado ou baba que ninguém finalizou em 3 dias: os pontos voltam.',
+        'Palpites são só para maiores de 18 anos. Quem é atleta não pode palpitar em Menos de si mesmo.'
+      ] },
       { v: '11.3.4', date: '18/10/2026', title: 'Organização interna', items: [
         'Organização interna do código, sem mudanças visíveis.'
       ] },
@@ -3768,6 +3796,7 @@
       }
       renderShop();
       renderMissions();
+      loadProp(true);
       loadMissions().then(loadLedger);
     }
     function closeShop() {
@@ -3905,6 +3934,313 @@
     }
 
     /* ===================================================================
+       PALPITES PRÉ-JOGO (v11.4)
+       Mais/Menos por atleta confirmado na lista e cravada de gols. Linha, cotação,
+       trava e pagamento são do servidor (prop_markets, place_prop_bet...); aqui só se mostra.
+       =================================================================== */
+    let propEventId = null;            // lista aberta na seção Palpites (Lojinha)
+    const propCache = new Map();       // eventId -> resposta de prop_markets
+    let propCounts = {};               // eventId -> palpites abertos (chip do Início)
+    let propCountsAt = 0;
+    let propOff = null;                // true = servidor ainda sem a v11.4
+    let propLoading = false;
+    let propAudit = null;              // extrato do adm: { eventId, rows }
+    const propMore = new Set();        // atletas com "ver mais" aberto
+    let propDraft = null;              // bilhete em montagem
+    const PROP_STAKES = [10, 25, 50, 100];
+    const PROP_METRIC = { goals: 'Gols', assists: 'Assistências', ga: 'Gols + assistências', saves: 'Defesas' };
+    const fmtCot = n => Number(n).toFixed(2).replace('.', ',');
+    const fmtLinha = n => Number(n).toFixed(1).replace('.', ',');
+    const propIsLocked = d => !!d.locked || new Date(d.starts_at).getTime() <= Date.now();
+    const propReady = () => cloudOn() && v7 === true && propOff !== true;
+
+    function propSelLabel(m, key) {
+      if (m.kind === 'ou') return `${key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)}`;
+      return key === '6+' ? '6 ou mais' : `${key} gol${key === '1' ? '' : 's'}`;
+    }
+    function propMyState(m, locked) {
+      const b = m.bet;
+      if (!b) return null;
+      if (b.status === 'won') return ['Ganhou', 'bg-leaf/15 text-leaf'];
+      if (b.status === 'lost') return ['Perdeu', 'bg-danger/10 text-danger'];
+      if (b.status === 'void') return ['Devolvido', 'bg-sunk text-ink-2'];
+      return locked || m.status !== 'open' ? ['Travado', 'bg-butter text-pitch'] : ['Aberto', 'bg-leaf/10 text-leaf'];
+    }
+
+    /* Início: quantos palpites abertos cada lista tem (o servidor também gera os mercados nessa leitura). */
+    async function loadPropCounts(ids) {
+      if (!propReady() || !ids.length || Date.now() - propCountsAt < 45000) return;
+      propCountsAt = Date.now();
+      try {
+        const res = (await api.propOpenCounts(ids)) || {};
+        const before = JSON.stringify(propCounts);
+        Object.keys(res).forEach(k => { propCounts[k] = Number(res[k]) || 0; });
+        if (JSON.stringify(propCounts) !== before) renderHomeEvents(true);
+      } catch (e) {
+        if (isMissingFn(e)) propOff = true;
+      }
+    }
+    function propChipHtml(e) {
+      const n = propCounts[e.id] || 0;
+      if (!n) return '';
+      return `<button onclick="event.stopPropagation(); openPalpites('${e.id}')" class="prop-chip inline-flex items-center gap-1.5 mt-2.5 h-8 px-3 rounded-full bg-butter text-pitch text-[12.5px] font-extrabold active:scale-[0.97] transition"><i class="fa-solid fa-bullseye text-[11px]"></i> ${n} palpite${n === 1 ? '' : 's'} aberto${n === 1 ? '' : 's'} <i class="fa-solid fa-chevron-right text-[9px]"></i></button>`;
+    }
+    function openPalpites(eventId) {
+      propEventId = eventId;
+      switchTab('loja');
+      setTimeout(() => { const el = document.getElementById('shop-palpites'); if (el && !el.classList.contains('hidden')) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
+    }
+
+    /* Listas que podem ter palpites: das minhas turmas, de ontem em diante, sem as canceladas. */
+    function propCandidates() {
+      const from = Date.now() - 3 * 864e5;
+      return eventsCache.filter(e => e.status !== 'canceled' && new Date(e.starts_at).getTime() > from && turmaById(e.turma_id) && turmaById(e.turma_id).cloud)
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    }
+    function propPickEvent() {
+      const c = propCandidates();
+      if (propEventId && c.some(e => e.id === propEventId)) return propEventId;
+      const withMarkets = c.find(e => (propCounts[e.id] || 0) > 0) || c.find(e => (propCache.get(e.id) || { markets: [] }).markets.length);
+      const pick = withMarkets || c.find(evUpcoming) || null;
+      return pick ? pick.id : null;
+    }
+
+    async function loadProp(force) {
+      const box = document.getElementById('shop-palpites');
+      if (!box) return;
+      if (!propReady()) { box.classList.add('hidden'); return; }
+      const id = propPickEvent();
+      if (!id) { box.classList.add('hidden'); return; }
+      propEventId = id;
+      if (propLoading && !force) return;
+      propLoading = true;
+      try {
+        const data = await api.propMarkets(id);
+        propCache.set(id, data || { markets: [] });
+        propCounts[id] = ((data || {}).markets || []).filter(m => m.status === 'open').length;
+        // Pagamentos e devoluções mexem no saldo: confere de novo.
+        if (((data || {}).markets || []).some(m => m.bet && m.bet.status !== 'open')) refreshWallet().then(() => { const b = document.getElementById('shop-balance'); if (b && wallet) b.innerText = fmtPts(wallet.balance); });
+      } catch (e) {
+        if (isMissingFn(e)) propOff = true;
+        else if (isNetworkError(e) && !propCache.has(id)) { box.classList.remove('hidden'); box.innerHTML = '<p class="text-[13px] text-ink-2 px-1">Os palpites precisam de internet.</p>'; propLoading = false; return; }
+      }
+      propLoading = false;
+      renderPropSection();
+    }
+
+    function renderPropSection() {
+      const box = document.getElementById('shop-palpites');
+      if (!box) return;
+      const id = propEventId;
+      const data = id && propCache.get(id);
+      const e = id && eventsCache.find(x => x.id === id);
+      if (!propReady() || !e || !data || !data.markets.length) {
+        // Sem mercados: só mostra um aviso quando a lista existe (menos de 4 confirmados, por exemplo).
+        if (propReady() && e && data && !data.markets.length) {
+          box.classList.remove('hidden');
+          box.innerHTML = `<p class="eyebrow">Palpites</p><div class="card p-4 mt-2"><p class="text-[14px] font-bold">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p>
+            <p class="text-[13px] text-ink-2 mt-1 leading-snug">Os palpites abrem quando a lista chega a 4 confirmados.</p></div>`;
+        } else box.classList.add('hidden');
+        return;
+      }
+      box.classList.remove('hidden');
+      const locked = propIsLocked(data);
+      const adult = !!data.adult;
+      const chooser = propCandidates();
+      const mine = data.markets.filter(m => m.bet);
+      const byPlayer = new Map();
+      data.markets.forEach(m => { if (!byPlayer.has(m.player_id)) byPlayer.set(m.player_id, []); byPlayer.get(m.player_id).push(m); });
+      const open = data.markets.filter(m => m.status === 'open').length;
+      box.innerHTML = `
+        <div class="flex items-end justify-between gap-3 px-1 mb-2">
+          <div class="min-w-0"><p class="eyebrow">Palpites</p>
+            <p class="text-[13px] text-ink-2 mt-0.5 truncate">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p></div>
+          <span class="ev-tag flex-shrink-0 ${locked ? 'bg-sunk text-ink-2' : 'bg-leaf/10 text-leaf'}">${locked ? 'Palpites encerrados' : `${open} aberto${open === 1 ? '' : 's'}`}</span>
+        </div>
+        ${chooser.length > 1 ? `<div class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-4 px-4 pb-2">${chooser.map(c => `<button onclick="propChoose('${c.id}')" class="chip ${c.id === id ? 'is-selected' : ''}">${escapeHtml(evTurma(c).name)} · ${escapeHtml(evWhen(c))}</button>`).join('')}</div>` : ''}
+        <p class="text-[12px] text-ink-2 leading-snug px-1 mb-2.5">Escolha Mais ou Menos, o valor e confirme. A cotação fica congelada na hora do palpite. Trava no horário da lista ou no primeiro apito, e paga quando o baba é finalizado.${adult ? '' : ' <b class="text-ink">Palpitar é só para maiores de 18 anos; você pode ver as cotações.</b>'}</p>
+        ${mine.length ? `<div class="card-flat overflow-hidden divide-y divide-ink/[0.07] mb-3">
+          <p class="eyebrow px-4 pt-3 pb-1.5">Meus palpites</p>
+          ${mine.map(m => { const st = propMyState(m, locked); return `
+            <div class="flex items-center justify-between gap-3 px-4 py-2.5 text-[13.5px]">
+              <span class="min-w-0"><span class="block font-semibold truncate">${escapeHtml(m.player)} · ${PROP_METRIC[m.metric]}</span>
+                <span class="block text-[12px] text-ink-2">${escapeHtml(propSelLabel(m, m.bet.selection))} · ${fmtPts(m.bet.stake)} pts · cotação ${fmtCot(m.bet.odd)}</span></span>
+              <span class="ev-tag ${st[1]} flex-shrink-0">${st[0]}${m.bet.status === 'won' ? ` +${fmtPts(m.bet.payout)}` : ''}</span>
+            </div>`; }).join('')}
+        </div>` : ''}
+        <div class="space-y-2.5">${[...byPlayer.values()].map(ms => propPlayerHtml(ms, data)).join('')}</div>
+        ${data.admin ? propAdminHtml(id) : ''}`;
+    }
+
+    function propPlayerHtml(ms, data) {
+      const p = ms[0];
+      const ou = ms.filter(m => m.kind === 'ou');
+      const exact = ms.filter(m => m.kind === 'exact');
+      const more = propMore.has(p.player_id);
+      // Até 3 linhas à vista (G, A e G+A; goleiro: Defesas); a cravada de gols fica em "ver mais".
+      const shown = ou.slice(0, 3), hidden = ou.slice(3).concat(exact);
+      const rows = shown.concat(more ? hidden : []);
+      return `
+        <div class="card p-3.5" data-prop-player="${p.player_id}">
+          <div class="flex items-center gap-2">
+            <span class="tile bg-butter text-pitch flex-shrink-0 !w-9 !h-9 text-[14px]"><i class="fa-solid ${p.keeper ? 'fa-hand' : 'fa-futbol'}"></i></span>
+            <p class="text-[15px] font-extrabold leading-tight truncate min-w-0">${escapeHtml(p.player)}</p>
+            ${p.rookie ? '<span class="ev-tag bg-butter text-pitch">Estreante</span>' : ''}
+            ${p.mine ? '<span class="ev-tag bg-sunk text-ink-2">Você</span>' : ''}
+          </div>
+          ${rows.map(m => propRowHtml(m, data)).join('')}
+          ${hidden.length ? `<button onclick="propToggleMore('${p.player_id}')" class="mt-2.5 text-[12.5px] font-bold text-pitch">${more ? 'ver menos' : 'ver mais'} <i class="fa-solid fa-chevron-${more ? 'up' : 'down'} text-[9px]"></i></button>` : ''}
+        </div>`;
+    }
+
+    function propRowHtml(m, data) {
+      const locked = propIsLocked(data) || m.status === 'locked';
+      const title = m.kind === 'exact' ? 'Cravada de gols' : PROP_METRIC[m.metric];
+      const tags = [m.adjusted ? '<span class="ev-tag bg-sunk text-ink-2">linha ajustada pelo adm</span>' : '', (() => { const s = propMyState(m, locked); return s ? `<span class="ev-tag ${s[1]}">${s[0]}</span>` : ''; })()].join('');
+      let body;
+      const sels = m.selections || [];
+      if (m.status === 'void') {
+        body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">${m.void_reason === 'suspenso' ? 'Suspenso pelo adm · pontos devolvidos' : 'Anulado · pontos devolvidos'}</button>`;
+      } else if (m.status === 'settled') {
+        const r = m.result || {};
+        body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">Fez ${r.value} · ${escapeHtml(propSelLabel(m, r.win))} ganhou</button>`;
+      } else if (locked || m.status !== 'open') {
+        body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">Palpites encerrados</button>`;
+      } else {
+        const blocked = !data.adult || !!m.bet;
+        const btn = s => {
+          const picked = m.bet && m.bet.selection === s.key;
+          const own = m.mine && s.key === 'menos';
+          const label = m.kind === 'ou' ? `${s.key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)} · ${fmtCot(s.odd)}` : `${s.key === '6+' ? '6+' : s.key} · ${fmtCot(s.odd)}`;
+          return `<button ${blocked || own ? 'disabled' : ''} onclick="openBilhete('${m.id}', '${s.key}')" class="prop-btn h-11 rounded-xl border text-[13px] font-extrabold transition active:scale-[0.97] ${picked ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'} ${(blocked || own) && !picked ? 'opacity-40' : ''}" ${own ? 'title="Menos em si mesmo não vale"' : ''}>${label}</button>`;
+        };
+        body = m.kind === 'ou' ? `<div class="grid grid-cols-2 gap-1.5">${sels.map(btn).join('')}</div>` : `<div class="grid grid-cols-4 gap-1.5">${sels.map(btn).join('')}</div>`;
+      }
+      const adm = data.admin && (m.status === 'open' || m.status === 'locked') ? `
+        <div class="flex items-center gap-1.5 mt-1.5">
+          ${m.status === 'open' && m.kind === 'ou' && !m.has_bets && !propIsLocked(data) ? `
+            <button onclick="propMoveLine('${m.id}', -1)" aria-label="Linha menor" class="chip !h-8 !px-3 text-[12px]"><i class="fa-solid fa-minus text-[10px]"></i> linha</button>
+            <button onclick="propMoveLine('${m.id}', 1)" aria-label="Linha maior" class="chip !h-8 !px-3 text-[12px]"><i class="fa-solid fa-plus text-[10px]"></i> linha</button>` : ''}
+          <button onclick="propSuspend('${m.id}')" class="chip !h-8 !px-3 text-[12px] !text-danger ml-auto">Suspender</button>
+        </div>` : '';
+      const bet = m.bet ? `<p class="text-[12px] text-ink-2 mt-1">Seu palpite: <b class="text-ink">${escapeHtml(propSelLabel(m, m.bet.selection))}</b> · ${fmtPts(m.bet.stake)} pts · volta ${fmtPts(Math.floor(m.bet.stake * m.bet.odd))}</p>` : '';
+      return `
+        <div class="mt-3" data-market="${m.id}">
+          <div class="flex items-center justify-between gap-2 mb-1"><p class="text-[12.5px] font-bold text-ink-2">${title}</p><span class="flex items-center gap-1 flex-wrap justify-end">${tags}</span></div>
+          ${body}${bet}${adm}
+        </div>`;
+    }
+
+    function propAdminHtml(eventId) {
+      const a = propAudit && propAudit.eventId === eventId ? propAudit.rows : null;
+      return `
+        <div class="mt-3">
+          <button onclick="propToggleAudit('${eventId}')" class="w-full card p-3 flex items-center justify-between text-left">
+            <span class="text-[13.5px] font-bold">Palpites da turma neste baba (adm)</span><i class="fa-solid fa-chevron-${a ? 'up' : 'down'} text-[11px] text-ink-3"></i>
+          </button>
+          ${a ? `<div class="card-flat overflow-hidden divide-y divide-ink/[0.07] mt-1.5">${a.length ? a.map(r => `
+            <div class="px-4 py-2.5 text-[13px] flex items-center justify-between gap-3">
+              <span class="min-w-0"><span class="block font-semibold truncate">${escapeHtml(r.name || 'Alguém')}${r.recorder ? ' <span class="ev-tag bg-butter text-pitch ml-1">registra os lances</span>' : ''}</span>
+                <span class="block text-[12px] text-ink-2 truncate">${escapeHtml(r.player)} · ${PROP_METRIC[r.metric]} · ${escapeHtml(r.kind === 'ou' ? (r.selection === 'mais' ? 'Mais ' : 'Menos ') + fmtLinha(r.line) : r.selection)} · ${fmtPts(r.stake)} pts</span></span>
+              <span class="ev-tag flex-shrink-0 ${r.status === 'won' ? 'bg-leaf/15 text-leaf' : r.status === 'lost' ? 'bg-danger/10 text-danger' : 'bg-sunk text-ink-2'}">${{ open: 'aberto', won: 'ganhou', lost: 'perdeu', void: 'devolvido' }[r.status]}</span>
+            </div>`).join('') : '<p class="px-4 py-3 text-[13px] text-ink-2">Ninguém palpitou ainda.</p>'}</div>` : ''}
+        </div>`;
+    }
+
+    function propChoose(id) { propEventId = id; propAudit = null; if (propCache.has(id)) renderPropSection(); loadProp(true); }
+    function propToggleMore(pid) { if (propMore.has(pid)) propMore.delete(pid); else propMore.add(pid); renderPropSection(); }
+    async function propToggleAudit(eventId) {
+      if (propAudit && propAudit.eventId === eventId) { propAudit = null; renderPropSection(); return; }
+      try { propAudit = { eventId, rows: (await api.propEventBets(eventId)) || [] }; renderPropSection(); }
+      catch (e) { showToast(isNetworkError(e) ? 'Precisa de internet.' : 'Não deu certo agora.', 'warning'); }
+    }
+
+    function propError(e) {
+      const m = String((e && e.message) || '');
+      return isNetworkError(e) ? 'Sem internet agora.'
+        : m.includes('locked') ? 'Os palpites desse baba já travaram.'
+        : m.includes('market_closed') ? 'Esse palpite não está mais aberto.'
+        : m.includes('self_under') ? 'Menos em si mesmo não vale.'
+        : m.includes('no_points') ? 'Faltam pontos. Pegue o bônus do dia aqui na lojinha.'
+        : m.includes('not_adult') ? 'Palpites são só para maiores de 18.'
+        : m.includes('not_member') ? 'Só quem é da turma palpita.'
+        : m.includes('already_bet') ? 'Você já fez um palpite nesse mercado.'
+        : m.includes('has_bets') ? 'Já tem palpite nesse mercado: só dá para suspender.'
+        : m.includes('not_allowed') ? 'Só o adm da turma faz isso.'
+        : m.includes('limit') ? 'Passou do limite: até 300 pontos em aberto por baba (estreante: até 25 por palpite).'
+        : 'Não deu certo agora. Tente de novo.';
+    }
+
+    /* Bilhete em folha: mercado -> valor -> confirmar. */
+    function openBilhete(marketId, key) {
+      const data = propCache.get(propEventId);
+      const m = data && data.markets.find(x => x.id === marketId);
+      const s = m && (m.selections || []).find(x => x.key === key);
+      if (!m || !s) return;
+      const used = data.markets.reduce((n, x) => n + (x.bet && x.bet.status === 'open' ? x.bet.stake : 0), 0);
+      propDraft = { event: propEventId, market: m.id, key, odd: Number(s.odd), stake: null, rookie: !!m.rookie, room: 300 - used };
+      document.getElementById('pb-player').innerText = `${m.player} · ${m.kind === 'exact' ? 'Cravada de gols' : PROP_METRIC[m.metric]}`;
+      document.getElementById('pb-label').innerText = propSelLabel(m, key);
+      document.getElementById('pb-odd').innerText = 'x' + fmtCot(s.odd);
+      document.getElementById('pb-note').innerText = m.rookie ? 'Estreante: sem histórico na turma, então o máximo é 25 pontos.' : '';
+      document.getElementById('pb-error').classList.add('hidden');
+      renderBilhete();
+      document.getElementById('modal-pbilhete').classList.remove('hidden');
+    }
+    function closeBilhete() { document.getElementById('modal-pbilhete').classList.add('hidden'); propDraft = null; }
+    function renderBilhete() {
+      const d = propDraft;
+      if (!d) return;
+      const bal = wallet ? wallet.balance : 0;
+      document.getElementById('pb-stakes').innerHTML = PROP_STAKES.map(v => {
+        const off = v > bal || (d.rookie && v > 25) || v > d.room;
+        return `<button onclick="propSetStake(${v})" ${off ? 'disabled' : ''} class="h-12 rounded-xl border text-[15px] font-extrabold transition disabled:opacity-30 ${d.stake === v ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'}">${v}</button>`;
+      }).join('');
+      document.getElementById('pb-return').innerText = d.stake ? `Volta ${fmtPts(Math.floor(d.stake * d.odd))} pts` : 'Escolha o valor';
+      document.getElementById('btn-pbilhete').disabled = !d.stake;
+    }
+    function propSetStake(v) { if (propDraft) { propDraft.stake = v; renderBilhete(); } }
+    async function confirmBilhete() {
+      const d = propDraft;
+      if (!d || !d.stake) return;
+      const btn = document.getElementById('btn-pbilhete');
+      setBusy(btn, true, 'Enviando...');
+      try {
+        const r = await api.placePropBet(d.market, d.key, d.stake);
+        if (wallet && r) { wallet.balance = r.balance; renderV7Bits(); const b = document.getElementById('shop-balance'); if (b) b.innerText = fmtPts(r.balance); }
+        closeBilhete();
+        buzz([20, 30]);
+        showToast(`Palpite feito! Se acertar, volta ${fmtPts(r ? r.payout : Math.floor(d.stake * d.odd))} pts.`);
+        await loadProp(true);
+        loadLedger();
+      } catch (e) {
+        const err = document.getElementById('pb-error');
+        err.innerText = propError(e);
+        err.classList.remove('hidden');
+        if (/locked|market_closed/.test(String((e && e.message) || ''))) loadProp(true);
+      } finally { setBusy(btn, false); renderBilhete(); }
+    }
+
+    /* Controles do adm. */
+    async function propMoveLine(marketId, dir) {
+      const data = propCache.get(propEventId);
+      const m = data && data.markets.find(x => x.id === marketId);
+      if (!m) return;
+      const next = Number(m.line) + dir;
+      if (next < 0.5 || next > 5.5) { showToast('Essa é a última linha nesse sentido.', 'warning'); return; }
+      try { await api.adjustPropLine(marketId, next); await loadProp(true); showToast(`Linha em ${fmtLinha(next)}. A cotação foi recalculada.`); }
+      catch (e) { showToast(propError(e), 'warning'); loadProp(true); }
+    }
+    async function propSuspend(marketId) {
+      const data = propCache.get(propEventId);
+      const m = data && data.markets.find(x => x.id === marketId);
+      if (!m) return;
+      if (!(await askConfirm(`Suspender ${PROP_METRIC[m.metric] ? PROP_METRIC[m.metric].toLowerCase() : 'o palpite'} de ${m.player}? O palpite é anulado e os pontos de todo mundo voltam.`, 'Suspender'))) return;
+      try { await api.suspendPropMarket(marketId); await loadProp(true); showToast('Palpite suspenso e pontos devolvidos.'); if (propAudit) { propAudit = null; await propToggleAudit(propEventId); } }
+      catch (e) { showToast(propError(e), 'warning'); loadProp(true); }
+    }
+
+    /* ===================================================================
        MISSÕES DA SEMANA
        Progress is counted by the server from real records (days in the app,
        babas, goals, chat, palpites); the reward is claimed once per week.
@@ -3985,7 +4321,7 @@
       const box = document.getElementById('shop-ledger');
       try {
         const rows = await api.ledger();
-        const why = r => ({ 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', 'palpite': 'Palpite feito', 'palpite-certo': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido', 'suporte': 'Ajuste do suporte' })[r.reason]
+        const why = r => ({ 'boas-vindas': 'Boas-vindas', 'bonus-diario': 'Bônus do dia', 'palpite': 'Palpite feito', 'palpite-certo': 'Palpite certo', 'palpite-devolvido': 'Palpite devolvido', 'palpite-pre': 'Palpite pré-jogo', 'palpite-pre-ganho': 'Palpite pré-jogo certo', 'palpite-pre-devolvido': 'Palpite pré-jogo devolvido', 'palpite-correcao': 'Correção de palpite', 'suporte': 'Ajuste do suporte' })[r.reason]
           || (r.reason === 'missao' ? 'Missão: ' + (((missionsCache || []).find(m => m.id === String(r.ref || '').split(':')[0]) || {}).title || 'da semana') : null)
           || (r.reason === 'lojinha' ? ((shopItemsCache || []).find(x => x.id === r.ref) || {}).title || 'Lojinha' : r.reason);
         box.innerHTML = rows.length ? rows.map(r => `
@@ -4838,8 +5174,8 @@
     }
 
     /* ---- Início: próximos babas ---- */
-    function renderHomeEvents() {
-      renderHomeExplore();
+    function renderHomeEvents(noCounts) {
+      if (!noCounts) renderHomeExplore();
       const box = document.getElementById('home-events');
       if (!box) return;
       const list = eventsCache.filter(evUpcoming).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).slice(0, 3);
@@ -4850,6 +5186,7 @@
           <h2 class="title mt-0.5 mb-3">Próximos babas</h2>
           <div class="space-y-2.5">${list.map(eventCardHtml).join('')}</div>
         </section>`;
+      if (!noCounts) loadPropCounts(list.map(e => e.id));
     }
     function eventCardHtml(e) {
       const me = myPlayerIn(e.turma_id);
@@ -4868,6 +5205,7 @@
             </div>
             <i class="fa-solid fa-chevron-right text-[12px] text-ink-3 mt-1"></i>
           </div>
+          ${propChipHtml(e)}
           ${me ? `<div class="grid grid-cols-3 gap-1.5 mt-3">${btn('vou', 'Vou')}${btn('talvez', 'Talvez')}${btn('nao', 'Não vou')}</div>`
             : `<p class="text-[12px] text-ink-2 mt-2.5 leading-snug">Pra responder, ligue seu nome na turma (abra a turma e toque no seu nome).</p>`}
         </div>`;
@@ -7059,6 +7397,13 @@
 
       document.getElementById('sheet-active-count').innerText = present.length;
       document.getElementById('sheet-waiting-count').innerText = absent.length;
+      // Baba ligado à lista do dia (palpites pré-jogo).
+      const link = document.getElementById('list-event-link');
+      if (link) {
+        const le = state.eventId && eventsCache.find(x => x.id === state.eventId);
+        link.classList.toggle('hidden', !le);
+        if (le) link.innerHTML = `<i class="fa-solid fa-link"></i> Baba ligado à lista de ${escapeHtml(evWhen(le))}${propCounts[le.id] ? ` · ${propCounts[le.id]} palpite${propCounts[le.id] === 1 ? '' : 's'} aberto${propCounts[le.id] === 1 ? '' : 's'}` : ''}`;
+      }
       document.getElementById('btn-check-all').classList.toggle('hidden', absent.length === 0);
 
       if (!state.players.length) {
@@ -8850,6 +9195,7 @@
         matches: state.matchHistory.length,
         owner: true,
         turmaIds: [...state.selectedTeams],
+        eventId: state.eventId || null,
         venue: state.settings.venue || '',
         games: state.matchHistory.slice().reverse(),
         players: state.players.filter(hasStats).map(p => {

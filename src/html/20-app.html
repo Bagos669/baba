@@ -241,6 +241,7 @@
             </div>
             <button onclick="openAddPlayerModal()" class="btn-primary px-4 h-11 text-[14px] flex-shrink-0"><i class="fa-solid fa-user-plus"></i> Atleta</button>
           </div>
+          <p id="list-event-link" class="hidden text-[12.5px] font-bold text-pitch bg-butter rounded-xl px-3 py-2"></p>
           <p class="text-[13px] text-ink-2 leading-snug">Toque em <b class="text-ink">Chegou</b> na ordem em que a galera chega. Essa ordem monta os times e a fila: quem chega cedo joga primeiro.</p>
           <button id="btn-check-all" onclick="checkInAll()" class="btn-soft w-full h-11 text-[14px]"><i class="fa-solid fa-check-double"></i> Marcar todos que faltam</button>
         </div>
@@ -436,6 +437,7 @@
         <button id="shop-daily" onclick="claimDaily()" class="relative btn-butter h-10 px-4 text-[13px] mt-3 self-start"><i class="fa-solid fa-gift"></i> Pegar bônus do dia</button>
       </section>
       <p class="text-[12px] text-ink-2 leading-snug px-1">Pontos de brincadeira: ganhe no bônus diário, nas missões da semana e acertando palpites. Não se compram e não valem dinheiro.</p>
+      <section id="shop-palpites" class="hidden" style="scroll-margin-top: 76px"></section>
       <section id="shop-missions" class="hidden"></section>
       <button onclick="openAthleteCard(currentUser && currentUser.id)" class="w-full flex items-center gap-4 card p-4 text-left active:scale-[0.99] transition">
         <span id="shop-preview-avatar"></span>

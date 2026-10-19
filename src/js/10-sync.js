@@ -38,6 +38,7 @@
     let schemaV2 = null;         // server has owners/pictures/prefs (null = not checked yet)
     let femaleCol = null;        // server keeps "jogadora" on turma players (v9.5)
     let penCol = null;           // server keeps penalty numbers (v10)
+    let eventCol = null;         // server links babas to lists (v11.4)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -184,7 +185,17 @@
       async setRole(id, member, role) { const { error } = await sb.rpc('set_member_role', { t: id, member, new_role: role }); if (error) throw error; },
       async transfer(id, member) { const { error } = await sb.rpc('transfer_turma', { t: id, member }); if (error) throw error; },
       async removeMember(id, member) { const { error } = await sb.rpc('remove_member', { t: id, member }); if (error) throw error; },
-      upsertBaba: row => q(sb.from('babas').upsert(row)),
+      // event_id chega com o SQL da v11.4; até lá o baba segue sem a ligação com a lista.
+      async upsertBaba(row) {
+        if (!('event_id' in row)) return q(sb.from('babas').upsert(row));
+        const plain = Object.assign({}, row); delete plain.event_id;
+        if (eventCol === false) return q(sb.from('babas').upsert(plain));
+        const { error } = await sb.from('babas').upsert(row);
+        if (!error) { eventCol = true; return; }
+        if (!isMissingColumn(error)) throw error;
+        eventCol = false;
+        await q(sb.from('babas').upsert(plain));
+      },
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
@@ -381,10 +392,11 @@
       pushTimer = setTimeout(() => {
         if (!cloudOn() || !hasBabaContent()) return;
         if (!state.babaId) { state.babaId = uuid(); cacheState(); }
-        enqueue({
-          type: 'baba_upsert', id: state.babaId,
-          row: { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length }
-        });
+        // O baba que começa a partir da lista do dia fica ligado a ela (palpites pré-jogo).
+        if (!state.eventId) { const te = todaysEvent(); if (te) { state.eventId = te.id; cacheState(); try { renderSheetTable(); } catch (e) {} } }
+        const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
+        if (state.eventId) row.event_id = state.eventId;
+        enqueue({ type: 'baba_upsert', id: state.babaId, row });
       }, 1200);
     }
 
@@ -400,7 +412,8 @@
       const id = summary.id;
       enqueue({
         type: 'baba_finish', id,
-        row: { id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: { venue: summary.venue || '', games: summary.games || [] }, finished: true, matches: summary.matches },
+        row: Object.assign({ id, turma_ids: cloudTurmaIds(summary.turmaIds), title: summary.title, played_on: summary.date.slice(0, 10), state: { venue: summary.venue || '', games: summary.games || [] }, finished: true, matches: summary.matches },
+          summary.eventId ? { event_id: summary.eventId } : {}),
         stats: summary.players.map(p => ({
           baba_id: id, turma_player_id: p.cloudId || null, name: p.name,
           goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0, matches: p.matches || 0, wins: p.wins || 0,

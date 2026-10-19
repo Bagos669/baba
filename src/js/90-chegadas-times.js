@@ -71,6 +71,13 @@
 
       document.getElementById('sheet-active-count').innerText = present.length;
       document.getElementById('sheet-waiting-count').innerText = absent.length;
+      // Baba ligado à lista do dia (palpites pré-jogo).
+      const link = document.getElementById('list-event-link');
+      if (link) {
+        const le = state.eventId && eventsCache.find(x => x.id === state.eventId);
+        link.classList.toggle('hidden', !le);
+        if (le) link.innerHTML = `<i class="fa-solid fa-link"></i> Baba ligado à lista de ${escapeHtml(evWhen(le))}${propCounts[le.id] ? ` · ${propCounts[le.id]} palpite${propCounts[le.id] === 1 ? '' : 's'} aberto${propCounts[le.id] === 1 ? '' : 's'}` : ''}`;
+      }
       document.getElementById('btn-check-all').classList.toggle('hidden', absent.length === 0);
 
       if (!state.players.length) {

@@ -115,6 +115,31 @@
     </div>
   </div>
 
+  <!-- Palpite pré-jogo: bilhete -->
+  <div id="modal-pbilhete" class="overlay hidden z-[84]" onclick="if(event.target===this) closeBilhete()">
+    <div class="sheet-panel space-y-4">
+      <div class="grabber"></div>
+      <div class="flex items-start gap-3 -mt-1">
+        <img src="babinha/aura.webp" alt="" class="w-16 h-16 object-contain flex-shrink-0" />
+        <div class="min-w-0 flex-1">
+          <p class="eyebrow">Seu palpite</p>
+          <h3 id="pb-label" class="title mt-0.5"></h3>
+          <p id="pb-player" class="text-[13px] text-ink-2 truncate"></p>
+          <p class="text-[13px] text-ink-2">Cotação <b id="pb-odd" class="text-ink"></b></p>
+        </div>
+        <button onclick="closeBilhete()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div>
+        <span class="label">Quantos pontos?</span>
+        <div id="pb-stakes" class="grid grid-cols-4 gap-1.5"></div>
+      </div>
+      <p id="pb-note" class="text-[12.5px] text-ink-2"></p>
+      <p id="pb-return" class="text-[20px] font-serif text-pitch"></p>
+      <p id="pb-error" class="hidden text-[13px] font-semibold text-danger"></p>
+      <button id="btn-pbilhete" onclick="confirmBilhete()" disabled class="btn-primary w-full h-14 text-[16px]">Confirmar palpite</button>
+    </div>
+  </div>
+
   <!-- Card de atleta -->
   <div id="modal-acard" class="overlay hidden z-[83]" onclick="if(event.target===this) closeAthleteCard()">
     <div class="sheet-panel space-y-4 max-h-[94dvh] overflow-y-auto overscroll-contain">

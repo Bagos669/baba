@@ -87,6 +87,8 @@
         v: STATE_VERSION,
         turmas: [],
         babaId: null,
+        // Lista (turma_events) a que este baba está ligado: os palpites pré-jogo da lista são liquidados com ele (v11.4).
+        eventId: null,
         startedAt: null,
         savedAt: 0,
         selectedTeams: [],
