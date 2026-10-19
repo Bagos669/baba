@@ -60,7 +60,7 @@ async def main():
             await pg.evaluate("pullCloud(true)"); await pg.wait_for_timeout(900); await pg.evaluate("loadEvents(true)"); await pg.wait_for_timeout(900)
             await pg.evaluate("switchTab('inicio')"); await pg.wait_for_timeout(1500)
         # ---- aba Resenha: nome na barra, título e nada mais chamando a aba de Lojinha
-        if (await text(a, '#tab-nav-loja')).strip() != 'Resenha': bad.append('rótulo da aba: ' + await text(a, '#tab-nav-loja'))
+        if 'Resenha' not in (await text(a, '#tab-nav-loja')) or '😜' not in (await text(a, '#tab-nav-loja')): bad.append('rótulo da aba: ' + await text(a, '#tab-nav-loja'))
         home = await text(a, '#tab-content-inicio')
         if 'Lojinha' in home: bad.append('Início ainda cita a Lojinha: ' + home[home.index('Lojinha') - 60:home.index('Lojinha') + 20])
         # ---- chip leva aos Palpites, agora na Resenha
