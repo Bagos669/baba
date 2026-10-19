@@ -498,15 +498,15 @@
     let propAudit = null;              // extrato do adm: { eventId, rows }
     const propMore = new Set();        // atletas com "ver mais" aberto
     let propDraft = null;              // bilhete em montagem
-    const PROP_STAKES = [10, 25, 50, 100];
+    const propLines = new Map();       // marketId -> linha escolhida por mim (v11.4.1)
     const PROP_METRIC = { goals: 'Gols', assists: 'Assistências', ga: 'Gols + assistências', saves: 'Defesas' };
     const fmtCot = n => Number(n).toFixed(2).replace('.', ',');
     const fmtLinha = n => Number(n).toFixed(1).replace('.', ',');
     const propIsLocked = d => !!d.locked || new Date(d.starts_at).getTime() <= Date.now();
     const propReady = () => cloudOn() && v7 === true && propOff !== true;
 
-    function propSelLabel(m, key) {
-      if (m.kind === 'ou') return `${key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)}`;
+    function propSelLabel(m, key, line) {
+      if (m.kind === 'ou') return `${key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(line != null ? line : m.line)}`;
       return key === '6+' ? '6 ou mais' : `${key} gol${key === '1' ? '' : 's'}`;
     }
     function propMyState(m, locked) {
@@ -626,7 +626,7 @@
     function propPlayerHtml(ms, data) {
       const p = ms[0];
       const ou = ms.filter(m => m.kind === 'ou');
-      const exact = ms.filter(m => m.kind === 'exact');
+      const exact = p.mine ? [] : ms.filter(m => m.kind === 'exact');   // cravada de gols em si mesmo não vale
       const more = propMore.has(p.player_id);
       // Até 3 linhas à vista (G, A e G+A; goleiro: Defesas); a cravada de gols fica em "ver mais".
       const shown = ou.slice(0, 3), hidden = ou.slice(3).concat(exact);
@@ -654,32 +654,53 @@
         body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">${m.void_reason === 'suspenso' ? 'Suspenso pelo adm · pontos devolvidos' : 'Anulado · pontos devolvidos'}</button>`;
       } else if (m.status === 'settled') {
         const r = m.result || {};
-        body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">Fez ${r.value} · ${escapeHtml(propSelLabel(m, r.win))} ganhou</button>`;
+        body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">Fez ${r.value}</button>`;
       } else if (locked || m.status !== 'open') {
         body = `<button disabled class="prop-btn w-full h-11 rounded-xl border border-ink/10 bg-sunk text-[13px] font-bold text-ink-2">Palpites encerrados</button>`;
       } else {
         const blocked = !data.adult || !!m.bet;
-        const btn = s => {
-          const picked = m.bet && m.bet.selection === s.key;
-          const own = m.mine && s.key === 'menos';
-          const label = m.kind === 'ou' ? `${s.key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)} · ${fmtCot(s.odd)}` : `${s.key === '6+' ? '6+' : s.key} · ${fmtCot(s.odd)}`;
-          return `<button ${blocked || own ? 'disabled' : ''} onclick="openBilhete('${m.id}', '${s.key}')" class="prop-btn h-11 rounded-xl border text-[13px] font-extrabold transition active:scale-[0.97] ${picked ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'} ${(blocked || own) && !picked ? 'opacity-40' : ''}" ${own ? 'title="Menos em si mesmo não vale"' : ''}>${label}</button>`;
+        const ladder = m.kind === 'ou' && Array.isArray(m.ladder) && m.ladder.length ? m.ladder : null;   // servidor v11.4.1+: o palpitador escolhe a linha
+        const mk = (key, label, odd, ok, line, own) => {
+          const picked = m.bet && m.bet.selection === key && (m.kind !== 'ou' || Number(m.bet.line != null ? m.bet.line : m.line) === Number(line));
+          const off = blocked || own || !ok;
+          return `<button ${off ? 'disabled' : ''} onclick="openBilhete('${m.id}', '${key}'${ladder ? ', ' + line : ''})" class="prop-btn h-11 rounded-xl border text-[13px] font-extrabold transition active:scale-[0.97] ${picked ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'} ${off && !picked ? 'opacity-40' : ''}" ${own ? 'title="Menos em si mesmo não vale"' : ''}>${label}${ok ? ' · ' + fmtCot(odd) : ''}</button>`;
         };
-        body = m.kind === 'ou' ? `<div class="grid grid-cols-2 gap-1.5">${sels.map(btn).join('')}</div>` : `<div class="grid grid-cols-4 gap-1.5">${sels.map(btn).join('')}</div>`;
+        if (ladder) {
+          let cur = m.bet ? Number(m.bet.line != null ? m.bet.line : m.line) : (propLines.has(m.id) ? propLines.get(m.id) : Number(m.line));
+          let i = ladder.findIndex(x => Number(x.line) === cur); if (i < 0) i = Math.max(0, ladder.findIndex(x => Number(x.line) === Number(m.line)));
+          const ent = ladder[i];
+          const stepper = m.bet ? '' : `
+            <div class="flex items-center justify-between mb-1.5">
+              <button ${i <= 0 ? 'disabled' : ''} onclick="propStepLine('${m.id}', -1)" aria-label="Linha menor" class="chip !h-8 !px-3 text-[12px] disabled:opacity-30"><i class="fa-solid fa-minus text-[10px]"></i></button>
+              <span class="text-[12.5px] text-ink-2">Linha <b class="text-ink text-[14px]">${fmtLinha(ent.line)}</b></span>
+              <button ${i >= ladder.length - 1 ? 'disabled' : ''} onclick="propStepLine('${m.id}', 1)" aria-label="Linha maior" class="chip !h-8 !px-3 text-[12px] disabled:opacity-30"><i class="fa-solid fa-plus text-[10px]"></i></button>
+            </div>`;
+          body = `${stepper}<div class="grid grid-cols-2 gap-1.5">${mk('mais', 'Mais ' + fmtLinha(ent.line), ent.mais.odd, ent.mais.ok, ent.line, false)}${mk('menos', 'Menos ' + fmtLinha(ent.line), ent.menos.odd, ent.menos.ok, ent.line, m.mine)}</div>`;
+        } else {
+          const btn = s => mk(s.key, m.kind === 'ou' ? `${s.key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)}` : (s.key === '6+' ? '6+' : s.key), s.odd, true, m.line, m.mine && s.key === 'menos');
+          body = m.kind === 'ou' ? `<div class="grid grid-cols-2 gap-1.5">${sels.map(btn).join('')}</div>` : `<div class="grid grid-cols-4 gap-1.5">${sels.map(btn).join('')}</div>`;
+        }
       }
       const adm = data.admin && (m.status === 'open' || m.status === 'locked') ? `
         <div class="flex items-center gap-1.5 mt-1.5">
-          ${m.status === 'open' && m.kind === 'ou' && !m.has_bets && !propIsLocked(data) ? `
-            <button onclick="propMoveLine('${m.id}', -1)" aria-label="Linha menor" class="chip !h-8 !px-3 text-[12px]"><i class="fa-solid fa-minus text-[10px]"></i> linha</button>
-            <button onclick="propMoveLine('${m.id}', 1)" aria-label="Linha maior" class="chip !h-8 !px-3 text-[12px]"><i class="fa-solid fa-plus text-[10px]"></i> linha</button>` : ''}
           <button onclick="propSuspend('${m.id}')" class="chip !h-8 !px-3 text-[12px] !text-danger ml-auto">Suspender</button>
         </div>` : '';
-      const bet = m.bet ? `<p class="text-[12px] text-ink-2 mt-1">Seu palpite: <b class="text-ink">${escapeHtml(propSelLabel(m, m.bet.selection))}</b> · ${fmtPts(m.bet.stake)} pts · volta ${fmtPts(Math.floor(m.bet.stake * m.bet.odd))}</p>` : '';
+      const bet = m.bet ? `<p class="text-[12px] text-ink-2 mt-1">Seu palpite: <b class="text-ink">${escapeHtml(propSelLabel(m, m.bet.selection, m.bet.line))}</b> · ${fmtPts(m.bet.stake)} pts · volta ${fmtPts(Math.floor(m.bet.stake * m.bet.odd))}</p>` : '';
       return `
         <div class="mt-3" data-market="${m.id}">
           <div class="flex items-center justify-between gap-2 mb-1"><p class="text-[12.5px] font-bold text-ink-2">${title}</p><span class="flex items-center gap-1 flex-wrap justify-end">${tags}</span></div>
           ${body}${bet}${adm}
         </div>`;
+    }
+    function propStepLine(id, dir) {
+      const data = propCache.get(propEventId);
+      const m = data && data.markets.find(x => x.id === id);
+      if (!m || !Array.isArray(m.ladder)) return;
+      const cur = propLines.has(id) ? propLines.get(id) : Number(m.line);
+      let i = m.ladder.findIndex(x => Number(x.line) === cur); if (i < 0) i = 0;
+      i = Math.max(0, Math.min(m.ladder.length - 1, i + dir));
+      propLines.set(id, Number(m.ladder[i].line));
+      renderPropSection();
     }
 
     function propAdminHtml(eventId) {
@@ -712,28 +733,38 @@
         : m.includes('locked') ? 'Os palpites desse baba já travaram.'
         : m.includes('market_closed') ? 'Esse palpite não está mais aberto.'
         : m.includes('self_under') ? 'Menos em si mesmo não vale.'
+        : m.includes('self_exact') ? 'Cravada de gols em si mesmo não vale.'
+        : m.includes('bad_line') ? 'Essa linha não está disponível. Escolha outra.'
+        : m.includes('bad_stake') ? 'O mínimo é 10 pontos.'
         : m.includes('no_points') ? 'Faltam pontos. Pegue o bônus do dia aqui na lojinha.'
         : m.includes('not_adult') ? 'Palpites são só para maiores de 18.'
         : m.includes('not_member') ? 'Só quem é da turma palpita.'
         : m.includes('already_bet') ? 'Você já fez um palpite nesse mercado.'
         : m.includes('has_bets') ? 'Já tem palpite nesse mercado: só dá para suspender.'
         : m.includes('not_allowed') ? 'Só o adm da turma faz isso.'
-        : m.includes('limit') ? 'Passou do limite: até 300 pontos em aberto por baba (estreante: até 25 por palpite).'
         : 'Não deu certo agora. Tente de novo.';
     }
 
     /* Bilhete em folha: mercado -> valor -> confirmar. */
-    function openBilhete(marketId, key) {
+    function openBilhete(marketId, key, line) {
       const data = propCache.get(propEventId);
       const m = data && data.markets.find(x => x.id === marketId);
-      const s = m && (m.selections || []).find(x => x.key === key);
-      if (!m || !s) return;
-      const used = data.markets.reduce((n, x) => n + (x.bet && x.bet.status === 'open' ? x.bet.stake : 0), 0);
-      propDraft = { event: propEventId, market: m.id, key, odd: Number(s.odd), stake: null, rookie: !!m.rookie, room: 300 - used };
+      if (!m) return;
+      let odd, ln = null;
+      if (m.kind === 'ou' && Array.isArray(m.ladder) && line != null) {
+        const ent = m.ladder.find(x => Number(x.line) === Number(line));
+        if (!ent || !ent[key] || !ent[key].ok) return;
+        odd = Number(ent[key].odd); ln = Number(ent.line);
+      } else {
+        const s = (m.selections || []).find(x => x.key === key);
+        if (!s) return;
+        odd = Number(s.odd);
+      }
+      propDraft = { event: propEventId, market: m.id, key, line: ln, odd, stake: 10 };
       document.getElementById('pb-player').innerText = `${m.player} · ${m.kind === 'exact' ? 'Cravada de gols' : PROP_METRIC[m.metric]}`;
-      document.getElementById('pb-label').innerText = propSelLabel(m, key);
-      document.getElementById('pb-odd').innerText = 'x' + fmtCot(s.odd);
-      document.getElementById('pb-note').innerText = m.rookie ? 'Estreante: sem histórico na turma, então o máximo é 25 pontos.' : '';
+      document.getElementById('pb-label').innerText = propSelLabel(m, key, ln);
+      document.getElementById('pb-odd').innerText = 'x' + fmtCot(odd);
+      document.getElementById('pb-note').innerText = m.rookie ? 'Estreante: ainda sem histórico na turma, então a cotação vem da média da turma.' : '';
       document.getElementById('pb-error').classList.add('hidden');
       renderBilhete();
       document.getElementById('modal-pbilhete').classList.remove('hidden');
@@ -743,21 +774,43 @@
       const d = propDraft;
       if (!d) return;
       const bal = wallet ? wallet.balance : 0;
-      document.getElementById('pb-stakes').innerHTML = PROP_STAKES.map(v => {
-        const off = v > bal || (d.rookie && v > 25) || v > d.room;
-        return `<button onclick="propSetStake(${v})" ${off ? 'disabled' : ''} class="h-12 rounded-xl border text-[15px] font-extrabold transition disabled:opacity-30 ${d.stake === v ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'}">${v}</button>`;
-      }).join('');
-      document.getElementById('pb-return').innerText = d.stake ? `Volta ${fmtPts(Math.floor(d.stake * d.odd))} pts` : 'Escolha o valor';
+      const can = bal >= 10;
+      const r = document.getElementById('pb-range');
+      document.getElementById('pb-balance').innerText = fmtPts(bal);
+      document.getElementById('pb-range-box').classList.toggle('hidden', !can);
+      document.getElementById('pb-empty').classList.toggle('hidden', can);
+      if (can) {
+        r.min = 10; r.max = bal; r.step = bal > 500 ? 10 : 5;
+        if (!d.stake || d.stake > bal || d.stake < 10) d.stake = 10;
+        r.value = d.stake;
+        document.getElementById('pb-min').innerText = '10';
+      } else d.stake = 0;
+      document.getElementById('pb-stake').innerText = d.stake ? `${fmtPts(d.stake)} pts` : '';
+      document.getElementById('pb-return').innerText = d.stake ? `Volta ${fmtPts(Math.floor(d.stake * d.odd))} pts` : 'Você precisa de pelo menos 10 pontos';
       document.getElementById('btn-pbilhete').disabled = !d.stake;
     }
-    function propSetStake(v) { if (propDraft) { propDraft.stake = v; renderBilhete(); } }
+    function propSlide(v) {
+      const d = propDraft;
+      if (!d) return;
+      d.stake = Math.max(10, Math.round(Number(v)));
+      document.getElementById('pb-stake').innerText = `${fmtPts(d.stake)} pts`;
+      document.getElementById('pb-return').innerText = `Volta ${fmtPts(Math.floor(d.stake * d.odd))} pts`;
+      document.getElementById('btn-pbilhete').disabled = false;
+    }
+    function propAll() {
+      const d = propDraft;
+      if (!d || !wallet || wallet.balance < 10) return;
+      d.stake = wallet.balance;
+      document.getElementById('pb-range').value = d.stake;
+      propSlide(d.stake);
+    }
     async function confirmBilhete() {
       const d = propDraft;
       if (!d || !d.stake) return;
       const btn = document.getElementById('btn-pbilhete');
       setBusy(btn, true, 'Enviando...');
       try {
-        const r = await api.placePropBet(d.market, d.key, d.stake);
+        const r = await api.placePropBet(d.market, d.key, d.stake, d.line);
         if (wallet && r) { wallet.balance = r.balance; renderV7Bits(); const b = document.getElementById('shop-balance'); if (b) b.innerText = fmtPts(r.balance); }
         closeBilhete();
         buzz([20, 30]);
@@ -772,16 +825,7 @@
       } finally { setBusy(btn, false); renderBilhete(); }
     }
 
-    /* Controles do adm. */
-    async function propMoveLine(marketId, dir) {
-      const data = propCache.get(propEventId);
-      const m = data && data.markets.find(x => x.id === marketId);
-      if (!m) return;
-      const next = Number(m.line) + dir;
-      if (next < 0.5 || next > 5.5) { showToast('Essa é a última linha nesse sentido.', 'warning'); return; }
-      try { await api.adjustPropLine(marketId, next); await loadProp(true); showToast(`Linha em ${fmtLinha(next)}. A cotação foi recalculada.`); }
-      catch (e) { showToast(propError(e), 'warning'); loadProp(true); }
-    }
+    /* Controle do adm: só Suspender (a linha agora é escolhida por quem palpita). */
     async function propSuspend(marketId) {
       const data = propCache.get(propEventId);
       const m = data && data.markets.find(x => x.id === marketId);

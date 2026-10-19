@@ -57,7 +57,7 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
   baba_delete, turma_sync, turma_delete, turma_leave, player_rename, profile_update, live_settle, live_end`.
 - Mudou a forma do `state`? Ajustar `migrate()` e `defaultState()`; o teste sim2 recarrega a página e exige estado idêntico.
 
-> v11.4: seção `PALPITES PRÉ-JOGO (v11.4)` fica em `src/js/50-visual-loja.js` (`loadPropCounts`, `propChipHtml`, `openPalpites`, `loadProp`/`renderPropSection` em `#shop-palpites`, `openBilhete`/`confirmBilhete` em `#modal-pbilhete`, `propMoveLine`/`propSuspend` do adm).
+> v11.4: seção `PALPITES PRÉ-JOGO (v11.4)` fica em `src/js/50-visual-loja.js` (`loadPropCounts`, `propChipHtml`, `openPalpites`, `loadProp`/`renderPropSection` em `#shop-palpites`, `openBilhete`/`confirmBilhete` em `#modal-pbilhete`, `propStepLine` (escolher linha), `propSlide`/`propAll` (barra de valor), `propSuspend` do adm).
 
 ## Módulos do JavaScript (src/js, na ordem de execução)
 
@@ -115,11 +115,18 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
-(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres
+(o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
 - Pontos: `wallets` + `points_ledger` (motivo em `reason`). Palpites ao vivo: `live_games.markets` + `palpites`.
+- Palpites pré-jogo (v11.4): `prop_markets` + `prop_bets` (sem acesso direto, só RPC: `prop_markets`, `prop_open_counts`, `place_prop_bet`,
+  `adjust_prop_line`, `suspend_prop_market`, `prop_event_bets`). Linha/cotação (Poisson), trava, liquidação e anulação são `private.*`
+  (`generate_prop_markets`, `props_refresh`, `settle_event`, `void_props`). `babas.event_id` liga o baba à lista (trigger só aceita adm da turma);
+  a trava usa `babas.state->>'firstKickoffAt'`; os stats gravados em `baba_stats` disparam a liquidação/correção (trigger por comando).
+- v11.4.1: quem palpita escolhe a linha (`private.prop_ladder`: 0,5 a 5,5 com cotação por lado; só lados com chance de 5% a 85%),
+  `place_prop_bet(market, selection, stake, p_line)` grava `prop_bets.line`; valor de 10 até o saldo (sem tetos); cravada de gols em si mesmo
+  = `self_exact`; o adm só suspende (`adjust_prop_line` ficou sem uso no app).
 Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`

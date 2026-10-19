@@ -130,8 +130,16 @@
         <button onclick="closeBilhete()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div>
-        <span class="label">Quantos pontos?</span>
-        <div id="pb-stakes" class="grid grid-cols-4 gap-1.5"></div>
+        <div class="flex items-end justify-between gap-2">
+          <span class="label !mb-0">Quantos pontos?</span>
+          <span class="text-[12.5px] text-ink-2">Seu saldo: <b id="pb-balance" class="text-ink"></b> pts</span>
+        </div>
+        <div id="pb-range-box">
+          <p id="pb-stake" class="text-[34px] font-serif text-pitch leading-none mt-2"></p>
+          <input id="pb-range" type="range" min="10" max="10" step="5" value="10" oninput="propSlide(this.value)" aria-label="Quantos pontos" class="w-full mt-3 h-8" style="accent-color: rgb(var(--c-pitch))" />
+          <div class="flex items-center justify-between text-[11.5px] text-ink-3 -mt-0.5"><span id="pb-min">10</span><button type="button" onclick="propAll()" class="font-bold text-pitch text-[13px] px-2 py-1">Tudo</button></div>
+        </div>
+        <p id="pb-empty" class="hidden text-[13px] text-ink-2 mt-2">Você precisa de pelo menos 10 pontos para palpitar. Pegue o bônus do dia aqui na lojinha.</p>
       </div>
       <p id="pb-note" class="text-[12.5px] text-ink-2"></p>
       <p id="pb-return" class="text-[20px] font-serif text-pitch"></p>

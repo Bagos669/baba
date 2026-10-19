@@ -56,7 +56,7 @@
       relinkMyStats: () => rpc('relink_my_stats'),
       propMarkets: event => rpc('prop_markets', { event }),
       propOpenCounts: events => rpc('prop_open_counts', { events }),
-      placePropBet: async (market, selection, stake) => ((await rpc('place_prop_bet', { market, selection, stake })) || [])[0],
+      placePropBet: async (market, selection, stake, line) => ((await rpc('place_prop_bet', line != null ? { market, selection, stake, p_line: line } : { market, selection, stake })) || [])[0],
       adjustPropLine: (market, line) => rpc('adjust_prop_line', { market, line }),
       suspendPropMarket: market => rpc('suspend_prop_market', { market }),
       propEventBets: event => rpc('prop_event_bets', { event }),
@@ -154,9 +154,14 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.4';
+    const APP_VERSION = '11.4.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.4.1', date: '19/10/2026', title: 'Palpites mais livres', items: [
+        'Agora você escolhe a linha do palpite (Mais 1,5, Mais 2,5, Mais 3,5...) e a cotação muda junto.',
+        'O valor do palpite vai de 10 até o seu saldo todo: arraste a barra ou toque em "Tudo".',
+        'A cravada de gols em você mesmo saiu. Mais em você continua valendo; Menos não.'
+      ] },
       { v: '11.4', date: '19/10/2026', title: 'Palpites antes do jogo', items: [
         'Quando a lista do baba chega a 4 confirmados, abrem os palpites pré-jogo: Mais ou Menos de gols, assistências, gols + assistências e defesas de cada atleta, e a cravada de gols.',
         'No Início, o card do próximo baba mostra “N palpites abertos” e leva direto para a seção Palpites da Lojinha.',

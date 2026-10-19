@@ -1057,6 +1057,12 @@ def _sels(kind, lam, line):
         return [{'key': 'mais', 'label': 'Mais ' + _fl(line), 'odd': _codd(p), 'p': round(p, 4)}, {'key': 'menos', 'label': 'Menos ' + _fl(line), 'odd': _codd(1 - p), 'p': round(1 - p, 4)}]
     out = [{'key': str(k), 'label': str(k), 'odd': _codd(_pmf(lam, k)), 'p': round(_pmf(lam, k), 4)} for k in range(6)]
     p = 1 - sum(_pmf(lam, k) for k in range(6)); out.append({'key': '6+', 'label': '6 ou mais', 'odd': _codd(p), 'p': round(p, 4)}); return out
+def _ladder(lam):
+    out = []
+    for l in [g + 0.5 for g in range(6)]:
+        p = _pover(lam, l); okm = 0.05 <= p <= 0.85; oku = 0.05 <= 1 - p <= 0.85
+        if okm or oku: out.append({'line': l, 'mais': {'odd': _codd(p), 'p': round(p, 4), 'ok': okm}, 'menos': {'odd': _codd(1 - p), 'p': round(1 - p, 4), 'ok': oku}})
+    return out
 def _utc(s): return _dt.datetime.fromisoformat(str(s).replace('Z', '+00:00')).replace(tzinfo=None) if str(s).endswith('Z') or '+' in str(s)[10:] else _dt.datetime.fromisoformat(str(s))
 def _pinit(self):
     self._evinit()
@@ -1142,7 +1148,9 @@ def _p_settle(self, eid):
         m['status'] = 'settled'; m['result'] = res
         for b in self.pbets:
             if b['market'] == m['id'] and b['status'] == 'open':
-                if b['selection'] == win: b['status'] = 'won'; b['payout'] = math.floor(b['stake'] * b['odd']); self._add(b['user'], b['payout'], 'palpite-pre-ganho', str(b['id']))
+                bl = b.get('line') or m['line']
+                hit = ((b['selection'] == 'mais' and val > bl) or (b['selection'] == 'menos' and val < bl)) if m['kind'] == 'ou' else b['selection'] == win
+                if hit: b['status'] = 'won'; b['payout'] = math.floor(b['stake'] * b['odd']); self._add(b['user'], b['payout'], 'palpite-pre-ganho', str(b['id']))
                 else: b['status'] = 'lost'
 def _p_refresh(self, e):
     if e['status'] == 'canceled':
@@ -1176,9 +1184,9 @@ def f_propMarkets(self, uid, eid):
     for m in sorted([m for m in self.pmk.values() if m['event_id'] == eid], key=lambda m: (self.players[m['player_id']]['name'], {'goals': 1, 'assists': 2, 'ga': 3}.get(m['metric'], 4), 0 if m['kind'] == 'ou' else 1)):
         pl = self.players[m['player_id']]; mine = next((b for b in self.pbets if b['market'] == m['id'] and b['user'] == uid), None)
         ms.append({'id': m['id'], 'player_id': m['player_id'], 'player': pl['name'], 'keeper': bool(pl.get('is_goalkeeper')), 'mine': pl.get('user_id') == uid, 'kind': m['kind'], 'metric': m['metric'],
-                   'line': m['line'], 'selections': m['selections'], 'rookie': m['rookie'], 'status': m['status'], 'result': m['result'], 'void_reason': m['void_reason'],
+                   'line': m['line'], 'selections': m['selections'], 'ladder': _ladder(m['lambda']) if m['kind'] == 'ou' else None, 'rookie': m['rookie'], 'status': m['status'], 'result': m['result'], 'void_reason': m['void_reason'],
                    'adjusted': m['edited_by'] is not None, 'has_bets': any(b['market'] == m['id'] for b in self.pbets),
-                   'bet': {k: mine[k] for k in ('selection', 'stake', 'odd', 'status', 'payout')} if mine else None})
+                   'bet': dict({k: mine[k] for k in ('selection', 'stake', 'odd', 'status', 'payout')}, line=mine.get('line') or m['line']) if mine else None})
     return self.ok({'event_id': eid, 'turma_id': e['turma_id'], 'starts_at': e['starts_at'], 'locked': locked, 'admin': self._is_adm(e['turma_id'], uid), 'adult': self._adult(uid),
                     'confirmed': sum(1 for (x, k), r in self.rsvps.items() if x == eid and r['status'] == 'vou'), 'markets': ms})
 @_preg
@@ -1190,7 +1198,7 @@ def f_propOpenCounts(self, uid, ids):
         self._p_refresh(e); out[eid] = sum(1 for m in self.pmk.values() if m['event_id'] == eid and m['status'] == 'open')
     return self.ok(out)
 @_preg
-def f_placePropBet(self, uid, mid, selection, stake):
+def f_placePropBet(self, uid, mid, selection, stake, p_line=None):
     m = self.pmk.get(mid)
     if not m: raise PermissionError('market_closed')
     e = self.events[m['event_id']]
@@ -1199,17 +1207,24 @@ def f_placePropBet(self, uid, mid, selection, stake):
     self._p_refresh(e); m = self.pmk[mid]
     if m['status'] == 'locked': raise PermissionError('locked')
     if m['status'] != 'open' or e['status'] != 'open': raise PermissionError('market_closed')
-    if stake not in (10, 25, 50, 100): raise PermissionError('bad_stake')
-    sel = next((s for s in m['selections'] if s['key'] == selection), None)
-    if not sel: raise PermissionError('bad_selection')
-    if self.players[m['player_id']].get('user_id') == uid and selection == 'menos': raise PermissionError('self_under')
-    if m['rookie'] and stake > 25: raise PermissionError('limit')
+    if not isinstance(stake, int) or stake < 10: raise PermissionError('bad_stake')
+    mine_p = self.players[m['player_id']].get('user_id') == uid
+    ln = None
+    if m['kind'] == 'ou':
+        if selection not in ('mais', 'menos'): raise PermissionError('bad_selection')
+        ln = p_line if p_line is not None else m['line']
+        ent = next((x for x in _ladder(m['lambda']) if x['line'] == ln), None)
+        if not ent or not ent[selection]['ok']: raise PermissionError('bad_line')
+        sel = {'odd': ent[selection]['odd']}
+    else:
+        sel = next((s for s in m['selections'] if s['key'] == selection), None)
+        if not sel: raise PermissionError('bad_selection')
+        if mine_p and m['metric'] == 'goals': raise PermissionError('self_exact')
+    if mine_p and selection == 'menos': raise PermissionError('self_under')
     if any(b['market'] == mid and b['user'] == uid for b in self.pbets): raise PermissionError('already_bet')
-    used = sum(b['stake'] for b in self.pbets if b['user'] == uid and b['status'] == 'open' and self.pmk[b['market']]['event_id'] == m['event_id'])
-    if used + stake > 300: raise PermissionError('limit')
     self.f_myWallet(uid); bid = len(self.pbets) + 1
     bal = self._add(uid, -stake, 'palpite-pre', str(bid))
-    self.pbets.append({'id': bid, 'market': mid, 'user': uid, 'selection': selection, 'stake': stake, 'odd': sel['odd'], 'status': 'open', 'payout': 0})
+    self.pbets.append({'id': bid, 'market': mid, 'user': uid, 'selection': selection, 'line': ln, 'stake': stake, 'odd': sel['odd'], 'status': 'open', 'payout': 0})
     return self.ok({'bet_id': bid, 'balance': bal, 'odd': sel['odd'], 'payout': math.floor(stake * sel['odd'])})
 @_preg
 def f_adjustPropLine(self, uid, mid, line):
@@ -1240,7 +1255,7 @@ def f_propEventBets(self, uid, eid):
     for b in self.pbets:
         m = self.pmk[b['market']]
         if m['event_id'] != eid: continue
-        rows.append({'user_id': b['user'], 'name': self.profiles.get(b['user'], {}).get('name'), 'player': self.players[m['player_id']]['name'], 'metric': m['metric'], 'kind': m['kind'], 'line': m['line'],
+        rows.append({'user_id': b['user'], 'name': self.profiles.get(b['user'], {}).get('name'), 'player': self.players[m['player_id']]['name'], 'metric': m['metric'], 'kind': m['kind'], 'line': b.get('line') or m['line'],
                      'selection': b['selection'], 'stake': b['stake'], 'odd': b['odd'], 'status': b['status'], 'payout': b['payout'], 'recorder': b['user'] == rec})
     return self.ok(rows)
 # liquidação ao gravar os stats do baba (o banco faz o mesmo no trigger de baba_stats)
