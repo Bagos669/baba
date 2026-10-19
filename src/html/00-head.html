@@ -528,6 +528,8 @@
     @keyframes livePulse { 70% { box-shadow: 0 0 0 7px rgba(123, 224, 168, 0); } 100% { box-shadow: 0 0 0 0 rgba(123, 224, 168, 0); } }
 
     .nav-tab-btn.is-active { background: #FFEDA8; color: #003631; }
+    .nav-emoji { filter: grayscale(1) contrast(.85); opacity: .75; }
+    .nav-tab-btn.is-active .nav-emoji { filter: grayscale(1) brightness(.35) contrast(1.2); opacity: 1; }
     .sub-tab-btn { height: 46px; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 10.5px; font-weight: 700; color: #5a6b69; transition: background .15s; }
     .sub-tab-btn i { font-size: 14px; }
     .sub-tab-btn.is-active { background: #fff; color: #003631; box-shadow: 0 1px 4px rgba(0,54,49,.15); }

@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=3da0f87607" />
+  <link rel="stylesheet" href="app.css?v=f891e27657" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -455,6 +455,8 @@
     @keyframes livePulse { 70% { box-shadow: 0 0 0 7px rgba(123, 224, 168, 0); } 100% { box-shadow: 0 0 0 0 rgba(123, 224, 168, 0); } }
 
     .nav-tab-btn.is-active { background: #FFEDA8; color: #003631; }
+    .nav-emoji { filter: grayscale(1) contrast(.85); opacity: .75; }
+    .nav-tab-btn.is-active .nav-emoji { filter: grayscale(1) brightness(.35) contrast(1.2); opacity: 1; }
     .sub-tab-btn { height: 46px; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 10.5px; font-weight: 700; color: #5a6b69; transition: background .15s; }
     .sub-tab-btn i { font-size: 14px; }
     .sub-tab-btn.is-active { background: #fff; color: #003631; box-shadow: 0 1px 4px rgba(0,54,49,.15); }
@@ -1216,7 +1218,7 @@
           <i class="fa-solid fa-people-group text-[17px]"></i><span class="text-[10.5px] font-bold">Turmas</span>
         </button>
         <button onclick="switchTab('loja')" id="tab-nav-loja" class="nav-tab-btn rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition">
-          <span class="text-[17px] leading-[17px]" aria-hidden="true">😜</span><span class="text-[10.5px] font-bold">Resenha</span>
+          <span class="nav-emoji text-[17px] leading-[17px]" aria-hidden="true">😜</span><span class="text-[10.5px] font-bold">Resenha</span>
         </button>
         <button id="header-profile" onclick="openProfile()" class="relative rounded-[18px] flex flex-col items-center justify-center gap-0.5 text-ink-3 transition" aria-label="Seu perfil">
           <span class="relative inline-flex"><span id="header-avatar-wrap" class="inline-flex rounded-full"><span id="header-avatar" class="avatar w-[30px] h-[30px] text-[11px]">?</span></span><span id="sync-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-leaf ring-2 ring-card"></span></span>
