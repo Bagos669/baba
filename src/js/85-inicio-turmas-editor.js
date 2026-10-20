@@ -254,6 +254,7 @@
       renderWeather();
       renderBattery();
       refreshWeather(false);
+      renderSharedCards();
       document.getElementById('home-hello').innerText = greeting();
       document.getElementById('home-name').innerText = (currentUser ? firstName(currentUser.name) : 'craque') + '.';
 
@@ -384,6 +385,7 @@
               ${avatarHtml(t.icon, t.name, '!rounded-xl w-10 h-10 text-[14px]')}
               <div class="min-w-0">
                 <div class="font-bold text-[15px] truncate">${escapeHtml(t.name)}</div>
+                ${(() => { const sb2 = t.cloud ? sharedRunOfTurma(t.id) : null; return sb2 ? `<button type="button" data-selo="${t.id}" onclick="event.preventDefault(); event.stopPropagation(); openSharedBaba('${sb2.id}')" class="mt-0.5 inline-flex items-center gap-1.5 rounded-full bg-leaf/15 text-leaf text-[11px] font-extrabold px-2 py-0.5"><span class="live-dot"></span> Em andamento</button>` : ''; })()}
                 <div class="text-[12px] text-ink-2">${t.cloud ? `${ROLE_LABEL[t.role] || 'Membro'} · ` : ''}${t.players.length} atleta${t.players.length === 1 ? '' : 's'}${t.keepers.length ? ` · ${t.keepers.length} goleiro${t.keepers.length === 1 ? '' : 's'}` : ''}</div>
               </div>
             </label>

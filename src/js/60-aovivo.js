@@ -6,6 +6,8 @@
     let livePushTimer = null;
     let liveCreating = false;
     const liveCode = () => (state.live && state.live.code) || '';
+    // v11.6: com o baba compartilhado, só o aparelho de quem abriu a transmissão escreve nela (o servidor só aceita dele).
+    const liveMine = (l = state.live) => !!(l && (!l.owner || !currentUser || l.owner === currentUser.id));
     const liveLink = code => `${location.protocol.startsWith('http') ? location.origin + location.pathname : 'https://bagos669.github.io/baba/'}#ao-vivo=${code}`;
 
     async function ensureLive(openAfter) {
@@ -17,7 +19,7 @@
         const id = uuid();
         const row = { id, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), palpites: true, state: liveSnapshot(), markets: liveMarkets(true) };
         const created = await api.createLive(row);
-        state.live = { id, code: (created && created.code) || '', palpites: true };
+        state.live = { id, code: (created && created.code) || '', palpites: true, owner: currentUser ? currentUser.id : null };
         if (!state.live.code) { const g = await api.liveList(); const mine = (g || []).find(x => x.id === id); state.live.code = mine ? mine.code : ''; }
         saveState();
         renderLivePill();
@@ -39,7 +41,7 @@
     }
 
     async function pushLive() {
-      if (!state.live || !state.live.id || navigator.onLine === false) return;
+      if (!state.live || !state.live.id || navigator.onLine === false || !liveMine()) return;
       try {
         await api.updateLive(state.live.id, { title: babaTitle(), state: liveSnapshot(), markets: liveMarkets(state.live.palpites), palpites: !!state.live.palpites });
       } catch (e) {}
@@ -177,7 +179,7 @@
 
     /* Called by finishMatchAndNextChallenger with the match that just ended. */
     function queueLiveSettle(matchNo, A, B, scoreA, scoreB, events) {
-      if (!state.live || !state.live.id) return;
+      if (!state.live || !state.live.id || !liveMine()) return;
       const scorers = [...new Set(events.filter(e => e.type === 'goal' && e.scorerId != null).map(e => String(nameOf(e.scorerId)).trim().toLowerCase().slice(0, 60)))];
       const goalsBy = {};
       events.filter(e => e.type === 'goal' && e.scorerId != null).forEach(e => { const k = String(nameOf(e.scorerId)).trim().toLowerCase().slice(0, 60); goalsBy[k] = (goalsBy[k] || 0) + 1; });
@@ -188,7 +190,7 @@
     /* Ends the transmission (new baba, reset, or the button). */
     function endLiveQuiet() {
       if (!state.live || !state.live.id) return;
-      enqueue({ type: 'live_end', id: state.live.id });
+      if (liveMine()) enqueue({ type: 'live_end', id: state.live.id });
       state.live = null;
     }
 

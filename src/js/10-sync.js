@@ -39,6 +39,7 @@
     let femaleCol = null;        // server keeps "jogadora" on turma players (v9.5)
     let penCol = null;           // server keeps penalty numbers (v10)
     let eventCol = null;         // server links babas to lists (v11.4)
+    let sharedOff = false;       // server without the v11.6 functions (baba compartilhado)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -196,6 +197,14 @@
         eventCol = false;
         await q(sb.from('babas').upsert(plain));
       },
+      // v11.6: o baba compartilhado entre dono e adms grava por RPC (com versão) e finaliza uma vez só.
+      saveBaba: (row, baseRev) => rpcCall('baba_save', { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
+        p_matches: row.matches, p_event_id: row.event_id || null, p_base_rev: baseRev == null ? null : baseRev }),
+      finishBaba: (row, stats) => rpcCall('baba_finish', { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
+        p_matches: row.matches, p_event_id: row.event_id || null, p_stats: stats || [] }),
+      babaRev: id => rpcCall('baba_rev', { p_id: id }),
+      babaGet: id => rpcCall('baba_get', { p_id: id }),
+      babasShared: () => rpcCall('babas_shared'),
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
@@ -229,6 +238,11 @@
     }, window.__BABA_FAKE_API__ || {});
 
     const cloudOn = () => !!(currentUser && api.enabled());
+    async function rpcCall(name, args) {
+      const { data, error } = await sb.rpc(name, args || {});
+      if (error) throw error;
+      return data;
+    }
 
     function isNetworkError(e) {
       if (!e) return false;
@@ -312,8 +326,21 @@
     }
 
     async function runOp(op) {
-      if (op.type === 'baba_upsert') return api.upsertBaba(op.row);
+      if (op.type === 'baba_upsert') {
+        if (!sharedOff) {
+          try { return handleSaveResult(op.row.id, await api.saveBaba(op.row, op.baseRev)); }
+          catch (e) { if (!isMissingFn(e)) throw e; sharedOff = true; }
+        }
+        return api.upsertBaba(op.row);
+      }
       if (op.type === 'baba_finish') {
+        if (!sharedOff) {
+          try {
+            const r = await api.finishBaba(op.row, op.stats || []);
+            if (r && r.already && r.finished_by !== currentUser.id) showToast(`Esse baba já tinha sido finalizado por ${firstName(r.finished_by_name || 'outra pessoa')}.`, 'warning');
+            return;
+          } catch (e) { if (!isMissingFn(e)) throw e; sharedOff = true; }
+        }
         await api.upsertBaba(op.row);
         return api.replaceStats(op.row.id, op.stats || []);
       }
@@ -383,6 +410,8 @@
       delete s.turmas;
       delete s.pastDays;
       delete s.lastFinish;
+      delete s.rev;
+      delete s.createdBy;
       return JSON.parse(JSON.stringify(s));
     }
 
@@ -390,14 +419,24 @@
       if (!cloudOn()) return;
       clearTimeout(pushTimer);
       pushTimer = setTimeout(() => {
+        pushTimer = null;
         if (!cloudOn() || !hasBabaContent()) return;
-        if (!state.babaId) { state.babaId = uuid(); cacheState(); }
+        if (!state.babaId) { state.babaId = uuid(); state.createdBy = currentUser.id; cacheState(); }
         // O baba que começa a partir da lista do dia fica ligado a ela (palpites pré-jogo).
         if (!state.eventId) { const te = todaysEvent(); if (te) { state.eventId = te.id; cacheState(); try { renderSheetTable(); } catch (e) {} } }
         const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
         if (state.eventId) row.event_id = state.eventId;
-        enqueue({ type: 'baba_upsert', id: state.babaId, row });
+        enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0 });
       }, 1200);
+    }
+    /* Sends the open baba right away (before this phone switches to another one). */
+    function pushNow() {
+      if (!pushTimer) return;
+      clearTimeout(pushTimer); pushTimer = null;
+      if (!cloudOn() || !hasBabaContent() || !state.babaId) return;
+      const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
+      if (state.eventId) row.event_id = state.eventId;
+      enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0 });
     }
 
     function playerCloudId(p) {
@@ -478,6 +517,7 @@
           const localIsSame = state.babaId === open.id;
           if ((!localIsSame && !hasBabaContent()) || (localIsSame && cloudSaved > (state.savedAt || 0))) {
             adoptCloudBaba(open);
+            state.createdBy = uid;
           }
         }
 
@@ -514,6 +554,7 @@
         setSync(readOutbox().length ? 'syncing' : 'ok');
         flushOutbox();
         loadEvents(true).then(openPendingList);
+        loadSharedBabas(true);
       } catch (e) {
         setSync(isNetworkError(e) ? 'offline' : 'error');
         if (!isNetworkError(e)) console.warn('BABA pull failed', e);

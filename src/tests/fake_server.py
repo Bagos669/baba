@@ -1525,3 +1525,84 @@ def f_userTrophies(self, uid, u=None):
     who = u or uid
     return self.ok([dict(x, turma=(self.turmas.get(x['turma_id']) or {}).get('name')) for x in getattr(self, 'trophies', [])
                     if x.get('scope') == 'atleta' and x.get('user_id') == who and self._can_see(x['turma_id'], uid)])
+
+# ---- v11.6: baba compartilhado entre dono e adms (o banco de verdade é testado em supabase/test/v11_6_rules.sql)
+# Liga por padrão; fake.v116_enabled = False simula o servidor antigo (o app volta a gravar direto na tabela).
+def _v116(fn):
+    def f(self, uid, *a):
+        if not getattr(self, 'v116_enabled', True): return self.err('PGRST202', 'Could not find the function')
+        if not uid: return self.err('P0001', 'not_authenticated')
+        try: return fn(self, uid, *a)
+        except PermissionError as e: return self.err('P0001', str(e))
+    f.__name__ = fn.__name__; setattr(Fake, fn.__name__, f); return fn
+def _org(self, t, u): return self.is_admin(t, u) or self.is_owner(t, u)
+def _runs(self, b, u): return b.get('created_by') == u or any(_org(self, t, u) for t in (b.get('turma_ids') or []))
+def _pname(self, u): return (self.profiles.get(u) or {}).get('name') or 'Alguém'
+Fake._org = _org; Fake._runs = _runs; Fake._pname = _pname
+def _bump(self, b, uid):
+    b['rev'] = b.get('rev', 0) + 1; b['updated_by'] = uid; b['updated'] = next(self.seq)
+    if not b.get('started_by') and (b.get('state') or {}).get('firstKickoffAt'): b['started_by'] = uid
+Fake._bump = _bump
+@_v116
+def f_saveBaba(self, uid, row, base_rev=None):
+    ids = list(row.get('turma_ids') or [])
+    if not all(self.is_member(t, uid) for t in ids): raise PermissionError('not_member')
+    b = self.babas.get(row['id'])
+    if not b:
+        b = {'id': row['id'], 'created_by': uid, 'turma_ids': ids, 'title': row.get('title'), 'played_on': row.get('played_on'), 'state': row['state'], 'finished': False,
+             'matches': row.get('matches') or 0, 'event_id': row.get('event_id'), 'rev': 0}
+        self.babas[row['id']] = b; self._bump(b, uid)
+        return self.ok({'rev': b['rev'], 'updated_by': uid, 'conflict': False})
+    if b['finished']: return self.ok({'finished': True, 'rev': b['rev'], 'finished_by': b.get('finished_by'), 'finished_by_name': self._pname(b.get('finished_by'))})
+    if not self._runs(b, uid): raise PermissionError('forbidden')
+    if b['created_by'] != uid and not self._runs(dict(b, turma_ids=ids), uid): ids = b['turma_ids']
+    prev = b.get('rev', 0)
+    b.update({'state': row['state'], 'turma_ids': ids, 'title': row.get('title') or b.get('title'), 'played_on': row.get('played_on') or b.get('played_on'),
+              'matches': row.get('matches', b.get('matches')), 'event_id': row.get('event_id') or b.get('event_id')})
+    self._bump(b, uid)
+    return self.ok({'rev': b['rev'], 'updated_by': uid, 'conflict': base_rev is not None and base_rev < prev})
+@_v116
+def f_finishBaba(self, uid, row, stats):
+    self.finish_calls = getattr(self, 'finish_calls', 0) + 1
+    b = self.babas.get(row['id'])
+    if b and b['finished']: return self.ok({'already': True, 'finished_by': b.get('finished_by'), 'finished_by_name': self._pname(b.get('finished_by'))})
+    if not b:
+        if not all(self.is_member(t, uid) for t in (row.get('turma_ids') or [])): raise PermissionError('not_member')
+        b = {'id': row['id'], 'created_by': uid, 'turma_ids': list(row.get('turma_ids') or []), 'rev': 0, 'state': {}}
+        self.babas[row['id']] = b
+    elif not self._runs(b, uid): raise PermissionError('forbidden')
+    b.update({'finished': True, 'finished_by': uid, 'state': row.get('state') or b.get('state'), 'title': row.get('title') or b.get('title'),
+              'played_on': row.get('played_on') or b.get('played_on'), 'matches': row.get('matches', b.get('matches')), 'event_id': row.get('event_id') or b.get('event_id')})
+    self._bump(b, uid)
+    self.finished_reports = getattr(self, 'finished_reports', 0) + 1
+    self.stats[b['id']] = [dict(r) for r in (stats or [])]
+    if hasattr(self, 'pmk') and b.get('event_id') and b['event_id'] in getattr(self, 'events', {}): self._p_settle(b['event_id'])
+    return self.ok({'ok': True, 'finished_by': uid, 'finished_by_name': self._pname(uid)})
+@_v116
+def f_babaRev(self, uid, bid):
+    b = self.babas.get(bid)
+    if not b: return self.ok({'gone': True})
+    if not self._runs(b, uid): raise PermissionError('forbidden')
+    return self.ok({'rev': b.get('rev', 0), 'updated_by': b.get('updated_by'), 'updated_by_name': self._pname(b.get('updated_by')), 'finished': b['finished'],
+                    'finished_by': b.get('finished_by'), 'finished_by_name': self._pname(b.get('finished_by')) if b['finished'] else None})
+@_v116
+def f_babaGet(self, uid, bid):
+    b = self.babas.get(bid)
+    if not b: return self.ok(None)
+    if not self._runs(b, uid): raise PermissionError('forbidden')
+    return self.ok({'id': b['id'], 'state': b.get('state'), 'rev': b.get('rev', 0), 'created_by': b['created_by'], 'turma_ids': b.get('turma_ids'), 'title': b.get('title'),
+                    'played_on': b.get('played_on'), 'finished': b['finished'], 'updated_by': b.get('updated_by'), 'updated_by_name': self._pname(b.get('updated_by')),
+                    'started_by': b.get('started_by'), 'started_by_name': self._pname(b.get('started_by')) if b.get('started_by') else None,
+                    'finished_by_name': self._pname(b.get('finished_by')) if b['finished'] else None})
+@_v116
+def f_babasShared(self, uid):
+    out = []
+    for b in sorted(self.babas.values(), key=lambda x: x.get('updated', 0), reverse=True):
+        if b['finished'] or not self._runs(b, uid): continue
+        st = b.get('state') or {}; hist = st.get('matchHistory') or []; m = st.get('match') or {}; court = st.get('court') or {}
+        goals = sum((h.get('scoreA') or 0) + (h.get('scoreB') or 0) for h in hist) + (m.get('scoreA') or 0) + (m.get('scoreB') or 0)
+        live = bool(m.get('isRunning') or (m.get('scoreA') or 0) + (m.get('scoreB') or 0) > 0 or m.get('events')) and isinstance(court.get('A'), dict) and isinstance(court.get('B'), dict)
+        out.append({'id': b['id'], 'title': b.get('title'), 'played_on': b.get('played_on'), 'created_by': b['created_by'], 'turma_ids': b.get('turma_ids') or [], 'rev': b.get('rev', 0),
+                    'started_by': b.get('started_by'), 'started_by_name': self._pname(b.get('started_by')) if b.get('started_by') else None,
+                    'started': bool(st.get('firstKickoffAt')), 'matches': len(hist), 'goals': goals, 'live_match': live})
+    return self.ok(out[:20])

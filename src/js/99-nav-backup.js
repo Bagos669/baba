@@ -54,15 +54,37 @@
       const ev = todaysEvent();
       const evClose = ev && ev.status === 'open' && evAdmin(ev) && hasDay
         ? { eventId: ev.id, out: Object.fromEntries((ev.event_rsvps || []).filter(r => r.status === 'vou').map(r => [r.player_key, arrivedToday(r.player_key) ? 'cumpriu' : 'miou'])) } : null;
+      closeOutBaba(hasDay);
+      syncPool();
+      commit(hasDay ? 'Dia salvo no histórico da turma. Novo baba: marque quem chegou!' : 'Novo baba! Marque quem chegou na Lista.');
+      switchTab('ficha');
+      if (evClose && Object.keys(evClose.out).length) {
+        closeStash = evClose;
+        setTimeout(() => showPopup({ img: 'coach', eyebrow: 'Compromisso', title: 'Fechar a presença?', html: '<p class="text-[15px] leading-relaxed">A lista de hoje ainda está aberta. Já marquei quem chegou (cumpriu) e quem não apareceu (miou) pela Lista de chegada. Confere?</p>',
+          ok: 'Conferir agora', onClose: () => openCloseEvent(evClose.eventId) }), 400);
+      }
+    }
+
+    /* Fecha o baba aberto neste aparelho: vai pro histórico (relatório no servidor) e zera placar, fila e chegadas.
+       Mesmo caminho do "Começar novo baba", do baba pendente (v11.6) e de quem não criou o baba (adm). */
+    function closeOutBaba(hasDay) {
+      // Baba de outra pessoa (dono/adm controlando): nunca apaga, sempre finaliza.
+      if (!hasDay && state.babaId && state.createdBy && currentUser && state.createdBy !== currentUser.id) hasDay = true;
       pauseMatchTimer();
       endLiveQuiet();
       if (hasDay) {
         const summary = daySummary();
-        state.pastDays.unshift(summary);
+        state.pastDays = [summary].concat(state.pastDays.filter(d => d.id !== summary.id));
         enqueueFinish(summary);
       } else if (state.babaId) {
         enqueue({ type: 'baba_delete', id: state.babaId });
       }
+      resetForNewDay();
+    }
+
+    /* Zera o baba (placar, fila, chegadas), mantendo turmas, regras e histórico. */
+    function resetForNewDay() {
+      pauseMatchTimer();
       const keep = {
         turmas: state.turmas,
         selectedTeams: state.selectedTeams,
@@ -78,14 +100,6 @@
       state.match.initialSeconds = m.initialSeconds;
       state.match.secondsLeft = m.initialSeconds;
       state.players.forEach(p => Object.assign(p, { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, present: false, arrival: null, arrivedAt: null, jumped: false }));
-      syncPool();
-      commit(hasDay ? 'Dia salvo no histórico da turma. Novo baba: marque quem chegou!' : 'Novo baba! Marque quem chegou na Lista.');
-      switchTab('ficha');
-      if (evClose && Object.keys(evClose.out).length) {
-        closeStash = evClose;
-        setTimeout(() => showPopup({ img: 'coach', eyebrow: 'Compromisso', title: 'Fechar a presença?', html: '<p class="text-[15px] leading-relaxed">A lista de hoje ainda está aberta. Já marquei quem chegou (cumpriu) e quem não apareceu (miou) pela Lista de chegada. Confere?</p>',
-          ok: 'Conferir agora', onClose: () => openCloseEvent(evClose.eventId) }), 400);
-      }
     }
 
     /* ===================================================================

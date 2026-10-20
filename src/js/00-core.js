@@ -108,7 +108,10 @@
         live: null,
         liveAsked: false,
         // First kick-off of the day (the time ruler for late arrivals counts from here).
-        firstKickoffAt: null
+        firstKickoffAt: null,
+        // v11.6: versão do baba no servidor que este aparelho já tem, e quem criou o baba (dono/adm podem controlar o de outra pessoa).
+        rev: 0,
+        createdBy: null
       };
     }
 

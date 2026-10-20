@@ -156,9 +156,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.5';
+    const APP_VERSION = '11.6';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.6', date: '20/10/2026', title: 'Baba compartilhado entre os organizadores', items: [
+        'Quando o dono ou um adm dá o primeiro apito, os outros donos e adms da turma veem no Início o card "Baba em andamento" e o selo "Em andamento" na turma.',
+        'Tocando em Abrir, você controla o mesmo baba pelo seu celular: chegadas, times, fila, partidas, cronômetro e lances. O que um muda aparece nos outros em poucos segundos.',
+        'Se dois mexerem ao mesmo tempo, vale a última alteração e o outro celular se atualiza sozinho, avisando quem mudou.',
+        'Finalizar o baba num celular fecha para todos ("Baba finalizado por ..."), com um relatório só e os palpites liquidados uma vez só.',
+        'Ficou um baba aberto de um dia anterior? A partir das 6h, o Início pergunta se você quer fechar. "Agora não" esconde o aviso por 12 horas.'
+      ] },
       { v: '11.5', date: '19/10/2026', title: 'Resenha: palpites novos e ranking', items: [
         'A aba Lojinha virou Resenha. Ela abre pelos Palpites; depois vêm as missões da semana e, no fim, a Lojinha de sempre.',
         'Duelos: dois atletas parecidos, quem faz mais gols + assistências no dia. Empate devolve o palpite.',

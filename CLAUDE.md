@@ -11,7 +11,7 @@ ao vivo com palpites, aba Resenha (palpites pré-jogo, ranking de palpiteiros, m
 
 ```
 /            site PUBLICADO (gerado pelo build). Não edite app.js, index.html, sw.js, app.css aqui.
-src/js/*.js        todo o JavaScript do app, em 17 módulos (564 funções, vanilla, sem bundler). Índice abaixo
+src/js/*.js        todo o JavaScript do app, em 18 módulos (564 funções, vanilla, sem bundler). Índice abaixo
 src/html/*.html    todo o HTML + CSS próprio + config do Tailwind, em 11 partes (viram index.html)
                    O build junta os arquivos de cada pasta em ordem alfabética do nome (00-, 10-, ...) por simples
                    concatenação: sem import/export. A ordem é a ordem de execução do app; não renumere sem necessidade.
@@ -53,7 +53,8 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
 - Não remover recurso existente sem pedido explícito. Não hardcodar no frontend stats, regras ou economia: regra fica no servidor (RPC).
 - Baba Points: não se compram, não se sacam, não se transferem. Na interface: "palpite"/"cotação", nunca "aposta"/"odd".
   Palpites só para adultos (`private.is_adult`).
-- Offline-first: toda escrita passa pela outbox (`enqueue(op)` → `flushOutbox` → `runOp`). Tipos de op: `baba_upsert, baba_finish,
+- Offline-first: toda escrita passa pela outbox (`enqueue(op)` → `flushOutbox` → `runOp`). Desde a v11.6 `baba_upsert` vai pelo RPC `baba_save`
+  (com `baseRev`) e `baba_finish` pelo RPC `baba_finish`; servidor antigo (`isMissingFn`) → `sharedOff = true` e volta ao upsert direto. Tipos de op: `baba_upsert, baba_finish,
   baba_delete, turma_sync, turma_delete, turma_leave, player_rename, profile_update, live_settle, live_end`.
 - Mudou a forma do `state`? Ajustar `migrate()` e `defaultState()`; o teste sim2 recarrega a página e exige estado idêntico.
 
@@ -73,6 +74,7 @@ Cada módulo guarda funções inteiras; a ordem dos arquivos é a mesma de antes
 | `00-core` | BABA - STATE | `defaultMatch, defaultSettings, defaultState, migrate, loadState, saveState`, `STORAGE_KEY`, `STATE_VERSION` |
 | `10-sync` | CONTA E NUVEM (parte 1): chamadas ao servidor, status, outbox, baba atual, pull, service worker | `api` (supabase-js; `window.__BABA_FAKE_API__` substitui), `enqueue/flushOutbox/runOp`, `syncTurmaNow`, `stateForCloud`, `enqueueFinish`, `pullCloud`, `adoptCloudBaba` |
 | `11-auth-conta` | CONTA E NUVEM (parte 2): telas de login, convites, "Sou eu", dados antigos, biometria, perfil/conta na nuvem, formulários de conta | `doSignup, doLogin, enterApp, logout`, `handlePendingInvite, joinTurmaWithCode`, `claimPlayer`, `myStats`, `openProfile/closeProfile`, `openSettings/closeSettings` (página Configurações), `installApp` (PWA) |
+| `15-baba-compartilhado` | BABA COMPARTILHADO (v11.6): dono/adms controlam o baba de outra pessoa, versão no servidor, cards do Início, selo, baba pendente | `sharedTick` (a cada 3 s: `baba_rev` → `baba_get` → `adoptShared`, toast "Atualizado por"), `handleSaveResult`, `onBabaFinishedRemote`, `loadSharedBabas` (`babas_shared`, a cada 15 s), `renderSharedCards` (`#home-shared`), `sharedRunOfTurma` (selo em `renderTurmaList`), `openSharedBaba`, `closePendingBaba`, `snoozePending` |
 | `20-prefs-perfil` | PREFERÊNCIAS, FOTO/ÍCONE, PERFIL | `DEFAULT_PREFS` (todas sincronizadas na conta), `setPref, renderPrefsUI, adoptServerPrefs`, `openAvatarPicker`, `renderProfileMine` (posição, pé, stats, card), `shareMyCard`, `PAGE_CLOSERS` + `pushPage/popPage` (botão voltar do Android) |
 | `25-suporte-tutorial` | SUPORTE, TUTORIAL DO BABINHA | `openSupport`, FAQ, `TUTORIAL` (6 capítulos, alvos por seletor), `startTour` |
 | `30-pessoas-pdf` | PESSOAS DA TURMA, PDF DO BABA | dono/adm/membro, `openPersonActions`, `openExportSheet`, `generateBabaPDF` (jsPDF) |
@@ -120,7 +122,7 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2; `v11_5_palpites_fase2.sql` é a 11.5).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
@@ -147,13 +149,22 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   destaque divide o pagamento entre empatados, `void_reason` `ausente`/`zero`). Duelo: `self_against`. O adm move a linha do Total de 0,5 em 0,5
   (`adjust_prop_line`, só sem palpites). Ranking: `prop_leaderboard(t, season)` (só membros; ≥10 palpites ganhos/perdidos; `private.prop_season_stats`).
   Troféus `pe_quente`/`mae_dina` em `private.award_seasons` (com `turma_trophies.user_id`); `user_trophies(u)` alimenta Perfil e card.
+- v11.6 (baba compartilhado): `babas.rev/updated_by/started_by/started_at/finished_by/finished_at`. Gatilho `private.babas_v116` sobe `rev` também nas
+  gravações diretas (app antigo), grava `started_by` no primeiro `firstKickoffAt` e **nunca deixa reabrir baba finalizado**. Quem controla:
+  `private.runs_baba(created_by, turma_ids, u)` = quem criou ou dono/adm (`private.org_of`) de qualquer turma do baba. RPCs: `baba_save` (vale a última;
+  baba finalizado devolve `finished` + nome), `baba_finish` (trava a linha; 2ª chamada devolve `already`, sem regravar `baba_stats` → liquidação e avisos
+  uma vez só; atleta sem id é ligado pelo nome nas turmas do baba), `baba_rev`, `baba_get`, `babas_shared` (não finalizados que posso controlar, com
+  `started`, `matches`, `goals`, `live_match`). Estado: `state.rev` e `state.createdBy` (fora de `stateForCloud`). Ao vivo: `state.live.owner`;
+  só `liveMine()` escreve na transmissão / liquida palpites ao vivo; o dono da transmissão liquida as partidas encerradas em outro aparelho ao adotar o estado.
+  `closeOutBaba(hasDay)` + `resetForNewDay()` (em `99-nav-backup`) são o caminho único de "Começar novo baba", do pendente e do fim vindo de outro aparelho.
+  Falta (v11.6.1): anotador único + mesário (lances por RPC, regras 9–20 da spec).
 - Pendente do usuário: segredos `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` em Edge Functions → Secrets (nunca commitar a privada).
 
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
 configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), v115 (Resenha, palpites fase 2, ranking, troféus; liga
-`fake.v115_enabled`), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
+`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 
 ## Armadilhas conhecidas
