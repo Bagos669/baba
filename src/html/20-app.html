@@ -80,13 +80,23 @@
       <!-- =================== PLACAR =================== -->
       <div id="tab-content-placar" class="turma-pane hidden space-y-3">
 
-        <div id="venue-card" class="card p-3.5 hidden">
+        <!-- v11.6.1: quem anota os lances (anotador / mesário) -->
+        <div id="scorer-bar" class="hidden card p-3 flex items-center gap-2.5">
+          <span id="scorer-bar-icon" class="tile bg-sunk text-pitch w-10 h-10 rounded-xl"><i class="fa-solid fa-pen-to-square"></i></span>
+          <div class="min-w-0 flex-1">
+            <p id="scorer-bar-text" class="text-[14px] font-bold leading-snug"></p>
+            <p id="scorer-bar-sub" class="text-[12px] text-ink-2 leading-snug"></p>
+          </div>
+          <div id="scorer-bar-btns" class="flex flex-col items-stretch gap-1.5 flex-shrink-0"></div>
+        </div>
+
+        <div id="venue-card" class="card p-3.5 hidden org-lock">
           <span class="label">Onde é o baba</span>
           <div id="venue-seg" class="seg grid-cols-4 mt-1"></div>
           <p class="text-[11.5px] text-ink-2 mt-2 leading-snug">Separa os números por local nas estatísticas (jogos, gols, assistências e defesas).</p>
         </div>
 
-        <div class="card p-3.5 grid grid-cols-2 gap-2.5">
+        <div class="card p-3.5 grid grid-cols-2 gap-2.5 org-lock">
           <label class="block min-w-0">
             <span class="label">Jogo (na linha)</span>
             <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option><option value="6">6v6</option><option value="7">7v7</option><option value="8">8v8</option><option value="9">9v9</option><option value="10">10v10</option><option value="11">11v11</option><option value="12">12v12</option></select>
@@ -195,6 +205,9 @@
             <button id="btn-save-b" onclick="openSaveModal('B')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand"></i> Defesa</button>
           </div>
         </div>
+
+        <div id="lance-offline" class="hidden rounded-2xl bg-[#4A3208] text-[#FFE7B0] text-[13.5px] font-bold px-3.5 py-2.5 flex items-center gap-2"><i class="fa-solid fa-wifi"></i> Sem conexão: lances não enviados</div>
+        <div id="lance-status" class="hidden space-y-1.5"></div>
 
         <button id="btn-finish" onclick="finishMatchAndNextChallenger()" class="btn w-full rounded-[22px] bg-butter text-pitch border border-butter-3/60 py-3 px-4 justify-start gap-3">
           <span class="tile bg-pitch text-butter w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
@@ -417,7 +430,7 @@
           <div class="card p-4 space-y-2.5">
             <div class="flex items-center justify-between gap-2">
               <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-pitch"></i> Histórico de jogos</h4>
-              <button id="btn-undo-finish" onclick="undoFinish()" class="hidden h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
+              <button id="btn-undo-finish" onclick="undoFinish()" class="org-lock hidden h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
                 <i class="fa-solid fa-rotate-left"></i> Desfazer última
               </button>
             </div>

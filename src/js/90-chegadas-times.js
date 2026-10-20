@@ -412,6 +412,7 @@
     const matchNotStarted = () => state.match.events.length === 0 && state.match.scoreA === 0 && state.match.scoreB === 0 && !state.match.isRunning;
 
     async function disbandCourt() {
+      if (!orgOnly()) return;
       if (!state.court.A && !state.court.B) return;
       if (!(await askConfirm('Desfazer os times em quadra? Os jogadores voltam pro início da fila na mesma ordem.', 'Desfazer times'))) return;
       const back = [...(state.court.A ? state.court.A.ids : []), ...(state.court.B ? state.court.B.ids : [])];

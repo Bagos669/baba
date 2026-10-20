@@ -231,6 +231,7 @@
       }
     }
     function setVenue(v) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.settings.venue = VENUES[v] ? v : '';
       commit(VENUES[v] ? `Local: ${VENUES[v]}` : 'Local do baba removido.');
       renderVenueUI();

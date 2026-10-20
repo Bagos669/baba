@@ -111,7 +111,9 @@
         firstKickoffAt: null,
         // v11.6: versão do baba no servidor que este aparelho já tem, e quem criou o baba (dono/adm podem controlar o de outra pessoa).
         rev: 0,
-        createdBy: null
+        createdBy: null,
+        // v11.6.1: quantos lances do servidor este aparelho já viu (encerrar a partida só vale com todos vistos).
+        lanceSeq: 0
       };
     }
 

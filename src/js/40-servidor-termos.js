@@ -156,9 +156,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.6';
+    const APP_VERSION = '11.6.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.6.1', date: '20/10/2026', title: 'Anotador e mesário', items: [
+        'Agora só uma pessoa anota os lances por vez: o anotador. Começa sendo quem deu o primeiro apito; nos outros celulares os botões de lance ficam travados e o Placar mostra "Anotador: [nome]".',
+        'Dono e adms podem tocar em "Assumir anotação" e passar a anotar na hora. O celular de quem anotava antes vira só visualização.',
+        '"Passar a vez de anotar": escolha alguém que já chegou e tem conta no BABA para ser o mesário do baba. Ele anota gols, assistências e defesas, controla o relógio e encerra as partidas; chegadas, times e fila continuam com o dono e os adms.',
+        'Cada lance só conta quando o servidor confirma: você vê "Enviando", "Confirmado" ou "Falhou" com o botão "Tentar de novo". Sem internet, aparece "Sem conexão: lances não enviados".',
+        'A transmissão ao vivo acompanha quem está anotando, sem cair para quem assiste.'
+      ] },
       { v: '11.6', date: '20/10/2026', title: 'Baba compartilhado entre os organizadores', items: [
         'Quando o dono ou um adm dá o primeiro apito, os outros donos e adms da turma veem no Início o card "Baba em andamento" e o selo "Em andamento" na turma.',
         'Tocando em Abrir, você controla o mesmo baba pelo seu celular: chegadas, times, fila, partidas, cronômetro e lances. O que um muda aparece nos outros em poucos segundos.',

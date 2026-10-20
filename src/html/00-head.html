@@ -524,6 +524,13 @@
     .dg { display: inline-block; width: .56em; text-align: center; }
     .dg-c { display: inline-block; width: .24em; text-align: center; transform: translateY(-.05em); }
 
+    /* v11.6.1: anotador único e mesário */
+    .lance-locked { opacity: .38; pointer-events: none; }
+    body.baba-mesario .org-lock, body.baba-viewer .org-lock,
+    body.baba-mesario #tab-content-ficha, body.baba-mesario #tab-content-fila,
+    body.baba-viewer #tab-content-ficha, body.baba-viewer #tab-content-fila,
+    body.baba-viewer #placar-clock, body.baba-viewer #btn-finish, body.baba-viewer .cm-bottom, body.baba-viewer .cm-play,
+    body.baba-viewer #home-btn-left, body.baba-viewer #home-btn-right { pointer-events: none; opacity: .55; }
     .live-dot { width: 7px; height: 7px; border-radius: 9999px; background: #7BE0A8; box-shadow: 0 0 0 0 rgba(123, 224, 168, .7); animation: livePulse 1.6s ease-out infinite; }
     @keyframes livePulse { 70% { box-shadow: 0 0 0 7px rgba(123, 224, 168, 0); } 100% { box-shadow: 0 0 0 0 rgba(123, 224, 168, 0); } }
 

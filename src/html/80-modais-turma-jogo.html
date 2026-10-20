@@ -112,6 +112,19 @@
     </div>
   </div>
 
+  <!-- v11.6.1: passar a vez de anotar (mesário) -->
+  <div id="modal-mesario" class="overlay hidden" onclick="if(event.target===this) closeMesarioPicker()">
+    <div class="sheet-panel space-y-3 max-h-[85dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <h3 class="title flex items-center gap-2"><i class="fa-solid fa-pen-to-square text-pitch"></i>Passar a vez de anotar</h3>
+        <button onclick="closeMesarioPicker()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-[13px] text-ink-2 leading-snug flex-shrink-0">Quem você escolher anota gols, assistências e defesas, controla o cronômetro e encerra as partidas. Chegadas, times e fila continuam com o dono e os adms.</p>
+      <div id="mesario-list" class="space-y-1.5 overflow-y-auto flex-grow pr-1 overscroll-contain"></div>
+    </div>
+  </div>
+
   <!-- Substitution -->
   <div id="modal-sub" class="overlay hidden" onclick="if(event.target===this) closeSubModal()">
     <div class="sheet-panel space-y-3 max-h-[88dvh] flex flex-col">

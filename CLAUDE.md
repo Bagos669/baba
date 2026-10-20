@@ -11,7 +11,7 @@ ao vivo com palpites, aba Resenha (palpites pré-jogo, ranking de palpiteiros, m
 
 ```
 /            site PUBLICADO (gerado pelo build). Não edite app.js, index.html, sw.js, app.css aqui.
-src/js/*.js        todo o JavaScript do app, em 18 módulos (564 funções, vanilla, sem bundler). Índice abaixo
+src/js/*.js        todo o JavaScript do app, em 19 módulos (564 funções, vanilla, sem bundler). Índice abaixo
 src/html/*.html    todo o HTML + CSS próprio + config do Tailwind, em 11 partes (viram index.html)
                    O build junta os arquivos de cada pasta em ordem alfabética do nome (00-, 10-, ...) por simples
                    concatenação: sem import/export. A ordem é a ordem de execução do app; não renumere sem necessidade.
@@ -56,6 +56,8 @@ O `--sql` precisa de `apt-get install -y postgresql-16` se o Postgres não exist
 - Offline-first: toda escrita passa pela outbox (`enqueue(op)` → `flushOutbox` → `runOp`). Desde a v11.6 `baba_upsert` vai pelo RPC `baba_save`
   (com `baseRev`) e `baba_finish` pelo RPC `baba_finish`; servidor antigo (`isMissingFn`) → `sharedOff = true` e volta ao upsert direto. Tipos de op: `baba_upsert, baba_finish,
   baba_delete, turma_sync, turma_delete, turma_leave, player_rename, profile_update, live_settle, live_end`.
+- Lances (v11.6.1): nunca mude placar/eventos/gols direto no `state` fora de `applyLanceLocal`; registre com `submitLance({kind, ...})`.
+  Na nuvem eles só contam depois que o servidor confirma; sem conta na nuvem (ou servidor sem `baba_lance`) aplicam na hora como antes (sim2 roda assim).
 - Mudou a forma do `state`? Ajustar `migrate()` e `defaultState()`; o teste sim2 recarrega a página e exige estado idêntico.
 
 > v11.5: a aba `loja` se chama **Resenha** na tela (o id continua `loja`). Ordem: `#shop-palpites` (sub-abas Palpites/Ranking, `propSub`),
@@ -75,6 +77,7 @@ Cada módulo guarda funções inteiras; a ordem dos arquivos é a mesma de antes
 | `10-sync` | CONTA E NUVEM (parte 1): chamadas ao servidor, status, outbox, baba atual, pull, service worker | `api` (supabase-js; `window.__BABA_FAKE_API__` substitui), `enqueue/flushOutbox/runOp`, `syncTurmaNow`, `stateForCloud`, `enqueueFinish`, `pullCloud`, `adoptCloudBaba` |
 | `11-auth-conta` | CONTA E NUVEM (parte 2): telas de login, convites, "Sou eu", dados antigos, biometria, perfil/conta na nuvem, formulários de conta | `doSignup, doLogin, enterApp, logout`, `handlePendingInvite, joinTurmaWithCode`, `claimPlayer`, `myStats`, `openProfile/closeProfile`, `openSettings/closeSettings` (página Configurações), `installApp` (PWA) |
 | `15-baba-compartilhado` | BABA COMPARTILHADO (v11.6): dono/adms controlam o baba de outra pessoa, versão no servidor, cards do Início, selo, baba pendente | `sharedTick` (a cada 3 s: `baba_rev` → `baba_get` → `adoptShared`, toast "Atualizado por"), `handleSaveResult`, `onBabaFinishedRemote`, `loadSharedBabas` (`babas_shared`, a cada 15 s), `renderSharedCards` (`#home-shared`), `sharedRunOfTurma` (selo em `renderTurmaList`), `openSharedBaba`, `closePendingBaba`, `snoozePending` |
+| `16-anotador` | ANOTADOR ÚNICO E MESÁRIO (v11.6.1) | `babaRole`/`setBabaRole` (vem de `baba_rev`/`baba_get`: `scorer_id`, `mesario_id`, `my_role` org/mesario/viewer), `canScore`, `orgOnly`/`notViewer` (guardas), `renderScorerUI` (`#scorer-bar`, `.lance-locked`, `body.baba-mesario/.baba-viewer`), `takeScoring`, `openMesarioPicker`/`chooseMesario` (`#modal-mesario`), `becomeMesario`/`announceMesario`, fila de lances `submitLance` → `pumpLances` → `onLanceConfirmed` (`applyLanceLocal` espelha o SQL), `renderLanceStatus` (`#lance-status`, `#lance-offline`) |
 | `20-prefs-perfil` | PREFERÊNCIAS, FOTO/ÍCONE, PERFIL | `DEFAULT_PREFS` (todas sincronizadas na conta), `setPref, renderPrefsUI, adoptServerPrefs`, `openAvatarPicker`, `renderProfileMine` (posição, pé, stats, card), `shareMyCard`, `PAGE_CLOSERS` + `pushPage/popPage` (botão voltar do Android) |
 | `25-suporte-tutorial` | SUPORTE, TUTORIAL DO BABINHA | `openSupport`, FAQ, `TUTORIAL` (6 capítulos, alvos por seletor), `startTour` |
 | `30-pessoas-pdf` | PESSOAS DA TURMA, PDF DO BABA | dono/adm/membro, `openPersonActions`, `openExportSheet`, `generateBabaPDF` (jsPDF) |
@@ -122,7 +125,7 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2; `v11_5_palpites_fase2.sql` é a 11.5).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
@@ -157,14 +160,23 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   `started`, `matches`, `goals`, `live_match`). Estado: `state.rev` e `state.createdBy` (fora de `stateForCloud`). Ao vivo: `state.live.owner`;
   só `liveMine()` escreve na transmissão / liquida palpites ao vivo; o dono da transmissão liquida as partidas encerradas em outro aparelho ao adotar o estado.
   `closeOutBaba(hasDay)` + `resetForNewDay()` (em `99-nav-backup`) são o caminho único de "Começar novo baba", do pendente e do fim vindo de outro aparelho.
-  Falta (v11.6.1): anotador único + mesário (lances por RPC, regras 9–20 da spec).
+- v11.6.1 (anotador e mesário): `babas.scorer_id/mesario_id/scorers[]/lance_seq` + tabela `baba_lances` (id = `lid` do celular, idempotente; `created_by`).
+  Lances (gol, defesa, acréscimo, desfazer) só por `baba_lance(p_baba, p_lance)`: só o anotador (acréscimo também dono/adm); o servidor aplica no JSON
+  (`private.bump_player`) e sobe `rev` e `lance_seq`. `baba_save` ganhou `p_lance_seq` e passa por `private.guard_state`: placar/lances/acréscimo da partida
+  atual e gols/passes/defesas vêm SEMPRE do servidor; fim de partida só com `lance_seq` em dia e placar igual ao do servidor (senão `stale_lances` →
+  o app baixa o estado e avisa); mesário (não org) só grava relógio + `firstKickoffAt` e o fim de partida (fila, jogos, vitórias); app antigo (`p_lance_seq`
+  null) do anotador grava como antes. O gatilho aplica a mesma guarda nas gravações diretas de quem não é o anotador. `baba_take_scoring` e
+  `baba_set_mesario` (só dono/adm; mesário = presente com conta e membro) passam a transmissão (`live_games.owner` e `state.live.owner`) para o novo anotador.
+  `baba_rev/baba_get` devolvem o papel; quem já anotou (ex-mesário) só vê. `prop_event_bets` marca como `recorder` quem criou o baba e todos em `scorers`.
+  **Não rode o v11_6 de novo depois do v11_6_1** (recria o `baba_save` antigo e o gatilho sem anotador).
 - Pendente do usuário: segredos `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` em Edge Functions → Secrets (nunca commitar a privada).
 
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
 configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), v115 (Resenha, palpites fase 2, ranking, troféus; liga
-`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
+`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
+use `goalLimitRule = 'none'` em testes que contam gols, senão a partida acaba sozinha no 2º gol), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 
 ## Armadilhas conhecidas

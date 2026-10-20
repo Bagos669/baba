@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=f891e27657" />
+  <link rel="stylesheet" href="app.css?v=a9085b2f5a" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -451,6 +451,13 @@
     .dg { display: inline-block; width: .56em; text-align: center; }
     .dg-c { display: inline-block; width: .24em; text-align: center; transform: translateY(-.05em); }
 
+    /* v11.6.1: anotador único e mesário */
+    .lance-locked { opacity: .38; pointer-events: none; }
+    body.baba-mesario .org-lock, body.baba-viewer .org-lock,
+    body.baba-mesario #tab-content-ficha, body.baba-mesario #tab-content-fila,
+    body.baba-viewer #tab-content-ficha, body.baba-viewer #tab-content-fila,
+    body.baba-viewer #placar-clock, body.baba-viewer #btn-finish, body.baba-viewer .cm-bottom, body.baba-viewer .cm-play,
+    body.baba-viewer #home-btn-left, body.baba-viewer #home-btn-right { pointer-events: none; opacity: .55; }
     .live-dot { width: 7px; height: 7px; border-radius: 9999px; background: #7BE0A8; box-shadow: 0 0 0 0 rgba(123, 224, 168, .7); animation: livePulse 1.6s ease-out infinite; }
     @keyframes livePulse { 70% { box-shadow: 0 0 0 7px rgba(123, 224, 168, 0); } 100% { box-shadow: 0 0 0 0 rgba(123, 224, 168, 0); } }
 
@@ -826,13 +833,23 @@
       <!-- =================== PLACAR =================== -->
       <div id="tab-content-placar" class="turma-pane hidden space-y-3">
 
-        <div id="venue-card" class="card p-3.5 hidden">
+        <!-- v11.6.1: quem anota os lances (anotador / mesário) -->
+        <div id="scorer-bar" class="hidden card p-3 flex items-center gap-2.5">
+          <span id="scorer-bar-icon" class="tile bg-sunk text-pitch w-10 h-10 rounded-xl"><i class="fa-solid fa-pen-to-square"></i></span>
+          <div class="min-w-0 flex-1">
+            <p id="scorer-bar-text" class="text-[14px] font-bold leading-snug"></p>
+            <p id="scorer-bar-sub" class="text-[12px] text-ink-2 leading-snug"></p>
+          </div>
+          <div id="scorer-bar-btns" class="flex flex-col items-stretch gap-1.5 flex-shrink-0"></div>
+        </div>
+
+        <div id="venue-card" class="card p-3.5 hidden org-lock">
           <span class="label">Onde é o baba</span>
           <div id="venue-seg" class="seg grid-cols-4 mt-1"></div>
           <p class="text-[11.5px] text-ink-2 mt-2 leading-snug">Separa os números por local nas estatísticas (jogos, gols, assistências e defesas).</p>
         </div>
 
-        <div class="card p-3.5 grid grid-cols-2 gap-2.5">
+        <div class="card p-3.5 grid grid-cols-2 gap-2.5 org-lock">
           <label class="block min-w-0">
             <span class="label">Jogo (na linha)</span>
             <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option><option value="6">6v6</option><option value="7">7v7</option><option value="8">8v8</option><option value="9">9v9</option><option value="10">10v10</option><option value="11">11v11</option><option value="12">12v12</option></select>
@@ -941,6 +958,9 @@
             <button id="btn-save-b" onclick="openSaveModal('B')" class="btn-outline w-full h-11 text-[14px]"><i class="fa-solid fa-hand"></i> Defesa</button>
           </div>
         </div>
+
+        <div id="lance-offline" class="hidden rounded-2xl bg-[#4A3208] text-[#FFE7B0] text-[13.5px] font-bold px-3.5 py-2.5 flex items-center gap-2"><i class="fa-solid fa-wifi"></i> Sem conexão: lances não enviados</div>
+        <div id="lance-status" class="hidden space-y-1.5"></div>
 
         <button id="btn-finish" onclick="finishMatchAndNextChallenger()" class="btn w-full rounded-[22px] bg-butter text-pitch border border-butter-3/60 py-3 px-4 justify-start gap-3">
           <span class="tile bg-pitch text-butter w-10 h-10 rounded-xl"><i class="fa-solid fa-crown"></i></span>
@@ -1163,7 +1183,7 @@
           <div class="card p-4 space-y-2.5">
             <div class="flex items-center justify-between gap-2">
               <h4 class="text-[15px] font-bold flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-pitch"></i> Histórico de jogos</h4>
-              <button id="btn-undo-finish" onclick="undoFinish()" class="hidden h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
+              <button id="btn-undo-finish" onclick="undoFinish()" class="org-lock hidden h-8 px-3 rounded-full bg-sunk text-[12px] font-bold text-ink flex items-center gap-1.5 active:scale-95">
                 <i class="fa-solid fa-rotate-left"></i> Desfazer última
               </button>
             </div>
@@ -1294,6 +1314,7 @@
       <!-- Bottom bar: extra time · undo · finish -->
       <div class="cm-bottom relative flex items-center justify-between gap-3 bg-black/15 border-t border-white/10">
         <div class="flex items-center gap-2 min-w-0">
+          <span id="cm-scorer" class="hidden text-[12px] font-bold text-butter/80 mr-1 truncate max-w-[40vw]"></span>
           <span class="text-[12px] font-bold text-butter/65 mr-1 hidden sm:inline">Acréscimo</span>
           <button onclick="addExtraTime(1)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+1</button>
           <button onclick="addExtraTime(2)" class="h-9 px-3 rounded-xl border border-butter/35 text-butter text-[13px] font-extrabold bg-white/5 active:scale-95">+2</button>
@@ -2091,6 +2112,19 @@
     </div>
   </div>
 
+  <!-- v11.6.1: passar a vez de anotar (mesário) -->
+  <div id="modal-mesario" class="overlay hidden" onclick="if(event.target===this) closeMesarioPicker()">
+    <div class="sheet-panel space-y-3 max-h-[85dvh] flex flex-col">
+      <div class="grabber flex-shrink-0"></div>
+      <div class="flex items-center justify-between flex-shrink-0 -mt-1">
+        <h3 class="title flex items-center gap-2"><i class="fa-solid fa-pen-to-square text-pitch"></i>Passar a vez de anotar</h3>
+        <button onclick="closeMesarioPicker()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-[13px] text-ink-2 leading-snug flex-shrink-0">Quem você escolher anota gols, assistências e defesas, controla o cronômetro e encerra as partidas. Chegadas, times e fila continuam com o dono e os adms.</p>
+      <div id="mesario-list" class="space-y-1.5 overflow-y-auto flex-grow pr-1 overscroll-contain"></div>
+    </div>
+  </div>
+
   <!-- Substitution -->
   <div id="modal-sub" class="overlay hidden" onclick="if(event.target===this) closeSubModal()">
     <div class="sheet-panel space-y-3 max-h-[88dvh] flex flex-col">
@@ -2423,6 +2457,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=5067471c06"></script>
+  <script src="app.js?v=6e6a873fdb"></script>
 </body>
 </html>

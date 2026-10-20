@@ -32,7 +32,7 @@ run_chain() {  # $1 = banco, $2 = lista
 }
 MIG="mock_base v6_dono_fotos_preferencias v7_aovivo_palpites_loja_chat_termos"
 run_chain baba_check "$MIG v7_rules mock_v8 v8_suporte_painel v8_rules v9_missoes_exclusivos v9_rules v9_5_jogadoras
-  v10_penaltis_desafios v10_rules v10_1_lojinha_push v10_1_rules v11_compromisso v11_rules v11_2_convidados v11_3_turmas v11_4_palpites_pre v11_4_rules v11_4_1_palpites_livres v11_4_1_rules v11_4_2_avisos v11_4_2_rules v11_5_palpites_fase2 v11_5_rules v11_6_baba_compartilhado v11_6_rules"
+  v10_penaltis_desafios v10_rules v10_1_lojinha_push v10_1_rules v11_compromisso v11_rules v11_2_convidados v11_3_turmas v11_4_palpites_pre v11_4_rules v11_4_1_palpites_livres v11_4_1_rules v11_4_2_avisos v11_4_2_rules v11_5_palpites_fase2 v11_5_rules v11_6_baba_compartilhado v11_6_rules v11_6_1_anotador_mesario v11_6_1_rules"
 run_chain baba_check2 "$MIG v7_rules mock_v8 v8_suporte_painel v9_missoes_exclusivos v9_5_jogadoras v10_penaltis_desafios
   v10_1_lojinha_push v11_compromisso v11_2_convidados v11_3_turmas v11_3_rules"
 exit $fail

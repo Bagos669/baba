@@ -1606,3 +1606,206 @@ def f_babasShared(self, uid):
                     'started_by': b.get('started_by'), 'started_by_name': self._pname(b.get('started_by')) if b.get('started_by') else None,
                     'started': bool(st.get('firstKickoffAt')), 'matches': len(hist), 'goals': goals, 'live_match': live})
     return self.ok(out[:20])
+
+# ---- v11.6.1: anotador único e mesário (o banco de verdade é testado em supabase/test/v11_6_1_rules.sql)
+# fake.v1161_enabled = False simula o servidor só com a v11.6 (lances voltam a ser gravados no celular).
+import copy as _copy
+def _hist(st): return len((st or {}).get('matchHistory') or [])
+def _keep_counters(inc, srv):
+    sp = {str(p.get('id')): p for p in (srv or {}).get('players') or []}
+    out = _copy.deepcopy(inc)
+    for p in out.get('players') or []:
+        s = sp.get(str(p.get('id'))) or {}
+        for k in ('goals', 'assists', 'saves'): p[k] = s.get(k, 0) or 0
+    return out
+def _keep_match(inc, srv):
+    out = _copy.deepcopy(inc); m = out.setdefault('match', {}); s = (srv or {}).get('match') or {}
+    d = (s.get('addedSeconds') or 0) - (m.get('addedSeconds') or 0)
+    m.update({'events': _copy.deepcopy(s.get('events') or []), 'scoreA': s.get('scoreA') or 0, 'scoreB': s.get('scoreB') or 0, 'addedSeconds': s.get('addedSeconds') or 0})
+    if d:
+        m['secondsLeft'] = max(0, (m.get('secondsLeft') or 0) + d)
+        if isinstance(m.get('endAt'), (int, float)): m['endAt'] += d * 1000
+    return out
+def _guard(inc, srv, org, scorer, cli, seq):
+    if not srv: return inc
+    if cli is None and scorer and org: return inc
+    hin, hsv = _hist(inc), _hist(srv); fresh = cli is None or cli >= seq
+    if hin == hsv + 1:
+        h0 = inc['matchHistory'][0]; sm = srv.get('match') or {}
+        if not fresh or (h0.get('scoreA') or 0) != (sm.get('scoreA') or 0) or (h0.get('scoreB') or 0) != (sm.get('scoreB') or 0): raise PermissionError('stale_lances')
+    elif hin != hsv and (not fresh or not org): raise PermissionError('stale_lances')
+    if not org:
+        if hin == hsv + 1:
+            out = _copy.deepcopy(inc)
+            for k in ('settings', 'selectedTeams', 'startedAt', 'eventId', 'arrivalSeq', 'live', 'liveAsked'):
+                if k in srv: out[k] = _copy.deepcopy(srv[k])
+                else: out.pop(k, None)
+            ip = {str(p.get('id')): p for p in inc.get('players') or []}
+            out['players'] = [dict(s, **{k: (ip.get(str(s.get('id'))) or s).get(k, 0) for k in ('matches', 'wins', 'penGoals', 'penMisses', 'penSaves')}) for s in srv.get('players') or []]
+            out['match'] = dict(out.get('match') or {}, events=[], scoreA=0, scoreB=0)
+        else:
+            out = _copy.deepcopy(srv); m = out.setdefault('match', {})
+            for k in ('isRunning', 'endAt', 'secondsLeft', 'initialSeconds'):
+                if k in (inc.get('match') or {}): m[k] = inc['match'][k]
+            if not srv.get('firstKickoffAt') and inc.get('firstKickoffAt'): out['firstKickoffAt'] = inc['firstKickoffAt']
+            out = _keep_match(out, srv)
+    elif hin == hsv:
+        c = inc.get('court') or {}; m = inc.get('match') or {}
+        if (not isinstance(c.get('A'), dict) or not isinstance(c.get('B'), dict)) and not m.get('events') and not m.get('scoreA') and not m.get('scoreB'): out = inc
+        else: out = _keep_match(inc, srv)
+    elif hin < hsv: return inc
+    else:
+        out = _copy.deepcopy(inc); out['match'] = dict(out.get('match') or {}, events=[], scoreA=0, scoreB=0)
+    return _keep_counters(out, srv)
+def _roles(self, b, uid):
+    return {'scorer_id': b.get('scorer_id'), 'scorer_name': self._pname(b.get('scorer_id')) if b.get('scorer_id') else None,
+            'mesario_id': b.get('mesario_id'), 'mesario_name': self._pname(b.get('mesario_id')) if b.get('mesario_id') else None,
+            'lance_seq': b.get('lance_seq', 0), 'my_role': 'org' if self._runs(b, uid) else 'mesario' if uid == b.get('mesario_id') else 'viewer'}
+def _sees(self, b, uid): return self._runs(b, uid) or uid == b.get('mesario_id') or uid in (b.get('scorers') or [])
+Fake._roles = _roles; Fake._sees = _sees
+_bump_116 = Fake._bump
+def _bump_1161(self, b, uid):
+    _bump_116(self, b, uid)
+    if not b.get('finished') and b.get('started_by') and not b.get('scorer_id'):
+        b['scorer_id'] = b['started_by']; b.setdefault('scorers', [])
+        if b['started_by'] not in b['scorers']: b['scorers'].append(b['started_by'])
+    if b.get('finished'): b['mesario_id'] = None
+Fake._bump = _bump_1161
+def _v1161(fn):
+    def f(self, uid, *a):
+        if not getattr(self, 'v116_enabled', True) or not getattr(self, 'v1161_enabled', True): return self.err('PGRST202', 'Could not find the function')
+        if not uid: return self.err('P0001', 'not_authenticated')
+        try: return fn(self, uid, *a)
+        except PermissionError as e: return self.err('P0001', str(e))
+    f.__name__ = fn.__name__; setattr(Fake, fn.__name__, f); return fn
+_save_116 = Fake.f_saveBaba
+def f_saveBaba_1161(self, uid, row, base_rev=None, lance_seq=None):
+    if not getattr(self, 'v1161_enabled', True): return _save_116(self, uid, row, base_rev)
+    if not getattr(self, 'v116_enabled', True): return self.err('PGRST202', 'Could not find the function')
+    if not uid: return self.err('P0001', 'not_authenticated')
+    b = self.babas.get(row['id'])
+    if not b or b.get('finished'): return _save_116(self, uid, row, base_rev)
+    org = self._runs(b, uid)
+    if not org and uid != b.get('mesario_id'): return self.err('P0001', 'forbidden')
+    try: st = _guard(row['state'], b.get('state'), org, uid == b.get('scorer_id'), lance_seq, b.get('lance_seq', 0))
+    except PermissionError as e: return self.err('P0001', str(e))
+    prev = b.get('rev', 0)
+    if org:
+        r = _save_116(self, uid, dict(row, state=st), base_rev)
+        if 'err' in r: return r
+    else:
+        b['state'] = st; self._bump(b, uid)
+    b['matches'] = _hist(st)
+    return self.ok({'rev': b['rev'], 'updated_by': uid, 'conflict': base_rev is not None and base_rev < prev, 'lance_seq': b.get('lance_seq', 0), 'merged': st != row['state']})
+Fake.f_saveBaba = f_saveBaba_1161
+for _n in ('f_babaRev', 'f_babaGet'):
+    def _mk(orig):
+        def g(self, uid, bid):
+            b = self.babas.get(bid)
+            if b and getattr(self, 'v1161_enabled', True) and not self._runs(b, uid) and self._sees(b, uid):
+                saved = b['created_by']; b['created_by'] = uid
+                try: r = orig(self, uid, bid)
+                finally: b['created_by'] = saved
+                if 'data' in r and r['data'] and 'created_by' in r['data']: r['data']['created_by'] = saved
+            else: r = orig(self, uid, bid)
+            if b and 'data' in r and r['data'] and getattr(self, 'v1161_enabled', True): r['data'].update(self._roles(b, uid))
+            return r
+        return g
+    setattr(Fake, _n, _mk(getattr(Fake, _n)))
+_shared_116 = Fake.f_babasShared
+def f_babasShared_1161(self, uid):
+    r = _shared_116(self, uid)
+    if 'err' in r or not getattr(self, 'v1161_enabled', True): return r
+    rows = r['data']
+    for x in rows: x['my_role'] = 'org'; x['scorer_id'] = self.babas[x['id']].get('scorer_id')
+    for b in sorted(self.babas.values(), key=lambda x: x.get('updated', 0), reverse=True):
+        if not b['finished'] and b.get('mesario_id') == uid and not self._runs(b, uid):
+            rows.append({'id': b['id'], 'title': b.get('title'), 'played_on': b.get('played_on'), 'created_by': b['created_by'], 'turma_ids': b.get('turma_ids') or [],
+                         'rev': b.get('rev', 0), 'started': bool((b.get('state') or {}).get('firstKickoffAt')), 'matches': _hist(b.get('state')), 'goals': 0,
+                         'live_match': False, 'my_role': 'mesario', 'scorer_id': b.get('scorer_id')})
+    return self.ok(rows)
+Fake.f_babasShared = f_babasShared_1161
+def _bump_player(st, pid, field, delta):
+    for p in st.get('players') or []:
+        if pid is not None and str(p.get('id')) == str(pid): p[field] = max(0, (p.get(field) or 0) + delta)
+@_v1161
+def f_lanceBaba(self, uid, bid, l):
+    self.lance_log = getattr(self, 'lance_log', [])
+    b = self.babas.get(bid)
+    if not b: raise PermissionError('not_found')
+    if any(x['lid'] == l.get('lid') for x in self.lance_log): return self.ok({'dup': True, 'rev': b['rev'], 'lance_seq': b.get('lance_seq', 0)})
+    if b['finished']: raise PermissionError('finished')
+    org = self._runs(b, uid); kind = l.get('kind')
+    ok = uid == b.get('scorer_id') or (not b.get('scorer_id') and org)
+    if not (ok or (kind == 'extra' and org)): raise PermissionError('not_scorer')
+    if not b.get('scorer_id') and org: b['scorer_id'] = uid; b.setdefault('scorers', []).append(uid)
+    st = _copy.deepcopy(b.get('state') or {}); mno = _hist(st) + 1
+    if l.get('match_no', mno) != mno: raise PermissionError('stale_match')
+    m = st.setdefault('match', {}); ev = m.setdefault('events', [])
+    side = 'B' if l.get('side') == 'B' else 'A'
+    if kind == 'goal':
+        if not isinstance((st.get('court') or {}).get(side), dict): raise PermissionError('no_court')
+        m['score' + side] = (m.get('score' + side) or 0) + 1
+        _bump_player(st, l.get('scorerId'), 'goals', 1)
+        if l.get('assistId') != l.get('scorerId'): _bump_player(st, l.get('assistId'), 'assists', 1)
+        ev.insert(0, {'lid': l['lid'], 'type': 'goal', 'side': side, 'el': l.get('el') or 0, 'scorerId': l.get('scorerId'), 'assistId': l.get('assistId'), 'time': l.get('time'), 'text': l.get('text')})
+    elif kind == 'save':
+        _bump_player(st, l.get('keeperId'), 'saves', 1)
+        ev.insert(0, {'lid': l['lid'], 'type': 'save', 'side': side, 'el': l.get('el') or 0, 'keeperId': l.get('keeperId'), 'time': l.get('time'), 'text': l.get('text')})
+    elif kind == 'extra':
+        s = l.get('seconds') or 0
+        m['addedSeconds'] = (m.get('addedSeconds') or 0) + s; m['secondsLeft'] = (m.get('secondsLeft') or 0) + s
+        if m.get('isRunning') and isinstance(m.get('endAt'), (int, float)): m['endAt'] += s * 1000
+        ev.insert(0, {'lid': l['lid'], 'type': 'extra', 'seconds': s, 'time': l.get('time'), 'text': l.get('text')})
+    else:
+        if not ev: raise PermissionError('nothing_to_undo')
+        f0 = ev[0]
+        if f0.get('lid') != l.get('target'): raise PermissionError('not_last')
+        if f0['type'] == 'goal':
+            sd = f0['side']; m['score' + sd] = max(0, (m.get('score' + sd) or 0) - 1)
+            _bump_player(st, f0.get('scorerId'), 'goals', -1)
+            if f0.get('assistId') != f0.get('scorerId'): _bump_player(st, f0.get('assistId'), 'assists', -1)
+        elif f0['type'] == 'save': _bump_player(st, f0.get('keeperId'), 'saves', -1)
+        elif f0['type'] == 'extra':
+            s = min(f0.get('seconds') or 0, m.get('addedSeconds') or 0)
+            m['addedSeconds'] = (m.get('addedSeconds') or 0) - s; m['secondsLeft'] = max(0, (m.get('secondsLeft') or 0) - s)
+            if m.get('isRunning') and isinstance(m.get('endAt'), (int, float)):
+                m['endAt'] -= s * 1000
+                if m['secondsLeft'] == 0: m['isRunning'] = False; m['endAt'] = None
+        ev.pop(0)
+    b['state'] = st; b['lance_seq'] = b.get('lance_seq', 0) + 1; self._bump(b, uid)
+    self.lance_log.append({'lid': l['lid'], 'baba': bid, 'by': uid, 'kind': kind})
+    return self.ok({'ok': True, 'rev': b['rev'], 'lance_seq': b['lance_seq']})
+def _live_follow(self, b, uid):
+    lv = (b.get('state') or {}).get('live') or {}
+    g = getattr(self, 'lives', {}).get(lv.get('id'))
+    if g and g.get('active'): g['owner'] = uid
+    if lv: b['state']['live']['owner'] = uid
+Fake._live_follow = _live_follow
+@_v1161
+def f_takeScoring(self, uid, bid):
+    b = self.babas.get(bid)
+    if not b: raise PermissionError('not_found')
+    if b['finished']: raise PermissionError('finished')
+    if not self._runs(b, uid): raise PermissionError('forbidden')
+    b['scorer_id'] = uid; b['mesario_id'] = None; b.setdefault('scorers', [])
+    if uid not in b['scorers']: b['scorers'].append(uid)
+    self._live_follow(b, uid); self._bump(b, uid)
+    return self.ok({'ok': True, 'rev': b['rev'], 'scorer_id': uid, 'scorer_name': self._pname(uid)})
+@_v1161
+def f_setMesario(self, uid, bid, user):
+    b = self.babas.get(bid)
+    if not b: raise PermissionError('not_found')
+    if b['finished']: raise PermissionError('finished')
+    if not self._runs(b, uid): raise PermissionError('forbidden')
+    ok = False
+    for p in (b.get('state') or {}).get('players') or []:
+        if not p.get('present'): continue
+        tp = next((x for x in self.players.values() if x['turma_id'] == p.get('turmaId') and x['name'].lower() == str(p.get('name')).lower()), None)
+        if tp and tp.get('user_id') == user and tp['turma_id'] in (b.get('turma_ids') or []) and self.is_member(tp['turma_id'], user): ok = True
+    if not ok: raise PermissionError('not_present')
+    org_t = self._runs(b, user)
+    b['scorer_id'] = user; b['mesario_id'] = None if org_t else user; b.setdefault('scorers', [])
+    if user not in b['scorers']: b['scorers'].append(user)
+    self._live_follow(b, user); self._bump(b, uid)
+    return self.ok({'ok': True, 'rev': b['rev'], 'scorer_id': user, 'scorer_name': self._pname(user), 'mesario': not org_t})

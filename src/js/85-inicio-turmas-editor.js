@@ -130,6 +130,8 @@
       renderHome();
       renderSheetTable();
       renderMatchView();
+      renderScorerUI();
+      renderLanceStatus();
       renderFila();
       renderStatsView();
       renderDailyResumo();
@@ -400,6 +402,7 @@
     }
 
     function applyDatabaseSelection() {
+      if (!orgOnly()) return;
       const selected = Array.from(document.querySelectorAll('#db-checkboxes-container input[type="checkbox"]:checked')).map(cb => cb.value);
       state.selectedTeams = selected;
       syncPool();

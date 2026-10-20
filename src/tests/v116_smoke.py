@@ -94,15 +94,17 @@ async def main():
         for pg in (a, bb):
             if 'não foi aceita' in await toasts(pg): bad.append('erro mostrado na edição simultânea')
         # ---- finalização simultânea: um relatório só
-        await a.evaluate("state.players[0].goals = 2; commit()"); await a.wait_for_timeout(6000)
-        if await bb.evaluate("state.players[0].goals") != 2: bad.append('gol não sincronizou')
+        # v11.6.1: gol só pelo anotador (Ana iniciou), registrado como lance
+        gid = await a.evaluate("(() => { selectedGoalSide = 'A'; selectedGoalScorer = state.court.A.ids[0]; confirmGoalRecord(null); return selectedGoalScorer; })()")
+        await a.wait_for_timeout(6000)
+        if await bb.evaluate(f"byId({gid}).goals") != 1: bad.append('gol não sincronizou')
         fake.finished_reports = 0
         await a.evaluate("setTimeout(startNewDay, 0)"); await bb.evaluate("setTimeout(startNewDay, 0)"); await a.wait_for_timeout(400)
         await asyncio.gather(a.click('#modal-confirm-ok'), bb.click('#modal-confirm-ok'))
         await a.wait_for_timeout(6000)
         if not fake.babas[bid]['finished']: bad.append('baba não finalizou')
         if fake.finished_reports != 1: bad.append(f'finalizações gravadas: {fake.finished_reports}')
-        if [r['goals'] for r in fake.stats.get(bid, [])] != [2]: bad.append('relatório (stats): ' + str(fake.stats.get(bid)))
+        if [r['goals'] for r in fake.stats.get(bid, [])] != [1]: bad.append('relatório (stats): ' + str(fake.stats.get(bid)))
         await d.evaluate("loadSharedBabas(true)"); await d.wait_for_timeout(500)
         if await d.locator('#home-shared [data-shared]').count(): bad.append('card não sumiu depois de finalizar')
         for pg in (a, bb):

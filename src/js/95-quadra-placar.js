@@ -101,15 +101,18 @@
       commit(msg);
     }
     function updateGameFormat(val) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.match.lineSize = Math.min(12, Math.max(1, Number(val) || 4));
       applyFormatChange('Jogo');
     }
     function updateKeeperMode(val) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.settings.keeperMode = KEEPER_MODES[val] ? val : 'time';
       applyFormatChange('Goleiro');
     }
 
     function updateGoalLimitRule(val) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.match.goalLimitRule = val;
       saveState();
     }
@@ -191,6 +194,7 @@
 
     /* Changes the match length. A clock that already ran keeps what was played. */
     function setMatchDuration(seconds) {
+      if (!notViewer()) return;
       const m = state.match;
       const played = playedSeconds();
       if (seconds + (m.addedSeconds || 0) < played) {
@@ -209,21 +213,20 @@
     }
 
     function addExtraTime(minutes) {
-      const m = state.match;
+      if (!notViewer()) return;
+      if (!canScore() && !isOrgHere()) return;
       const secs = minutes * 60;
-      m.addedSeconds = (m.addedSeconds || 0) + secs;
-      m.secondsLeft = (m.secondsLeft || 0) + secs;
-      if (m.isRunning && m.endAt) m.endAt += secs * 1000;
-      m.events.unshift({
-        type: 'extra',
+      const m = state.match;
+      submitLance({
+        kind: 'extra',
         seconds: secs,
-        time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
-        text: `⏱️ Acréscimo de ${minutes} min (total +${Math.round(m.addedSeconds / 60)} min)`
+        time: fmtMMSS(Math.max(0, m.secondsLeft)),
+        text: `⏱️ Acréscimo de ${minutes} min (total +${Math.round(((m.addedSeconds || 0) + secs) / 60)} min)`
       });
-      commit(`+${minutes} min de acréscimo`);
     }
 
     function toggleMatchTimer() {
+      if (!notViewer()) return;
       unlockAudio();
       if (state.match.isRunning) pauseMatchTimer();
       else startMatchTimer();
@@ -239,7 +242,7 @@
       saveState();
       prefetchCourtPeople();
       // The first kick-off of the day opens the live game and shows its QR code.
-      if (!state.live && !state.liveAsked && v7 === true && cloudOn() && state.court.A && state.court.B) {
+      if (!state.live && !state.liveAsked && v7 === true && cloudOn() && isOrgHere() && state.court.A && state.court.B) {
         state.liveAsked = true;
         cacheState();
         ensureLive(true);
@@ -290,6 +293,7 @@
     }
 
     function resetMatchTimer() {
+      if (!notViewer()) return;
       pauseMatchTimer();
       state.match.addedSeconds = 0;
       state.match.secondsLeft = state.match.initialSeconds || 420;
@@ -371,6 +375,7 @@
     }
 
     function openGoalModal(side) {
+      if (!canScore()) { showToast(`Anotador: ${firstName((roleHere() || {}).scorerName || 'outra pessoa')}. Só quem está anotando registra lances.`, 'warning'); return; }
       if (!state.court[side]) { showToast('Monte os times primeiro.', 'warning'); return; }
       selectedGoalSide = side;
       selectedGoalScorer = null;
@@ -440,17 +445,11 @@
       const team = state.court[selectedGoalSide];
       if (!team) { closeGoalModal(); return; }
       closeGoalModal();
-
-      if (selectedGoalSide === 'A') state.match.scoreA++;
-      else state.match.scoreB++;
-
       const scorer = byId(selectedGoalScorer);
-      if (scorer) scorer.goals = (scorer.goals || 0) + 1;
       const assist = selectedGoalAssist ? byId(selectedGoalAssist) : null;
-      if (assist) assist.assists = (assist.assists || 0) + 1;
-
-      state.match.events.unshift({
-        type: 'goal',
+      // v11.6.1: o lance vai para o servidor e só conta quando ele confirma (submitLance → afterLance).
+      submitLance({
+        kind: 'goal',
         side: selectedGoalSide,
         el: playedSeconds(),
         scorerId: scorer ? scorer.id : null,
@@ -458,8 +457,30 @@
         time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
         text: `⚽ Gol do Time ${team.label}: ${scorer ? scorer.name : '?'}${assist ? ` (passe de ${assist.name})` : ''}`
       });
+    }
 
-      const side = selectedGoalSide;
+    /* Depois que o lance conta (confirmado pelo servidor, ou na hora quando não há servidor novo). */
+    function afterLance(l) {
+      if (l.kind === 'goal') return goalEffects(l);
+      if (l.kind === 'save') {
+        const keeper = byId(l.keeperId);
+        const team = state.court[l.side];
+        buzz(40);
+        renderAllComponents();
+        showToast(`🧤 Defesa de ${keeper ? keeper.name : '?'}!`);
+        livePush('save', `save-${state.matchHistory.length + 1}-${state.match.events.length}`, `🧤 Defesa de ${keeper ? keeper.name : '?'}`, `Time ${team ? team.label : '?'} · aos ${playedClock()} · ${scoreLine()}`);
+        return;
+      }
+      renderAllComponents();
+      if (l.kind === 'extra') showToast(`+${Math.round(l.seconds / 60)} min de acréscimo`);
+      else showToast('Último lance desfeito.');
+    }
+
+    function goalEffects(l) {
+      const scorer = byId(l.scorerId);
+      const assist = l.assistId != null ? byId(l.assistId) : null;
+      const team = state.court[l.side] || { label: '?' };
+      const side = l.side;
       // Announcement card and goal sound of the scorer's account, if they have them.
       const scorerUid = userIdOfPlayer(scorer);
       const announce = c => {
@@ -471,7 +492,6 @@
       if (known || !scorerUid || !cloudOn() || v7 !== true) announce(known);
       else ensurePeople([scorerUid]).then(() => announce(cosOfPlayer(scorer))).catch(() => playRefereeWhistle());
       buzz(80);
-      saveState();
       renderAllComponents();
       popScore(side);
       livePush('goal', `goal-${state.matchHistory.length + 1}-${state.match.scoreA}-${state.match.scoreB}`,
@@ -487,6 +507,7 @@
     }
 
     function openSaveModal(side) {
+      if (!canScore()) { showToast(`Anotador: ${firstName((roleHere() || {}).scorerName || 'outra pessoa')}. Só quem está anotando registra lances.`, 'warning'); return; }
       if (!state.court[side]) { showToast('Monte os times primeiro.', 'warning'); return; }
       selectedSaveSide = side;
       const { label, roster, others } = sidePlayers(side);
@@ -521,43 +542,25 @@
       const keeper = byId(pId);
       const team = state.court[selectedSaveSide];
       if (!keeper || !team) return;
-      keeper.saves = (keeper.saves || 0) + 1;
-      state.match.events.unshift({
-        type: 'save',
+      submitLance({
+        kind: 'save',
         side: selectedSaveSide,
         el: playedSeconds(),
         keeperId: keeper.id,
         time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
         text: `🧤 Defesa do Time ${team.label}: ${keeper.name}`
       });
-      buzz(40);
-      commit(`🧤 Defesa de ${keeper.name}!`);
-      livePush('save', `save-${state.matchHistory.length + 1}-${state.match.events.length}`, `🧤 Defesa de ${keeper.name}`, `Time ${team.label} · aos ${playedClock()} · ${scoreLine()}`);
     }
 
     function undoLastEvent() {
+      if (!canScore()) { showToast(`Só quem está anotando desfaz lances (${firstName((roleHere() || {}).scorerName || 'anotador')}).`, 'warning'); return; }
+      // Lance que ainda não foi enviado: desfazer é descartar ele.
+      const last = lanceQ.length ? lanceQ[lanceQ.length - 1] : null;
+      if (last && last.status === 'failed') { dropLance(last.lance.lid); showToast('Lance não enviado descartado.'); return; }
+      if (lanceQ.some(x => x.status === 'wait' || x.status === 'sending')) { showToast('Espere o envio dos lances para desfazer.', 'warning'); return; }
       const ev = state.match.events[0];
       if (!ev) { showToast('Nenhum lance para desfazer.', 'warning'); return; }
-      if (ev.type === 'goal') {
-        if (ev.side === 'A') state.match.scoreA = Math.max(0, state.match.scoreA - 1);
-        else state.match.scoreB = Math.max(0, state.match.scoreB - 1);
-        const s = byId(ev.scorerId);
-        if (s) s.goals = Math.max(0, (s.goals || 0) - 1);
-        const a = byId(ev.assistId);
-        if (a) a.assists = Math.max(0, (a.assists || 0) - 1);
-      } else if (ev.type === 'save') {
-        const k = byId(ev.keeperId);
-        if (k) k.saves = Math.max(0, (k.saves || 0) - 1);
-      } else if (ev.type === 'extra') {
-        const m = state.match;
-        const secs = Math.min(ev.seconds || 0, m.addedSeconds || 0);
-        m.addedSeconds = (m.addedSeconds || 0) - secs;
-        m.secondsLeft = Math.max(0, m.secondsLeft - secs);
-        if (m.isRunning && m.endAt) m.endAt -= secs * 1000;
-        if (m.isRunning && m.secondsLeft === 0) pauseMatchTimer();
-      }
-      state.match.events.shift();
-      commit('Último lance desfeito.');
+      submitLance({ kind: 'undo', target: ev.lid || null });
     }
 
     /* ===================================================================
@@ -573,6 +576,8 @@
 
     async function finishMatchAndNextChallenger(auto, pens) {
       if (finishing) return;
+      if (!notViewer()) return;
+      if (lancesPending()) { showToast('Espere os lances serem enviados antes de encerrar a partida.', 'warning'); return; }
       const { A, B } = state.court;
       if (!A || !B) { showToast('Monte os dois times antes de finalizar.', 'warning'); return; }
       // A draw with "pênaltis" in the rules: the shootout decides, then this runs again with its result.
@@ -792,6 +797,7 @@
     }
 
     async function undoFinish() {
+      if (!orgOnly()) return;
       const snap = state.lastFinish;
       if (!snap) { showToast('Nada para desfazer.', 'warning'); return; }
       if (state.match.events.length && !(await askConfirm('Desfazer a última partida? Os lances do jogo atual também serão apagados.', 'Desfazer'))) return;

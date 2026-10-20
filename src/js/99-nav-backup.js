@@ -45,6 +45,8 @@
     }
 
     async function startNewDay() {
+      if (!orgOnly()) return;
+      if (lancesPending()) { showToast('Espere os lances serem enviados antes de finalizar o baba.', 'warning'); return; }
       const hasDay = state.matchHistory.length > 0 || state.players.some(hasStats);
       const msg = hasDay
         ? 'Começar um novo baba? O dia de hoje vai pro histórico (aba Stats → Todos os babas) e o placar, a fila e as chegadas são zerados. Turmas e regras ficam.'

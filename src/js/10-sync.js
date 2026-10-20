@@ -40,6 +40,7 @@
     let penCol = null;           // server keeps penalty numbers (v10)
     let eventCol = null;         // server links babas to lists (v11.4)
     let sharedOff = false;       // server without the v11.6 functions (baba compartilhado)
+    let lanceSeqParam = null;    // server's baba_save takes p_lance_seq (v11.6.1)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -198,13 +199,25 @@
         await q(sb.from('babas').upsert(plain));
       },
       // v11.6: o baba compartilhado entre dono e adms grava por RPC (com versão) e finaliza uma vez só.
-      saveBaba: (row, baseRev) => rpcCall('baba_save', { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
-        p_matches: row.matches, p_event_id: row.event_id || null, p_base_rev: baseRev == null ? null : baseRev }),
+      async saveBaba(row, baseRev, lanceSeq) {
+        const args = { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
+          p_matches: row.matches, p_event_id: row.event_id || null, p_base_rev: baseRev == null ? null : baseRev };
+        // p_lance_seq chega com o SQL da v11.6.1; até lá grava como na v11.6.
+        if (lanceSeqParam !== false) {
+          try { const r = await rpcCall('baba_save', Object.assign({ p_lance_seq: lanceSeq == null ? null : lanceSeq }, args)); lanceSeqParam = true; return r; }
+          catch (e) { if (!isMissingFn(e)) throw e; lanceSeqParam = false; }
+        }
+        return rpcCall('baba_save', args);
+      },
       finishBaba: (row, stats) => rpcCall('baba_finish', { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
         p_matches: row.matches, p_event_id: row.event_id || null, p_stats: stats || [] }),
       babaRev: id => rpcCall('baba_rev', { p_id: id }),
       babaGet: id => rpcCall('baba_get', { p_id: id }),
       babasShared: () => rpcCall('babas_shared'),
+      // v11.6.1: lances só pelo anotador; assumir a anotação e passar a vez (mesário).
+      lanceBaba: (id, lance) => rpcCall('baba_lance', { p_baba: id, p_lance: lance }),
+      takeScoring: id => rpcCall('baba_take_scoring', { p_baba: id }),
+      setMesario: (id, user) => rpcCall('baba_set_mesario', { p_baba: id, p_user: user }),
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
@@ -328,8 +341,13 @@
     async function runOp(op) {
       if (op.type === 'baba_upsert') {
         if (!sharedOff) {
-          try { return handleSaveResult(op.row.id, await api.saveBaba(op.row, op.baseRev)); }
-          catch (e) { if (!isMissingFn(e)) throw e; sharedOff = true; }
+          try { return handleSaveResult(op.row.id, await api.saveBaba(op.row, op.baseRev, op.lanceSeq)); }
+          catch (e) {
+            // Chegou um lance que este aparelho ainda não viu: volta para o estado do servidor (nada se perde).
+            if (/stale_lances/.test(String(e.message || ''))) { refetchShared(op.row.id, 'stale'); return; }
+            if (!isMissingFn(e)) throw e;
+            sharedOff = true;
+          }
         }
         return api.upsertBaba(op.row);
       }
@@ -412,6 +430,7 @@
       delete s.lastFinish;
       delete s.rev;
       delete s.createdBy;
+      delete s.lanceSeq;
       return JSON.parse(JSON.stringify(s));
     }
 
@@ -420,23 +439,26 @@
       clearTimeout(pushTimer);
       pushTimer = setTimeout(() => {
         pushTimer = null;
-        if (!cloudOn() || !hasBabaContent()) return;
+        if (!cloudOn() || !hasBabaContent() || !canPushBaba()) return;
         if (!state.babaId) { state.babaId = uuid(); state.createdBy = currentUser.id; cacheState(); }
         // O baba que começa a partir da lista do dia fica ligado a ela (palpites pré-jogo).
         if (!state.eventId) { const te = todaysEvent(); if (te) { state.eventId = te.id; cacheState(); try { renderSheetTable(); } catch (e) {} } }
         const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
         if (state.eventId) row.event_id = state.eventId;
-        enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0 });
+        enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0, lanceSeq: state.lanceSeq || 0 });
       }, 1200);
     }
     /* Sends the open baba right away (before this phone switches to another one). */
     function pushNow() {
       if (!pushTimer) return;
+      pushBabaNow();
+    }
+    function pushBabaNow() {
       clearTimeout(pushTimer); pushTimer = null;
-      if (!cloudOn() || !hasBabaContent() || !state.babaId) return;
+      if (!cloudOn() || !hasBabaContent() || !state.babaId || !canPushBaba()) return;
       const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
       if (state.eventId) row.event_id = state.eventId;
-      enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0 });
+      enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0, lanceSeq: state.lanceSeq || 0 });
     }
 
     function playerCloudId(p) {

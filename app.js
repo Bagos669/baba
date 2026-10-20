@@ -111,7 +111,9 @@
         firstKickoffAt: null,
         // v11.6: versão do baba no servidor que este aparelho já tem, e quem criou o baba (dono/adm podem controlar o de outra pessoa).
         rev: 0,
-        createdBy: null
+        createdBy: null,
+        // v11.6.1: quantos lances do servidor este aparelho já viu (encerrar a partida só vale com todos vistos).
+        lanceSeq: 0
       };
     }
 
@@ -335,6 +337,7 @@
     let penCol = null;           // server keeps penalty numbers (v10)
     let eventCol = null;         // server links babas to lists (v11.4)
     let sharedOff = false;       // server without the v11.6 functions (baba compartilhado)
+    let lanceSeqParam = null;    // server's baba_save takes p_lance_seq (v11.6.1)
     const isMissingColumn = e => !!e && (e.code === '42703' || e.code === 'PGRST200' || e.code === 'PGRST204' || /column|schema cache/i.test(String(e.message || '')));
 
     const enc = new TextEncoder();
@@ -493,13 +496,25 @@
         await q(sb.from('babas').upsert(plain));
       },
       // v11.6: o baba compartilhado entre dono e adms grava por RPC (com versão) e finaliza uma vez só.
-      saveBaba: (row, baseRev) => rpcCall('baba_save', { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
-        p_matches: row.matches, p_event_id: row.event_id || null, p_base_rev: baseRev == null ? null : baseRev }),
+      async saveBaba(row, baseRev, lanceSeq) {
+        const args = { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
+          p_matches: row.matches, p_event_id: row.event_id || null, p_base_rev: baseRev == null ? null : baseRev };
+        // p_lance_seq chega com o SQL da v11.6.1; até lá grava como na v11.6.
+        if (lanceSeqParam !== false) {
+          try { const r = await rpcCall('baba_save', Object.assign({ p_lance_seq: lanceSeq == null ? null : lanceSeq }, args)); lanceSeqParam = true; return r; }
+          catch (e) { if (!isMissingFn(e)) throw e; lanceSeqParam = false; }
+        }
+        return rpcCall('baba_save', args);
+      },
       finishBaba: (row, stats) => rpcCall('baba_finish', { p_id: row.id, p_state: row.state, p_turma_ids: row.turma_ids, p_title: row.title, p_played_on: row.played_on,
         p_matches: row.matches, p_event_id: row.event_id || null, p_stats: stats || [] }),
       babaRev: id => rpcCall('baba_rev', { p_id: id }),
       babaGet: id => rpcCall('baba_get', { p_id: id }),
       babasShared: () => rpcCall('babas_shared'),
+      // v11.6.1: lances só pelo anotador; assumir a anotação e passar a vez (mesário).
+      lanceBaba: (id, lance) => rpcCall('baba_lance', { p_baba: id, p_lance: lance }),
+      takeScoring: id => rpcCall('baba_take_scoring', { p_baba: id }),
+      setMesario: (id, user) => rpcCall('baba_set_mesario', { p_baba: id, p_user: user }),
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
       async replaceStats(babaId, rows) {
@@ -623,8 +638,13 @@
     async function runOp(op) {
       if (op.type === 'baba_upsert') {
         if (!sharedOff) {
-          try { return handleSaveResult(op.row.id, await api.saveBaba(op.row, op.baseRev)); }
-          catch (e) { if (!isMissingFn(e)) throw e; sharedOff = true; }
+          try { return handleSaveResult(op.row.id, await api.saveBaba(op.row, op.baseRev, op.lanceSeq)); }
+          catch (e) {
+            // Chegou um lance que este aparelho ainda não viu: volta para o estado do servidor (nada se perde).
+            if (/stale_lances/.test(String(e.message || ''))) { refetchShared(op.row.id, 'stale'); return; }
+            if (!isMissingFn(e)) throw e;
+            sharedOff = true;
+          }
         }
         return api.upsertBaba(op.row);
       }
@@ -707,6 +727,7 @@
       delete s.lastFinish;
       delete s.rev;
       delete s.createdBy;
+      delete s.lanceSeq;
       return JSON.parse(JSON.stringify(s));
     }
 
@@ -715,23 +736,26 @@
       clearTimeout(pushTimer);
       pushTimer = setTimeout(() => {
         pushTimer = null;
-        if (!cloudOn() || !hasBabaContent()) return;
+        if (!cloudOn() || !hasBabaContent() || !canPushBaba()) return;
         if (!state.babaId) { state.babaId = uuid(); state.createdBy = currentUser.id; cacheState(); }
         // O baba que começa a partir da lista do dia fica ligado a ela (palpites pré-jogo).
         if (!state.eventId) { const te = todaysEvent(); if (te) { state.eventId = te.id; cacheState(); try { renderSheetTable(); } catch (e) {} } }
         const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
         if (state.eventId) row.event_id = state.eventId;
-        enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0 });
+        enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0, lanceSeq: state.lanceSeq || 0 });
       }, 1200);
     }
     /* Sends the open baba right away (before this phone switches to another one). */
     function pushNow() {
       if (!pushTimer) return;
+      pushBabaNow();
+    }
+    function pushBabaNow() {
       clearTimeout(pushTimer); pushTimer = null;
-      if (!cloudOn() || !hasBabaContent() || !state.babaId) return;
+      if (!cloudOn() || !hasBabaContent() || !state.babaId || !canPushBaba()) return;
       const row = { id: state.babaId, turma_ids: cloudTurmaIds(state.selectedTeams), title: babaTitle(), played_on: localDate(state.startedAt), state: stateForCloud(), finished: false, matches: state.matchHistory.length };
       if (state.eventId) row.event_id = state.eventId;
-      enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0 });
+      enqueue({ type: 'baba_upsert', id: state.babaId, row, baseRev: state.rev || 0, lanceSeq: state.lanceSeq || 0 });
     }
 
     function playerCloudId(p) {
@@ -1789,6 +1813,21 @@
       if (!res) return;
       if (res.finished) { if (state.babaId === id) onBabaFinishedRemote(id, res.finished_by, res.finished_by_name); return; }
       if (state.babaId === id && Number(res.rev) > (state.rev || 0)) { state.rev = Number(res.rev); cacheState(); }
+      // v11.6.1: o servidor ignorou parte do que foi mandado (lances são só do anotador; o mesário só mexe no relógio e no fim
+      // da partida): este aparelho volta para o estado do servidor.
+      if (res.merged && state.babaId === id) setTimeout(() => { if (!pendingUpsertFor(id)) refetchShared(id); }, 300);
+    }
+
+    /* Baixa o baba do servidor de novo (depois de uma gravação recusada ou ajustada). */
+    async function refetchShared(id, why) {
+      if (state.babaId !== id || !cloudOn()) return;
+      try {
+        const full = await api.babaGet(id);
+        if (!full || state.babaId !== id) return;
+        if (full.finished) { onBabaFinishedRemote(id, null, full.finished_by_name); return; }
+        adoptShared(full, null);
+        if (why === 'stale') showToast('Chegou um lance novo antes da sua alteração. Confira o placar e tente de novo.', 'warning');
+      } catch (e) {}
     }
 
     /* Troca o baba deste aparelho pela cópia do servidor (de outro aparelho). */
@@ -1799,6 +1838,8 @@
       adoptCloudBaba({ id: row.id, state: row.state });
       state.rev = Number(row.rev) || 0;
       state.createdBy = row.created_by || state.createdBy;
+      if (row.lance_seq != null) state.lanceSeq = Number(row.lance_seq) || 0;
+      setBabaRole(row.id, row);
       // Transmissão antiga sem dono gravado: é de quem criou o baba.
       if (state.live && state.live.id && !state.live.owner) state.live.owner = row.created_by || null;
       if (prevLive && liveMine(prevLive)) {
@@ -1815,6 +1856,8 @@
           scheduleLivePush(true);
         }
       }
+      // A transmissão passou para este aparelho (novo anotador): atualiza quem assiste.
+      if (state.live && state.live.id && liveMine() && !(prevLive && liveMine(prevLive))) scheduleLivePush(true);
       cacheState();
       renderAllComponents();
       if (byName) showToast(`Atualizado por ${firstName(byName)}`, 'info');
@@ -1844,16 +1887,17 @@
       if (sharedTicking || sharedOff || !cloudOn() || document.visibilityState !== 'visible' || navigator.onLine === false) return;
       if (!isSharedRun()) return;
       const id = state.babaId;
-      if (pendingUpsertFor(id)) return;
+      if (pendingUpsertFor(id) || lanceBusy()) return;
       sharedTicking = true;
       try {
         const r = await api.babaRev(id);
         if (!r || r.gone || state.babaId !== id) return;
         if (r.finished) { onBabaFinishedRemote(id, r.finished_by, r.finished_by_name); return; }
+        setBabaRole(id, r);
         if (!(Number(r.rev) > (state.rev || 0))) return;
         const full = await api.babaGet(id);
         // Uma mudança feita aqui enquanto baixava ganha (vai depois e vira a última gravação).
-        if (!full || state.babaId !== id || pendingUpsertFor(id)) return;
+        if (!full || state.babaId !== id || pendingUpsertFor(id) || lanceBusy()) return;
         if (full.finished) { onBabaFinishedRemote(id, null, full.finished_by_name); return; }
         adoptShared(full, full.updated_by && full.updated_by !== myUid() ? full.updated_by_name : null);
       } catch (e) {
@@ -1876,15 +1920,18 @@
       renderSharedCards();
       const modal = document.getElementById('modal-database');
       if (modal && !modal.classList.contains('hidden')) renderTurmaList();
+      // v11.6.1: escolheram este aparelho como mesário de um baba.
+      const mes = sharedBabas.find(b => b.my_role === 'mesario' && b.id !== state.babaId);
+      if (mes) becomeMesario(mes.id);
     }
 
     const isToday = d => String(d || '').slice(0, 10) === localDate();
     /* "Baba em andamento": de hoje, já começou e não é o que está aberto neste aparelho. */
-    const runningElsewhere = () => sharedBabas.filter(b => b.started && isToday(b.played_on) && b.id !== state.babaId);
+    const runningElsewhere = () => sharedBabas.filter(b => b.my_role !== 'mesario' && b.started && isToday(b.played_on) && b.id !== state.babaId);
     function pendingBabas() {
       if (new Date().getHours() < 6) return [];
       const today = localDate();
-      return sharedBabas.filter(b => String(b.played_on || '').slice(0, 10) < today && !snoozed(b.id)).slice(0, 3);
+      return sharedBabas.filter(b => b.my_role !== 'mesario' && String(b.played_on || '').slice(0, 10) < today && !snoozed(b.id)).slice(0, 3);
     }
     function snoozed(id) { const t = Number(lsGet(SNOOZE_PREFIX + id) || 0); return t && Date.now() < t; }
     function dayLabel(d) {
@@ -1994,6 +2041,325 @@
 
     setInterval(sharedTick, SHARED_TICK_MS);
     setInterval(() => { if (document.visibilityState === 'visible') loadSharedBabas(); }, SHARED_LIST_MS);
+    /* ===================================================================
+       ANOTADOR ÚNICO E MESÁRIO (v11.6.1)
+       Só uma pessoa anota os lances por vez (o anotador). Cada lance vai
+       para o servidor e só conta quando ele confirma (enviando → confirmado,
+       ou falhou com "Tentar de novo"). Dono e adms podem assumir a anotação
+       ou passar a vez para um presente com conta (o mesário), que anota,
+       controla o relógio e encerra as partidas, mas não mexe em chegadas,
+       times, fila nem configurações.
+       =================================================================== */
+    let babaRole = null;         // { id, scorer, scorerName, mesario, mesarioName, my: 'org'|'mesario'|'viewer' }
+    let lanceOff = false;        // servidor sem baba_lance: lances voltam a ser gravados só no celular (como antes)
+    let lanceQ = [];             // [{ lance, status: 'wait'|'sending'|'failed'|'refused'|'ok', msg }]
+    let lancePumping = false;
+    let becomingMesario = false;
+    const MESARIO_SEEN = 'baba_mesario_seen_v1161:';
+
+    const roleHere = () => (babaRole && state.babaId && babaRole.id === state.babaId ? babaRole : null);
+    const isMesario = () => !!(roleHere() && roleHere().my === 'mesario');
+    const isViewer = () => !!(roleHere() && roleHere().my === 'viewer');
+    const isOrgHere = () => !roleHere() || roleHere().my === 'org';
+    const canPushBaba = () => !isViewer();
+    // Lances passam pelo servidor quando a conta está na nuvem e o servidor já tem a v11.6.1.
+    const lanceMode = () => !!(cloudOn() && !sharedOff && !lanceOff);
+    function canScore() {
+      const r = roleHere();
+      if (!lanceMode() || !r) return true;
+      if (r.scorer) return r.scorer === myUid();
+      return r.my === 'org';
+    }
+    const lanceBusy = () => lanceQ.some(x => x.status === 'sending');
+    const lancesPending = () => lanceQ.some(x => x.status !== 'ok' && x.status !== 'refused');
+
+    /* Papel deste aparelho no baba (vem do servidor junto com a versão). */
+    function setBabaRole(id, r) {
+      if (!r || !('my_role' in r)) return;
+      const prev = babaRole && babaRole.id === id ? babaRole : null;
+      babaRole = { id, scorer: r.scorer_id || null, scorerName: r.scorer_name || '', mesario: r.mesario_id || null, mesarioName: r.mesario_name || '', my: r.my_role || 'org' };
+      if (prev && prev.scorer === myUid() && babaRole.scorer && babaRole.scorer !== myUid()) {
+        showToast(`${firstName(babaRole.scorerName || 'Alguém')} assumiu a anotação`, 'warning');
+      }
+      if (babaRole.my === 'mesario' && !(prev && prev.my === 'mesario') && state.babaId === id) announceMesario(id);
+      renderScorerUI();
+    }
+
+    function announceMesario(id) {
+      if (lsGet(MESARIO_SEEN + id)) { showToast('Você é o mesário deste baba'); return; }
+      lsSet(MESARIO_SEEN + id, '1');
+      showPopup({ img: 'coach', eyebrow: 'Mesário', title: 'Você é o mesário deste baba',
+        html: '<p class="text-[15px] leading-relaxed">Você anota gols, assistências e defesas, controla o cronômetro e encerra as partidas. Chegadas, times e fila continuam com o dono e os adms.</p>',
+        ok: 'Abrir o placar', onClose: () => switchTab('placar') });
+    }
+
+    /* Escolheram este aparelho como mesário: abre aquele baba aqui. */
+    async function becomeMesario(id) {
+      if (becomingMesario || state.babaId === id) return;
+      becomingMesario = true;
+      try {
+        if (hasBabaContent() && !(await askConfirm('Você foi escolhido como mesário de um baba. Abrir esse baba neste aparelho? O que está aberto aqui continua salvo.', 'Abrir'))) return;
+        const full = await api.babaGet(id);
+        if (!full || full.finished) return;
+        pushNow();
+        adoptShared(full, null);
+      } catch (e) {
+      } finally { becomingMesario = false; }
+    }
+
+    /* Só dono e adms (o mesário e quem só está olhando não mexem). */
+    function orgOnly() {
+      if (isMesario() || isViewer()) { showToast(isMesario() ? 'O mesário só anota, controla o relógio e encerra a partida. O resto é com o dono e os adms.' : 'Você está só olhando este baba.', 'warning'); return false; }
+      return true;
+    }
+    function notViewer() {
+      if (isViewer()) { showToast('Você está só olhando este baba.', 'warning'); return false; }
+      return true;
+    }
+
+    /* Barra do anotador no Placar, botões de lance travados para quem não anota e o modo quadra. */
+    function renderScorerUI() {
+      const r = roleHere();
+      const shared = !!(r && lanceMode() && state.firstKickoffAt);
+      document.body.classList.toggle('baba-mesario', isMesario());
+      document.body.classList.toggle('baba-viewer', isViewer());
+      const lock = !canScore();
+      ['btn-goal-a', 'btn-goal-b', 'btn-save-a', 'btn-save-b', 'btn-undo', 'cm-goal-a', 'cm-goal-b', 'cm-save-a', 'cm-save-b', 'cm-undo'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('lance-locked', lock);
+      });
+      const bar = document.getElementById('scorer-bar');
+      const cm = document.getElementById('cm-scorer');
+      if (!bar) return;
+      bar.classList.toggle('hidden', !shared);
+      if (cm) cm.classList.toggle('hidden', !shared || !lock);
+      if (!shared) return;
+      const me = myUid();
+      const name = r.scorer === me ? 'você' : firstName(r.scorerName || 'alguém');
+      let text, sub;
+      if (isMesario()) { text = 'Você é o mesário deste baba'; sub = 'Anote os lances, controle o relógio e encerre as partidas.'; }
+      else if (isViewer()) { text = `Anotador: ${name}`; sub = 'Você está só olhando este baba.'; }
+      else if (r.scorer === me) { text = 'Anotador: você'; sub = 'Só você registra os lances agora.'; }
+      else { text = `Anotador: ${name}`; sub = r.mesario && r.mesario === r.scorer ? 'Mesário deste baba. Os botões de lance ficam com ele.' : 'Os botões de lance ficam com quem está anotando.'; }
+      document.getElementById('scorer-bar-text').innerText = text;
+      document.getElementById('scorer-bar-sub').innerText = sub;
+      document.getElementById('scorer-bar-icon').className = `tile w-10 h-10 rounded-xl ${r.scorer === me ? 'bg-pitch text-butter' : 'bg-sunk text-pitch'}`;
+      const btns = [];
+      if (r.my === 'org' && r.scorer !== me) btns.push('<button id="btn-take-scoring" onclick="takeScoring()" class="btn-primary h-9 px-3.5 text-[12.5px] whitespace-nowrap">Assumir anotação</button>');
+      if (r.my === 'org') btns.push('<button id="btn-pass-scoring" onclick="openMesarioPicker()" class="btn-outline h-9 px-3.5 text-[12.5px] whitespace-nowrap">Passar a vez de anotar</button>');
+      document.getElementById('scorer-bar-btns').innerHTML = btns.join('');
+      if (cm) cm.innerText = `Anotador: ${name}`;
+    }
+
+    async function takeScoring() {
+      if (!roleHere() || roleHere().my !== 'org') return;
+      if (navigator.onLine === false) { showToast('Assumir a anotação precisa de internet.', 'warning'); return; }
+      try {
+        await flushOutbox();
+        const r = await api.takeScoring(state.babaId);
+        await refetchShared(state.babaId);
+        showToast(`Você está anotando os lances${r && r.scorer_name ? '' : ''}.`);
+      } catch (e) {
+        showToast(isNetworkError(e) ? 'Sem conexão. Tente de novo.' : 'Não consegui assumir a anotação.', 'warning');
+      }
+    }
+
+    /* Passar a vez: presentes com conta (o servidor confere de novo). */
+    function openMesarioPicker() {
+      if (!roleHere() || roleHere().my !== 'org') return;
+      const me = myUid();
+      const list = presentPlayers().map(p => ({ p, uid: userIdOfPlayer(p) })).filter(x => x.uid && x.uid !== me && x.uid !== roleHere().scorer);
+      const box = document.getElementById('mesario-list');
+      box.innerHTML = list.length ? list.map(x => `
+          <button class="pick-btn" data-mesario="${x.uid}" onclick="chooseMesario('${x.uid}', '${escapeHtml(x.p.name).replace(/'/g, '&#39;')}')">
+            <span class="truncate">${escapeHtml(x.p.name)}</span><span class="text-pitch text-[12px] font-bold flex-shrink-0">Escolher</span>
+          </button>`).join('')
+        : '<p class="text-[13px] text-ink-2 p-2 leading-snug">Ninguém disponível. Só quem já chegou (está na Lista) e tem conta no BABA pode ser mesário.</p>';
+      document.getElementById('modal-mesario').classList.remove('hidden');
+    }
+    function closeMesarioPicker() { document.getElementById('modal-mesario').classList.add('hidden'); }
+
+    async function chooseMesario(uid, name) {
+      closeMesarioPicker();
+      if (!(await askConfirm(`Passar a vez de anotar para ${name}? A partir de agora só ${firstName(name)} registra os lances deste baba.`, 'Passar a vez'))) return;
+      try {
+        await flushOutbox();
+        await api.setMesario(state.babaId, uid);
+        await refetchShared(state.babaId);
+        showToast(`${firstName(name)} está anotando os lances.`);
+      } catch (e) {
+        const m = String(e.message || '');
+        showToast(isNetworkError(e) ? 'Sem conexão. Tente de novo.' : /not_present/.test(m) ? 'Só quem já chegou e tem conta no BABA pode ser mesário.' : 'Não consegui passar a vez.', 'warning');
+      }
+    }
+
+    /* ---- Lances ---- */
+    /* Aplica no celular o mesmo que o servidor aplica (baba_lance). */
+    function applyLanceLocal(l) {
+      const m = state.match;
+      if (l.kind === 'goal') {
+        if (l.side === 'A') m.scoreA++; else m.scoreB++;
+        const s = byId(l.scorerId); if (s) s.goals = (s.goals || 0) + 1;
+        const a = l.assistId != null && l.assistId !== l.scorerId ? byId(l.assistId) : null; if (a) a.assists = (a.assists || 0) + 1;
+        m.events.unshift({ lid: l.lid, type: 'goal', side: l.side, el: l.el, scorerId: l.scorerId, assistId: l.assistId, time: l.time, text: l.text });
+      } else if (l.kind === 'save') {
+        const k = byId(l.keeperId); if (k) k.saves = (k.saves || 0) + 1;
+        m.events.unshift({ lid: l.lid, type: 'save', side: l.side, el: l.el, keeperId: l.keeperId, time: l.time, text: l.text });
+      } else if (l.kind === 'extra') {
+        m.addedSeconds = (m.addedSeconds || 0) + l.seconds;
+        m.secondsLeft = (m.secondsLeft || 0) + l.seconds;
+        if (m.isRunning && m.endAt) m.endAt += l.seconds * 1000;
+        m.events.unshift({ lid: l.lid, type: 'extra', seconds: l.seconds, time: l.time, text: l.text });
+      } else if (l.kind === 'undo') {
+        const ev = m.events[0];
+        if (!ev) return;
+        if (ev.type === 'goal') {
+          if (ev.side === 'A') m.scoreA = Math.max(0, m.scoreA - 1); else m.scoreB = Math.max(0, m.scoreB - 1);
+          const s = byId(ev.scorerId); if (s) s.goals = Math.max(0, (s.goals || 0) - 1);
+          const a = ev.assistId != null && ev.assistId !== ev.scorerId ? byId(ev.assistId) : null; if (a) a.assists = Math.max(0, (a.assists || 0) - 1);
+        } else if (ev.type === 'save') {
+          const k = byId(ev.keeperId); if (k) k.saves = Math.max(0, (k.saves || 0) - 1);
+        } else if (ev.type === 'extra') {
+          const secs = Math.min(ev.seconds || 0, m.addedSeconds || 0);
+          m.addedSeconds = (m.addedSeconds || 0) - secs;
+          m.secondsLeft = Math.max(0, m.secondsLeft - secs);
+          if (m.isRunning && m.endAt) m.endAt -= secs * 1000;
+          if (m.isRunning && m.secondsLeft === 0) pauseMatchTimer();
+        }
+        m.events.shift();
+      }
+    }
+
+    /* Registra um lance: no servidor (só conta quando ele confirma) ou, sem servidor novo, só no celular como antes. */
+    function submitLance(l) {
+      l.lid = uuid();
+      l.match_no = state.matchHistory.length + 1;
+      if (!lanceMode()) {
+        applyLanceLocal(l);
+        saveState();
+        afterLance(l);
+        return;
+      }
+      lanceQ.push({ lance: l, status: 'wait', msg: '' });
+      renderLanceStatus();
+      pumpLances();
+    }
+
+    const LANCE_REFUSED = {
+      not_scorer: () => `Recusado: ${firstName((roleHere() || {}).scorerName || 'outra pessoa')} está anotando.`,
+      stale_match: () => 'Recusado: essa partida já foi encerrada.',
+      not_last: () => 'Recusado: esse já não é o último lance.',
+      nothing_to_undo: () => 'Recusado: não há lance para desfazer.',
+      no_court: () => 'Recusado: esse time não está em quadra.',
+      finished: () => 'Recusado: o baba já foi finalizado.',
+      forbidden: () => 'Recusado: sem permissão.'
+    };
+
+    async function pumpLances() {
+      if (lancePumping) return;
+      lancePumping = true;
+      try {
+        while (true) {
+          const i = lanceQ.findIndex(x => x.status === 'wait' || x.status === 'failed');
+          if (i < 0) break;
+          const item = lanceQ[i];
+          if (item.status === 'failed') break;       // a fila espera o "Tentar de novo" (a ordem dos lances importa)
+          item.status = 'sending'; item.msg = '';
+          renderLanceStatus();
+          try {
+            if (navigator.onLine === false) throw new TypeError('Failed to fetch');
+            await ensureBabaOnServer();
+            const res = await api.lanceBaba(state.babaId, item.lance);
+            await onLanceConfirmed(item.lance, res || {});
+            item.status = 'ok';
+            setTimeout(() => { lanceQ = lanceQ.filter(x => x !== item); renderLanceStatus(); }, 1600);
+          } catch (e) {
+            const code = Object.keys(LANCE_REFUSED).find(k => String(e.message || '').includes(k));
+            if (isMissingFn(e)) {
+              // Servidor ainda sem a v11.6.1: grava como antes, só no celular.
+              lanceOff = true;
+              lanceQ.filter(x => x.status !== 'ok' && x.status !== 'refused').forEach(x => { applyLanceLocal(x.lance); afterLance(x.lance); x.status = 'ok'; });
+              lanceQ = [];
+              saveState();
+            } else if (code) {
+              item.status = 'refused'; item.msg = LANCE_REFUSED[code]();
+              if (code === 'not_scorer') {
+                lanceQ.filter(x => x.status === 'wait').forEach(x => { x.status = 'refused'; x.msg = item.msg; });
+                refetchShared(state.babaId);
+              }
+            } else {
+              item.status = 'failed';
+              item.msg = isNetworkError(e) ? 'Sem conexão' : 'Não foi enviado';
+            }
+          }
+          renderLanceStatus();
+        }
+      } finally { lancePumping = false; renderLanceStatus(); }
+    }
+
+    /* O baba precisa existir no servidor antes do primeiro lance. */
+    async function ensureBabaOnServer() {
+      if (!state.babaId) { state.babaId = uuid(); state.createdBy = myUid(); cacheState(); }
+      if (!state.rev && !pendingUpsertFor(state.babaId)) pushBabaNow();
+      for (let i = 0; i < 40 && pendingUpsertFor(state.babaId) && !state.rev; i++) {
+        await flushOutbox();
+        if (!pendingUpsertFor(state.babaId)) break;
+        if (navigator.onLine === false || syncState === 'offline') throw new TypeError('Failed to fetch');
+        await new Promise(r => setTimeout(r, 250));
+      }
+    }
+
+    async function onLanceConfirmed(l, res) {
+      const id = state.babaId;
+      const local = !res.dup && Number(res.rev) === (state.rev || 0) + 1;
+      if (local) {
+        applyLanceLocal(l);
+        state.rev = Number(res.rev);
+        state.lanceSeq = Number(res.lance_seq) || state.lanceSeq;
+        cacheState();
+        renderAllComponents();
+        scheduleLivePush(true);
+      } else {
+        // Outro aparelho também mudou o baba (ou o lance já tinha chegado): pega o estado do servidor, que já tem o lance.
+        const full = await api.babaGet(id);
+        if (full && state.babaId === id) adoptShared(full, null);
+      }
+      afterLance(l);
+    }
+
+    function retryLance(lid) {
+      const it = lanceQ.find(x => x.lance.lid === lid);
+      if (it && it.status === 'failed') { it.status = 'wait'; it.msg = ''; }
+      pumpLances();
+    }
+    function dropLance(lid) {
+      lanceQ = lanceQ.filter(x => x.lance.lid !== lid);
+      renderLanceStatus();
+      pumpLances();
+    }
+
+    const lanceLabel = l => l.kind === 'undo' ? 'Desfazer último lance' : l.kind === 'extra' ? `Acréscimo de ${Math.round(l.seconds / 60)} min` : (l.text || '').replace(/^\S+\s/, '');
+    function renderLanceStatus() {
+      const box = document.getElementById('lance-status');
+      const off = document.getElementById('lance-offline');
+      if (!box) return;
+      const visible = lanceQ.filter(x => x.status !== 'gone');
+      box.classList.toggle('hidden', !visible.length);
+      box.innerHTML = visible.map(x => {
+        const st = x.status === 'ok' ? '<span class="text-leaf font-extrabold flex items-center gap-1"><i class="fa-solid fa-circle-check"></i> Confirmado</span>'
+          : x.status === 'sending' ? '<span class="text-ink-2 font-bold flex items-center gap-1"><i class="fa-solid fa-spinner fa-spin"></i> Enviando…</span>'
+          : x.status === 'wait' ? '<span class="text-ink-2 font-bold">Na fila</span>'
+          : x.status === 'failed' ? `<span class="text-danger font-extrabold">Falhou</span><button onclick="retryLance('${x.lance.lid}')" class="h-8 px-3 rounded-full bg-pitch text-butter text-[12px] font-extrabold">Tentar de novo</button><button onclick="dropLance('${x.lance.lid}')" class="w-8 h-8 rounded-full bg-sunk text-ink-2" aria-label="Descartar"><i class="fa-solid fa-xmark"></i></button>`
+          : `<button onclick="dropLance('${x.lance.lid}')" class="w-8 h-8 rounded-full bg-sunk text-ink-2" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>`;
+        return `<div class="card px-3 py-2 flex items-center gap-2 text-[13px]" data-lance="${x.lance.lid}" data-status="${x.status}">
+            <span class="min-w-0 flex-1"><span class="block font-bold truncate">${escapeHtml(lanceLabel(x.lance))}</span>${x.msg ? `<span class="block text-[12px] text-ink-2">${escapeHtml(x.msg)}</span>` : ''}</span>
+            <span class="flex items-center gap-1.5 flex-shrink-0">${st}</span>
+          </div>`;
+      }).join('');
+      if (off) off.classList.toggle('hidden', !lanceQ.some(x => x.status === 'failed' && x.msg === 'Sem conexão') && !(navigator.onLine === false && lanceQ.some(x => x.status !== 'ok' && x.status !== 'refused')));
+    }
+    window.addEventListener('offline', renderLanceStatus);
+    window.addEventListener('online', renderLanceStatus);
     /* ===================================================================
        PREFERÊNCIAS (tema, acessibilidade, quadra)
        Saved on the phone (so the theme applies before the first paint)
@@ -3329,9 +3695,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.6';
+    const APP_VERSION = '11.6.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.6.1', date: '20/10/2026', title: 'Anotador e mesário', items: [
+        'Agora só uma pessoa anota os lances por vez: o anotador. Começa sendo quem deu o primeiro apito; nos outros celulares os botões de lance ficam travados e o Placar mostra "Anotador: [nome]".',
+        'Dono e adms podem tocar em "Assumir anotação" e passar a anotar na hora. O celular de quem anotava antes vira só visualização.',
+        '"Passar a vez de anotar": escolha alguém que já chegou e tem conta no BABA para ser o mesário do baba. Ele anota gols, assistências e defesas, controla o relógio e encerra as partidas; chegadas, times e fila continuam com o dono e os adms.',
+        'Cada lance só conta quando o servidor confirma: você vê "Enviando", "Confirmado" ou "Falhou" com o botão "Tentar de novo". Sem internet, aparece "Sem conexão: lances não enviados".',
+        'A transmissão ao vivo acompanha quem está anotando, sem cair para quem assiste.'
+      ] },
       { v: '11.6', date: '20/10/2026', title: 'Baba compartilhado entre os organizadores', items: [
         'Quando o dono ou um adm dá o primeiro apito, os outros donos e adms da turma veem no Início o card "Baba em andamento" e o selo "Em andamento" na turma.',
         'Tocando em Abrir, você controla o mesmo baba pelo seu celular: chegadas, times, fila, partidas, cronômetro e lances. O que um muda aparece nos outros em poucos segundos.',
@@ -7522,6 +7895,8 @@
       renderHome();
       renderSheetTable();
       renderMatchView();
+      renderScorerUI();
+      renderLanceStatus();
       renderFila();
       renderStatsView();
       renderDailyResumo();
@@ -7792,6 +8167,7 @@
     }
 
     function applyDatabaseSelection() {
+      if (!orgOnly()) return;
       const selected = Array.from(document.querySelectorAll('#db-checkboxes-container input[type="checkbox"]:checked')).map(cb => cb.value);
       state.selectedTeams = selected;
       syncPool();
@@ -8470,6 +8846,7 @@
     const matchNotStarted = () => state.match.events.length === 0 && state.match.scoreA === 0 && state.match.scoreB === 0 && !state.match.isRunning;
 
     async function disbandCourt() {
+      if (!orgOnly()) return;
       if (!state.court.A && !state.court.B) return;
       if (!(await askConfirm('Desfazer os times em quadra? Os jogadores voltam pro início da fila na mesma ordem.', 'Desfazer times'))) return;
       const back = [...(state.court.A ? state.court.A.ids : []), ...(state.court.B ? state.court.B.ids : [])];
@@ -8874,15 +9251,18 @@
       commit(msg);
     }
     function updateGameFormat(val) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.match.lineSize = Math.min(12, Math.max(1, Number(val) || 4));
       applyFormatChange('Jogo');
     }
     function updateKeeperMode(val) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.settings.keeperMode = KEEPER_MODES[val] ? val : 'time';
       applyFormatChange('Goleiro');
     }
 
     function updateGoalLimitRule(val) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.match.goalLimitRule = val;
       saveState();
     }
@@ -8964,6 +9344,7 @@
 
     /* Changes the match length. A clock that already ran keeps what was played. */
     function setMatchDuration(seconds) {
+      if (!notViewer()) return;
       const m = state.match;
       const played = playedSeconds();
       if (seconds + (m.addedSeconds || 0) < played) {
@@ -8982,21 +9363,20 @@
     }
 
     function addExtraTime(minutes) {
-      const m = state.match;
+      if (!notViewer()) return;
+      if (!canScore() && !isOrgHere()) return;
       const secs = minutes * 60;
-      m.addedSeconds = (m.addedSeconds || 0) + secs;
-      m.secondsLeft = (m.secondsLeft || 0) + secs;
-      if (m.isRunning && m.endAt) m.endAt += secs * 1000;
-      m.events.unshift({
-        type: 'extra',
+      const m = state.match;
+      submitLance({
+        kind: 'extra',
         seconds: secs,
-        time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
-        text: `⏱️ Acréscimo de ${minutes} min (total +${Math.round(m.addedSeconds / 60)} min)`
+        time: fmtMMSS(Math.max(0, m.secondsLeft)),
+        text: `⏱️ Acréscimo de ${minutes} min (total +${Math.round(((m.addedSeconds || 0) + secs) / 60)} min)`
       });
-      commit(`+${minutes} min de acréscimo`);
     }
 
     function toggleMatchTimer() {
+      if (!notViewer()) return;
       unlockAudio();
       if (state.match.isRunning) pauseMatchTimer();
       else startMatchTimer();
@@ -9012,7 +9392,7 @@
       saveState();
       prefetchCourtPeople();
       // The first kick-off of the day opens the live game and shows its QR code.
-      if (!state.live && !state.liveAsked && v7 === true && cloudOn() && state.court.A && state.court.B) {
+      if (!state.live && !state.liveAsked && v7 === true && cloudOn() && isOrgHere() && state.court.A && state.court.B) {
         state.liveAsked = true;
         cacheState();
         ensureLive(true);
@@ -9063,6 +9443,7 @@
     }
 
     function resetMatchTimer() {
+      if (!notViewer()) return;
       pauseMatchTimer();
       state.match.addedSeconds = 0;
       state.match.secondsLeft = state.match.initialSeconds || 420;
@@ -9144,6 +9525,7 @@
     }
 
     function openGoalModal(side) {
+      if (!canScore()) { showToast(`Anotador: ${firstName((roleHere() || {}).scorerName || 'outra pessoa')}. Só quem está anotando registra lances.`, 'warning'); return; }
       if (!state.court[side]) { showToast('Monte os times primeiro.', 'warning'); return; }
       selectedGoalSide = side;
       selectedGoalScorer = null;
@@ -9213,17 +9595,11 @@
       const team = state.court[selectedGoalSide];
       if (!team) { closeGoalModal(); return; }
       closeGoalModal();
-
-      if (selectedGoalSide === 'A') state.match.scoreA++;
-      else state.match.scoreB++;
-
       const scorer = byId(selectedGoalScorer);
-      if (scorer) scorer.goals = (scorer.goals || 0) + 1;
       const assist = selectedGoalAssist ? byId(selectedGoalAssist) : null;
-      if (assist) assist.assists = (assist.assists || 0) + 1;
-
-      state.match.events.unshift({
-        type: 'goal',
+      // v11.6.1: o lance vai para o servidor e só conta quando ele confirma (submitLance → afterLance).
+      submitLance({
+        kind: 'goal',
         side: selectedGoalSide,
         el: playedSeconds(),
         scorerId: scorer ? scorer.id : null,
@@ -9231,8 +9607,30 @@
         time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
         text: `⚽ Gol do Time ${team.label}: ${scorer ? scorer.name : '?'}${assist ? ` (passe de ${assist.name})` : ''}`
       });
+    }
 
-      const side = selectedGoalSide;
+    /* Depois que o lance conta (confirmado pelo servidor, ou na hora quando não há servidor novo). */
+    function afterLance(l) {
+      if (l.kind === 'goal') return goalEffects(l);
+      if (l.kind === 'save') {
+        const keeper = byId(l.keeperId);
+        const team = state.court[l.side];
+        buzz(40);
+        renderAllComponents();
+        showToast(`🧤 Defesa de ${keeper ? keeper.name : '?'}!`);
+        livePush('save', `save-${state.matchHistory.length + 1}-${state.match.events.length}`, `🧤 Defesa de ${keeper ? keeper.name : '?'}`, `Time ${team ? team.label : '?'} · aos ${playedClock()} · ${scoreLine()}`);
+        return;
+      }
+      renderAllComponents();
+      if (l.kind === 'extra') showToast(`+${Math.round(l.seconds / 60)} min de acréscimo`);
+      else showToast('Último lance desfeito.');
+    }
+
+    function goalEffects(l) {
+      const scorer = byId(l.scorerId);
+      const assist = l.assistId != null ? byId(l.assistId) : null;
+      const team = state.court[l.side] || { label: '?' };
+      const side = l.side;
       // Announcement card and goal sound of the scorer's account, if they have them.
       const scorerUid = userIdOfPlayer(scorer);
       const announce = c => {
@@ -9244,7 +9642,6 @@
       if (known || !scorerUid || !cloudOn() || v7 !== true) announce(known);
       else ensurePeople([scorerUid]).then(() => announce(cosOfPlayer(scorer))).catch(() => playRefereeWhistle());
       buzz(80);
-      saveState();
       renderAllComponents();
       popScore(side);
       livePush('goal', `goal-${state.matchHistory.length + 1}-${state.match.scoreA}-${state.match.scoreB}`,
@@ -9260,6 +9657,7 @@
     }
 
     function openSaveModal(side) {
+      if (!canScore()) { showToast(`Anotador: ${firstName((roleHere() || {}).scorerName || 'outra pessoa')}. Só quem está anotando registra lances.`, 'warning'); return; }
       if (!state.court[side]) { showToast('Monte os times primeiro.', 'warning'); return; }
       selectedSaveSide = side;
       const { label, roster, others } = sidePlayers(side);
@@ -9294,43 +9692,25 @@
       const keeper = byId(pId);
       const team = state.court[selectedSaveSide];
       if (!keeper || !team) return;
-      keeper.saves = (keeper.saves || 0) + 1;
-      state.match.events.unshift({
-        type: 'save',
+      submitLance({
+        kind: 'save',
         side: selectedSaveSide,
         el: playedSeconds(),
         keeperId: keeper.id,
         time: fmtMMSS(Math.max(0, state.match.secondsLeft)),
         text: `🧤 Defesa do Time ${team.label}: ${keeper.name}`
       });
-      buzz(40);
-      commit(`🧤 Defesa de ${keeper.name}!`);
-      livePush('save', `save-${state.matchHistory.length + 1}-${state.match.events.length}`, `🧤 Defesa de ${keeper.name}`, `Time ${team.label} · aos ${playedClock()} · ${scoreLine()}`);
     }
 
     function undoLastEvent() {
+      if (!canScore()) { showToast(`Só quem está anotando desfaz lances (${firstName((roleHere() || {}).scorerName || 'anotador')}).`, 'warning'); return; }
+      // Lance que ainda não foi enviado: desfazer é descartar ele.
+      const last = lanceQ.length ? lanceQ[lanceQ.length - 1] : null;
+      if (last && last.status === 'failed') { dropLance(last.lance.lid); showToast('Lance não enviado descartado.'); return; }
+      if (lanceQ.some(x => x.status === 'wait' || x.status === 'sending')) { showToast('Espere o envio dos lances para desfazer.', 'warning'); return; }
       const ev = state.match.events[0];
       if (!ev) { showToast('Nenhum lance para desfazer.', 'warning'); return; }
-      if (ev.type === 'goal') {
-        if (ev.side === 'A') state.match.scoreA = Math.max(0, state.match.scoreA - 1);
-        else state.match.scoreB = Math.max(0, state.match.scoreB - 1);
-        const s = byId(ev.scorerId);
-        if (s) s.goals = Math.max(0, (s.goals || 0) - 1);
-        const a = byId(ev.assistId);
-        if (a) a.assists = Math.max(0, (a.assists || 0) - 1);
-      } else if (ev.type === 'save') {
-        const k = byId(ev.keeperId);
-        if (k) k.saves = Math.max(0, (k.saves || 0) - 1);
-      } else if (ev.type === 'extra') {
-        const m = state.match;
-        const secs = Math.min(ev.seconds || 0, m.addedSeconds || 0);
-        m.addedSeconds = (m.addedSeconds || 0) - secs;
-        m.secondsLeft = Math.max(0, m.secondsLeft - secs);
-        if (m.isRunning && m.endAt) m.endAt -= secs * 1000;
-        if (m.isRunning && m.secondsLeft === 0) pauseMatchTimer();
-      }
-      state.match.events.shift();
-      commit('Último lance desfeito.');
+      submitLance({ kind: 'undo', target: ev.lid || null });
     }
 
     /* ===================================================================
@@ -9346,6 +9726,8 @@
 
     async function finishMatchAndNextChallenger(auto, pens) {
       if (finishing) return;
+      if (!notViewer()) return;
+      if (lancesPending()) { showToast('Espere os lances serem enviados antes de encerrar a partida.', 'warning'); return; }
       const { A, B } = state.court;
       if (!A || !B) { showToast('Monte os dois times antes de finalizar.', 'warning'); return; }
       // A draw with "pênaltis" in the rules: the shootout decides, then this runs again with its result.
@@ -9565,6 +9947,7 @@
     }
 
     async function undoFinish() {
+      if (!orgOnly()) return;
       const snap = state.lastFinish;
       if (!snap) { showToast('Nada para desfazer.', 'warning'); return; }
       if (state.match.events.length && !(await askConfirm('Desfazer a última partida? Os lances do jogo atual também serão apagados.', 'Desfazer'))) return;
@@ -9858,6 +10241,7 @@
       }
     }
     function setVenue(v) {
+      if (!orgOnly()) { renderAllComponents(); return; }
       state.settings.venue = VENUES[v] ? v : '';
       commit(VENUES[v] ? `Local: ${VENUES[v]}` : 'Local do baba removido.');
       renderVenueUI();
@@ -10068,6 +10452,8 @@
     }
 
     async function startNewDay() {
+      if (!orgOnly()) return;
+      if (lancesPending()) { showToast('Espere os lances serem enviados antes de finalizar o baba.', 'warning'); return; }
       const hasDay = state.matchHistory.length > 0 || state.players.some(hasStats);
       const msg = hasDay
         ? 'Começar um novo baba? O dia de hoje vai pro histórico (aba Stats → Todos os babas) e o placar, a fila e as chegadas são zerados. Turmas e regras ficam.'

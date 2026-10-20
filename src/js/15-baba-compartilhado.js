@@ -26,6 +26,21 @@
       if (!res) return;
       if (res.finished) { if (state.babaId === id) onBabaFinishedRemote(id, res.finished_by, res.finished_by_name); return; }
       if (state.babaId === id && Number(res.rev) > (state.rev || 0)) { state.rev = Number(res.rev); cacheState(); }
+      // v11.6.1: o servidor ignorou parte do que foi mandado (lances são só do anotador; o mesário só mexe no relógio e no fim
+      // da partida): este aparelho volta para o estado do servidor.
+      if (res.merged && state.babaId === id) setTimeout(() => { if (!pendingUpsertFor(id)) refetchShared(id); }, 300);
+    }
+
+    /* Baixa o baba do servidor de novo (depois de uma gravação recusada ou ajustada). */
+    async function refetchShared(id, why) {
+      if (state.babaId !== id || !cloudOn()) return;
+      try {
+        const full = await api.babaGet(id);
+        if (!full || state.babaId !== id) return;
+        if (full.finished) { onBabaFinishedRemote(id, null, full.finished_by_name); return; }
+        adoptShared(full, null);
+        if (why === 'stale') showToast('Chegou um lance novo antes da sua alteração. Confira o placar e tente de novo.', 'warning');
+      } catch (e) {}
     }
 
     /* Troca o baba deste aparelho pela cópia do servidor (de outro aparelho). */
@@ -36,6 +51,8 @@
       adoptCloudBaba({ id: row.id, state: row.state });
       state.rev = Number(row.rev) || 0;
       state.createdBy = row.created_by || state.createdBy;
+      if (row.lance_seq != null) state.lanceSeq = Number(row.lance_seq) || 0;
+      setBabaRole(row.id, row);
       // Transmissão antiga sem dono gravado: é de quem criou o baba.
       if (state.live && state.live.id && !state.live.owner) state.live.owner = row.created_by || null;
       if (prevLive && liveMine(prevLive)) {
@@ -52,6 +69,8 @@
           scheduleLivePush(true);
         }
       }
+      // A transmissão passou para este aparelho (novo anotador): atualiza quem assiste.
+      if (state.live && state.live.id && liveMine() && !(prevLive && liveMine(prevLive))) scheduleLivePush(true);
       cacheState();
       renderAllComponents();
       if (byName) showToast(`Atualizado por ${firstName(byName)}`, 'info');
@@ -81,16 +100,17 @@
       if (sharedTicking || sharedOff || !cloudOn() || document.visibilityState !== 'visible' || navigator.onLine === false) return;
       if (!isSharedRun()) return;
       const id = state.babaId;
-      if (pendingUpsertFor(id)) return;
+      if (pendingUpsertFor(id) || lanceBusy()) return;
       sharedTicking = true;
       try {
         const r = await api.babaRev(id);
         if (!r || r.gone || state.babaId !== id) return;
         if (r.finished) { onBabaFinishedRemote(id, r.finished_by, r.finished_by_name); return; }
+        setBabaRole(id, r);
         if (!(Number(r.rev) > (state.rev || 0))) return;
         const full = await api.babaGet(id);
         // Uma mudança feita aqui enquanto baixava ganha (vai depois e vira a última gravação).
-        if (!full || state.babaId !== id || pendingUpsertFor(id)) return;
+        if (!full || state.babaId !== id || pendingUpsertFor(id) || lanceBusy()) return;
         if (full.finished) { onBabaFinishedRemote(id, null, full.finished_by_name); return; }
         adoptShared(full, full.updated_by && full.updated_by !== myUid() ? full.updated_by_name : null);
       } catch (e) {
@@ -113,15 +133,18 @@
       renderSharedCards();
       const modal = document.getElementById('modal-database');
       if (modal && !modal.classList.contains('hidden')) renderTurmaList();
+      // v11.6.1: escolheram este aparelho como mesário de um baba.
+      const mes = sharedBabas.find(b => b.my_role === 'mesario' && b.id !== state.babaId);
+      if (mes) becomeMesario(mes.id);
     }
 
     const isToday = d => String(d || '').slice(0, 10) === localDate();
     /* "Baba em andamento": de hoje, já começou e não é o que está aberto neste aparelho. */
-    const runningElsewhere = () => sharedBabas.filter(b => b.started && isToday(b.played_on) && b.id !== state.babaId);
+    const runningElsewhere = () => sharedBabas.filter(b => b.my_role !== 'mesario' && b.started && isToday(b.played_on) && b.id !== state.babaId);
     function pendingBabas() {
       if (new Date().getHours() < 6) return [];
       const today = localDate();
-      return sharedBabas.filter(b => String(b.played_on || '').slice(0, 10) < today && !snoozed(b.id)).slice(0, 3);
+      return sharedBabas.filter(b => b.my_role !== 'mesario' && String(b.played_on || '').slice(0, 10) < today && !snoozed(b.id)).slice(0, 3);
     }
     function snoozed(id) { const t = Number(lsGet(SNOOZE_PREFIX + id) || 0); return t && Date.now() < t; }
     function dayLabel(d) {
