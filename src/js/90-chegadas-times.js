@@ -333,7 +333,7 @@
        has none, the first goalkeeper waiting further back is pulled in
        (the last line player taken goes back to the front of the line). */
     function takeFrom(queue, n, teamHasKeeper = false) {
-      const balance = state.settings.keeperBalance && keeperMode() === 'time';
+      const balance = state.settings.keeperBalance && keeperMode() === 'time' && !teamsClosed();
       const team = [];
       const rest = [];
       let hasKeeper = teamHasKeeper;
@@ -391,9 +391,10 @@
     }
 
     /* Tops a short team up from the front of the queue. Returns who came in. */
-    function topUp(side) {
+    function topUp(side, manual) {
       const t = state.court[side];
       if (!t) return [];
+      if (teamsClosed() && !manual) return [];   // Times fechados: só o organizador completa, na mão
       const need = teamSize() - t.ids.length;
       if (need <= 0 || !state.queue.length) return [];
       const hasKeeper = t.ids.some(id => { const p = byId(id); return p && p.isGoalkeeper; });
@@ -404,7 +405,7 @@
     }
 
     function completeTeam(side) {
-      const added = topUp(side);
+      const added = topUp(side, true);
       if (!added.length) return;
       commit(`Time ${state.court[side].label} completo com ${added.map(nameOf).join(', ')}.`);
     }

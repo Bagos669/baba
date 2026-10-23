@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="app.css?v=a9085b2f5a" />
+  <link rel="stylesheet" href="app.css?v=a24ae47f3c" />
   <script src="vendor/supabase.js"></script>
   <script defer src="vendor/jspdf.umd.min.js"></script>
   <script defer src="vendor/qrcode.min.js"></script>
@@ -797,6 +797,7 @@
         </div>
 
         <div id="home-babinha"></div>
+        <div id="home-newbaba" class="hidden"></div>
         <div id="home-events"></div>
         <div id="home-explore"></div>
         <div id="home-mine"></div>
@@ -843,18 +844,18 @@
           <div id="scorer-bar-btns" class="flex flex-col items-stretch gap-1.5 flex-shrink-0"></div>
         </div>
 
-        <div id="venue-card" class="card p-3.5 hidden org-lock">
-          <span class="label">Onde é o baba</span>
-          <div id="venue-seg" class="seg grid-cols-4 mt-1"></div>
-          <p class="text-[11.5px] text-ink-2 mt-2 leading-snug">Separa os números por local nas estatísticas (jogos, gols, assistências e defesas).</p>
-        </div>
-
         <div class="card p-3.5 grid grid-cols-2 gap-2.5 org-lock">
-          <label class="block min-w-0">
-            <span class="label">Jogo (na linha)</span>
-            <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option><option value="6">6v6</option><option value="7">7v7</option><option value="8">8v8</option><option value="9">9v9</option><option value="10">10v10</option><option value="11">11v11</option><option value="12">12v12</option></select>
-          </label>
-          <label class="block min-w-0">
+          <div class="col-span-2 min-w-0">
+            <span class="label">Quantidade de jogadores de linha</span>
+            <div id="match-game-format" class="seg grid-cols-3 mt-1"></div>
+            <p id="match-game-format-note" class="text-[11.5px] text-ink-2 mt-1.5 leading-snug"></p>
+          </div>
+          <div class="col-span-2 min-w-0">
+            <span class="label">Times</span>
+            <div id="match-teams-seg" class="seg grid-cols-2 mt-1"></div>
+            <p id="match-teams-note" class="text-[11.5px] text-ink-2 mt-1.5 leading-snug"></p>
+          </div>
+          <label class="block min-w-0 col-span-2">
             <span class="label">Fim de jogo</span>
             <select id="match-goal-limit-rule" onchange="updateGoalLimitRule(this.value)" class="select">
               <option value="none">Só no tempo</option>
@@ -2430,6 +2431,18 @@
     </div>
   </div>
 
+  <!-- v11.7 · Opções do atleta (Turmas → Atletas) -->
+  <div id="modal-aact" class="overlay hidden z-[70]" onclick="if(event.target===this) closeAthleteActions()">
+    <div class="sheet-panel space-y-3">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between gap-2 -mt-1">
+        <h3 id="aact-title" class="title truncate">Atleta</h3>
+        <button onclick="closeAthleteActions()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="aact-body" class="space-y-2"></div>
+    </div>
+  </div>
+
   <!-- Babas anteriores -->
   <div id="modal-history" class="overlay hidden z-[62]" onclick="if(event.target===this) closeHistory()">
     <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">
@@ -2457,6 +2470,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=6e6a873fdb"></script>
+  <script src="app.js?v=4582679a09"></script>
 </body>
 </html>

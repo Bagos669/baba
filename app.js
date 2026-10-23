@@ -73,7 +73,7 @@
       // queueOrder: 'chegada' | 'menos-jogos' · lateAfter: minutes after the first kick-off
       // from which a new arrival goes to the front of the line (0 = off) · keeperMode for the
       // line-only formats: 'fixo' (keepers never rotate) | 'fila' (the next two in line keep goal).
-      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time', venue: '' };
+      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time', venue: '', teamsMode: 'open' };
     }
 
     function seedTurmas() {
@@ -148,6 +148,7 @@
       }
       delete s.match.gameFormat;
       if (!KEEPER_MODES[s.settings.keeperMode]) s.settings.keeperMode = 'time';
+      if (s.settings.teamsMode !== 'closed') s.settings.teamsMode = 'open';
 
       if (!Array.isArray(parsed.turmas)) {
         s.turmas = seedTurmas();
@@ -452,7 +453,7 @@
       turmaOpenBabas: () => q(sb.from('babas').select('id, title, created_by, state, updated_at').eq('finished', false).gt('updated_at', new Date(Date.now() - 2 * 864e5).toISOString()).order('updated_at', { ascending: false }).limit(20)),
       async finishedBabas() {
         const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, turma_ids, venue:state->>venue, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
-        const base = 'name, goals, assists, saves, matches, wins, turma_player_id';
+        const base = 'id, name, goals, assists, saves, matches, wins, turma_player_id';
         if (penCol !== false) {
           const { data, error } = await run(base + ', pen_goals, pen_misses, pen_saves');
           if (!error) { penCol = true; return data || []; }
@@ -517,6 +518,10 @@
       setMesario: (id, user) => rpcCall('baba_set_mesario', { p_baba: id, p_user: user }),
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
+      // v11.7: dono/adm corrigem ou excluem um baba finalizado (o servidor confere a permissão e refaz os palpites).
+      editBaba: (id, playedOn, venue, scores, stats) => rpcCall('baba_edit', { p_id: id, p_played_on: playedOn || null, p_venue: venue == null ? null : venue, p_scores: scores || [], p_stats: stats || [] }),
+      removeBaba: id => rpcCall('baba_remove', { p_id: id }),
+      renamePlayerById: (playerId, name) => rpcCall('turma_player_rename', { p_player: playerId, p_name: name }),
       async replaceStats(babaId, rows) {
         await q(sb.from('baba_stats').delete().eq('baba_id', babaId));
         if (!rows.length) return;
@@ -853,7 +858,7 @@
           turmaIds: Array.isArray(d.turma_ids) ? d.turma_ids : [],
           venue: VENUES[d.venue] ? d.venue : '',
           games: oldGames.get(d.id),
-          players: (d.baba_stats || []).map(s => ({ name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
+          players: (d.baba_stats || []).map(s => ({ sid: s.id, name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
             penGoals: s.pen_goals || 0, penMisses: s.pen_misses || 0, penSaves: s.pen_saves || 0 }))
         })));
 
@@ -2830,7 +2835,7 @@
         { img: 'champion', tab: 'inicio', title: 'Pronto pro primeiro baba!', text: 'Tem mais 5 capítulos curtinhos: regras, imprevistos, ao vivo, baba points e conta. Ficam em Configurações → Ajuda → Tutorial, e o Início te lembra.' }
       ] },
       { id: 'regras', title: 'Regras do Rei da Quadra', img: 'calculante', desc: 'Tamanho do jogo, goleiro, empate e pênaltis, fila e régua de tempo.', steps: [
-        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Tamanho do jogo e goleiro', text: 'Escolha de 1v1 a 12v12, contando só a linha. Ao lado, o goleiro: do time (entra junto: 4v4 vira 5 por time), fixo, da fila ou sem goleiro.' },
+        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Jogadores de linha e goleiro', text: 'Escolha Futsal (4), Society (6) ou Campo (10 na linha). Logo abaixo, Times abertos ou fechados e o goleiro: do time (entra junto: 4 na linha vira 5 por time), fixo, da fila ou sem goleiro.' },
         { img: 'coach', tab: 'fila', target: '#rules-card', title: 'Empate e vitórias seguidas', text: 'No empate, você escolhe: sai o rei, saem os dois ou pênaltis (5 cobranças pra cada lado, e os gols contam no Stats). E dá pra limitar: depois de 2 ou 3 vitórias seguidas, o time sai mesmo ganhando.' },
         { img: 'arrogante', tab: 'fila', demo: 'menosjogos', title: 'Ordem da fila', text: 'Ordem de chegada é o padrão. Em "Quem jogou menos", a fila se arruma sozinha: quem tem menos jogos no dia vai pra frente.' },
         { img: 'bike', tab: 'fila', demo: 'regua', title: 'Régua de tempo (atrasados)', text: 'Sem régua, atrasado vai pro fim. Com a régua em 1 h, por exemplo: quem chega depois de 1 h do primeiro jogo entra em 1º na fila; antes disso, vai pro fim.' },
@@ -3695,9 +3700,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.6.1';
+    const APP_VERSION = '11.7';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.7', date: '22/10/2026', title: 'Correções: Placar, Início e Turmas', items: [
+        'Placar: agora é só escolher Futsal (4 na linha), Society (6) ou Campo (10). A escolha já marca o local do baba. Babas antigos ficam como estavam.',
+        'Placar: nova opção "Times". Abertos (como sempre) ou Fechados: com os times fechados o app não sorteia nem reequilibra, só muda se o organizador editar na mão. Só dono e adm mudam.',
+        'Início: dono e adms têm o botão "Começar novo baba". Nos compromissos de hoje, o botão "Iniciar esse baba" já começa o baba ligado à lista; se já tem baba rolando, vira "Abrir baba em andamento".',
+        'Babas anteriores: dono e adms podem Editar (data, local, placar das partidas, gols, assistências e defesas) ou Excluir. Estatísticas, ranking e cards são recalculados e os palpites do baba são acertados de novo ou devolvidos.',
+        'Turmas: toque num atleta para Ver perfil (também de quem não tem conta) ou, sendo dono ou adm, Editar nome. O nome muda só dentro da turma.'
+      ] },
       { v: '11.6.1', date: '20/10/2026', title: 'Anotador e mesário', items: [
         'Agora só uma pessoa anota os lances por vez: o anotador. Começa sendo quem deu o primeiro apito; nos outros celulares os botões de lance ficam travados e o Placar mostra "Anotador: [nome]".',
         'Dono e adms podem tocar em "Assumir anotação" e passar a anotar na hora. O celular de quem anotava antes vira só visualização.',
@@ -6310,9 +6322,45 @@
             <i class="fa-solid fa-chevron-right text-[12px] text-ink-3 mt-1"></i>
           </div>
           ${propChipHtml(e)}
+          ${startEventBtnHtml(e)}
           ${me ? `<div class="grid grid-cols-3 gap-1.5 mt-3">${btn('vou', 'Vou')}${btn('talvez', 'Talvez')}${btn('nao', 'Não vou')}</div>`
             : `<p class="text-[12px] text-ink-2 mt-2.5 leading-snug">Pra responder, ligue seu nome na turma (abra a turma e toque no seu nome).</p>`}
         </div>`;
+    }
+
+    /* ---- v11.7 · Iniciar o baba direto do compromisso de hoje (só dono e adm) ---- */
+    const evIsToday = e => new Date(e.starts_at).toDateString() === new Date().toDateString();
+    function babaRunningFor(e) {
+      if (state.selectedTeams.includes(e.turma_id) && (hasBabaContent() || state.eventId === e.id)) return { kind: 'local' };
+      const sb = typeof sharedRunOfTurma === 'function' ? sharedRunOfTurma(e.turma_id) : null;
+      return sb ? { kind: 'shared', id: sb.id } : null;
+    }
+    function startEventBtnHtml(e) {
+      const t = turmaById(e.turma_id);
+      if (!t || e.status === 'canceled' || !evIsToday(e) || !canEditTurma(t)) return '';
+      const run = babaRunningFor(e);
+      return `<button onclick="event.stopPropagation(); startBabaFromEvent('${e.id}')" class="${run ? 'btn-outline' : 'btn-primary'} w-full h-11 text-[14px] mt-3"><i class="fa-solid ${run ? 'fa-arrow-right' : 'fa-play'}"></i> ${run ? 'Abrir baba em andamento' : 'Iniciar esse baba'}</button>`;
+    }
+    async function startBabaFromEvent(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      const t = turmaById(e.turma_id);
+      if (!t || !canEditTurma(t)) { showToast('Só o dono ou um adm da turma inicia o baba.', 'warning'); return; }
+      if (e.status === 'canceled' || !evIsToday(e)) { showToast('Esse compromisso não é de hoje ou foi cancelado.', 'warning'); return; }
+      const run = babaRunningFor(e);
+      if (run && run.kind === 'shared') { openSharedBaba(run.id); return; }
+      if (run) { switchTab('ficha'); return; }
+      if (!orgOnly()) return;
+      if (hasBabaContent()) {
+        if (lancesPending()) { showToast('Espere os lances serem enviados antes de trocar de baba.', 'warning'); return; }
+        if (!(await askConfirm('Já tem um baba aberto neste aparelho. Ele vai pro histórico e começa o baba dessa lista. Continuar?', 'Iniciar'))) return;
+        closeOutBaba(true);
+      }
+      state.selectedTeams = [e.turma_id];
+      state.eventId = e.id;
+      syncPool();
+      commit(`Baba de ${evWhen(e)} começou! Marque quem chegou na Lista.`);
+      switchTab('ficha');
     }
 
     /* ---- Responder ---- */
@@ -7828,7 +7876,7 @@
         .sort((a, b) => (a.arrival || 0) - (b.arrival || 0))
         .forEach(p => { seen.add(p.id); state.queue.push(p.id); });
       // Option: whoever has played less goes first (ties keep the current order).
-      if (state.settings.queueOrder === 'menos-jogos') {
+      if (state.settings.queueOrder === 'menos-jogos' && !teamsClosed()) {
         const pos = new Map(state.queue.map((id, i) => [id, i]));
         const games = id => (known.get(id) || {}).matches || 0;
         state.queue.sort((a, b) => games(a) - games(b) || pos.get(a) - pos.get(b));
@@ -8015,6 +8063,16 @@
       renderWeather();
     }
 
+    /* v11.7 · "Começar novo baba" no Início (dono e adm): mesmo caminho do menu Configurações. */
+    function renderHomeNewBaba() {
+      const box = document.getElementById('home-newbaba');
+      if (!box) return;
+      const ts = state.selectedTeams.length ? state.selectedTeams.map(turmaById).filter(Boolean) : state.turmas;
+      const show = ts.some(t => canEditTurma(t)) && !isViewer();
+      box.classList.toggle('hidden', !show);
+      box.innerHTML = show ? '<button onclick="startNewDay()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-calendar-plus"></i> Começar novo baba</button>' : '';
+    }
+
     function renderHome() {
       renderClock();
       renderHomeEvents();
@@ -8022,6 +8080,7 @@
       renderBattery();
       refreshWeather(false);
       renderSharedCards();
+      renderHomeNewBaba();
       document.getElementById('home-hello').innerText = greeting();
       document.getElementById('home-name').innerText = (currentUser ? firstName(currentUser.name) : 'craque') + '.';
 
@@ -8230,6 +8289,13 @@
     /* ---- Turma editor ---- */
     let editingTurmaId = null;
 
+    /* v11.7 · Times fechados: o app não sorteia nem reequilibra; só o organizador muda na mão. */
+    const teamsClosed = () => state.settings.teamsMode === 'closed';
+    /* Dono ou adm de alguma turma deste baba (sem turma na nuvem vale quem está usando). */
+    const isTurmaOrg = () => {
+      const ts = state.selectedTeams.map(turmaById).filter(Boolean);
+      return !ts.length || ts.some(t => canEditTurma(t));
+    };
     const canEditTurma = t => !!t && (!t.cloud || t.role === 'owner' || t.role === 'admin');
     // Before the server knew about owners, admins could delete: keep that until it says otherwise.
     const ownsTurma = t => !!t && (!t.cloud || t.role === 'owner' || (t.role === 'admin' && schemaV2 !== true));
@@ -8316,9 +8382,7 @@
           ? `<button onclick="unclaimPlayer('${t.id}', ${arg})" class="h-8 px-2.5 rounded-full bg-pitch text-butter text-[11px] font-extrabold flex-shrink-0" aria-label="Você. Toque para desfazer">Você</button>`
           : taken ? `<span class="w-8 h-8 rounded-full bg-sage text-pitch text-[11px] flex items-center justify-center flex-shrink-0" title="Tem conta" aria-label="Tem conta"><i class="fa-solid fa-user-check"></i></span>` : '';
         const label = `${gk && !admin ? '🧤 ' : ''}${escapeHtml(name)}`;
-        const nameEl = t.cloud && !mine && !taken
-          ? `<button onclick="confirmClaim('${t.id}', ${arg})" class="text-left text-[14px] font-bold text-ink truncate flex-1 min-w-0 underline decoration-dotted decoration-pitch/40 underline-offset-4">${label}</button>`
-          : `<span class="text-[14px] font-bold text-ink truncate flex-1 min-w-0">${label}</span>`;
+        const nameEl = `<button onclick="openAthleteActions('${t.id}', ${i})" class="text-left text-[14px] font-bold text-ink truncate flex-1 min-w-0" aria-label="Opções de ${escapeHtml(name)}">${label}</button>`;
         return `
           <div class="flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-2xl bg-card border border-ink/10">
             <span class="text-[11px] text-ink-3 w-5 text-right flex-shrink-0">${i + 1}</span>
@@ -8328,6 +8392,118 @@
             <button onclick="removeTurmaMember(${i})" class="btn-icon !text-danger !bg-danger/10" aria-label="Remover"><i class="fa-solid fa-xmark"></i></button>` : ''}
           </div>`;
       }).join('');
+    }
+
+    /* ---- v11.7 · Toque num atleta da turma: Ver perfil, Editar nome (dono/adm) e Sou eu ---- */
+    let aact = null;   // { tid, i, rename }
+    function openAthleteActions(tid, i) {
+      const t = turmaById(tid);
+      if (!t || !t.players[i]) return;
+      aact = { tid, i, rename: false };
+      renderAthleteActions();
+      document.getElementById('modal-aact').classList.remove('hidden');
+    }
+    function closeAthleteActions() { aact = null; document.getElementById('modal-aact').classList.add('hidden'); }
+    function renderAthleteActions() {
+      if (!aact) return;
+      const t = turmaById(aact.tid);
+      const name = t && t.players[aact.i];
+      if (!name) return closeAthleteActions();
+      const m = (t.meta || {})[name.toLowerCase()];
+      const uid = currentUser ? currentUser.id : null;
+      const mine = Object.values(t.meta || {}).some(x => x.userId && x.userId === uid);
+      const canClaim = t.cloud && !mine && !(m && m.userId);
+      document.getElementById('aact-title').innerText = name;
+      const box = document.getElementById('aact-body');
+      if (aact.rename) {
+        box.innerHTML = `
+          <label class="block"><span class="label">Nome na turma</span>
+            <input id="aact-name" type="text" maxlength="60" value="${escapeHtml(name)}" class="select" onkeydown="if(event.key==='Enter') saveAthleteRename()" /></label>
+          <p class="text-[12px] text-ink-2 leading-snug">Muda só o nome dentro da turma. A conta da pessoa continua com o nome dela.</p>
+          <div class="flex gap-2">
+            <button onclick="aact.rename = false; renderAthleteActions()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+            <button id="aact-save" onclick="saveAthleteRename()" class="btn-primary flex-1 h-12 text-[14px]">Salvar nome</button>
+          </div>`;
+        setTimeout(() => { const el = document.getElementById('aact-name'); if (el) el.focus(); }, 50);
+        return;
+      }
+      box.innerHTML = `
+        <button onclick="athleteViewProfile()" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-id-card"></i> Ver perfil</button>
+        ${canEditTurma(t) ? `<button onclick="aact.rename = true; renderAthleteActions()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-pen"></i> Editar nome</button>` : ''}
+        ${canClaim ? `<button onclick="athleteClaim()" class="btn-soft w-full h-12 text-[15px]"><i class="fa-solid fa-user-check"></i> Sou eu</button>` : ''}`;
+    }
+    function athleteClaim() {
+      const t = aact && turmaById(aact.tid); const name = t && t.players[aact.i];
+      closeAthleteActions();
+      if (name) confirmClaim(t.id, name);
+    }
+    function athleteViewProfile() {
+      const t = aact && turmaById(aact.tid); const name = t && t.players[aact.i];
+      closeAthleteActions();
+      if (name) openPlayerProfile(t.id, name);
+    }
+    async function saveAthleteRename() {
+      const t = aact && turmaById(aact.tid);
+      const old = t && t.players[aact.i];
+      if (!old) return closeAthleteActions();
+      if (!canEditTurma(t)) { showToast('Só o dono ou um adm da turma muda o nome do atleta.', 'warning'); return; }
+      const name = document.getElementById('aact-name').value.trim().replace(/\s+/g, ' ');
+      if (!name) { showToast('O nome não pode ficar vazio.', 'warning'); return; }
+      if (name === old) { aact.rename = false; renderAthleteActions(); return; }
+      if (t.players.some((n, j) => j !== aact.i && sameName(n, name))) { showToast('Já existe um atleta com esse nome na turma.', 'warning'); return; }
+      const meta = (t.meta || {})[old.toLowerCase()];
+      const btn = document.getElementById('aact-save'); if (btn) btn.disabled = true;
+      if (t.cloud) {
+        if (!meta || !meta.id) { if (btn) btn.disabled = false; showToast('Esse atleta ainda não chegou no servidor. Tente de novo em instantes.', 'warning'); return; }
+        try { await api.renamePlayerById(meta.id, name); }
+        catch (e) {
+          if (btn) btn.disabled = false;
+          const m = String((e && e.message) || '');
+          showToast(isNetworkError(e) ? 'Precisa de internet pra mudar o nome.' : /name_taken/.test(m) ? 'Já existe um atleta com esse nome na turma.' : /name_empty/.test(m) ? 'O nome não pode ficar vazio.'
+            : /forbidden/.test(m) ? 'Só o dono ou um adm da turma muda o nome do atleta.' : 'Não deu certo. Tente de novo.', 'warning');
+          return;
+        }
+      }
+      t.players = t.players.map(n => sameName(n, old) ? name : n);
+      t.keepers = t.keepers.map(n => sameName(n, old) ? name : n);
+      t.women = (t.women || []).map(n => sameName(n, old) ? name : n);
+      if (t.meta && t.meta[old.toLowerCase()]) { t.meta[name.toLowerCase()] = t.meta[old.toLowerCase()]; delete t.meta[old.toLowerCase()]; }
+      state.players.forEach(p => { if (p.turmaId === t.id && sameName(p.name, old)) p.name = name; });
+      state.pastDays.filter(d => (d.turmaIds || []).includes(t.id)).forEach(d => d.players.forEach(p => { if ((meta && p.cloudId === meta.id) || sameName(p.name, old)) p.name = name; }));
+      closeAthleteActions();
+      commit(`Nome mudou para ${name}.`);
+      renderTurmaEditor();
+      if (t.cloud) pullCloud(true); else markTurmaDirty(t.id);
+    }
+
+    /* Perfil do atleta com os números dele nesta turma (também de quem não tem conta). */
+    function statsInTurma(t, name) {
+      const meta = (t.meta || {})[name.toLowerCase()];
+      const tot = { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, babas: 0 };
+      const add = p => { ['goals', 'assists', 'saves', 'matches', 'wins'].forEach(k => { tot[k] += Number(p[k]) || 0; }); tot.babas++; };
+      state.pastDays.filter(d => (d.turmaIds || []).includes(t.id)).forEach(d => {
+        const p = d.players.find(x => (meta && x.cloudId === meta.id) || sameName(x.name, name));
+        if (p) add(p);
+      });
+      if (state.selectedTeams.includes(t.id)) { const p = state.players.find(x => sameName(x.name, name) && hasStats(x)); if (p) add(p); }
+      return tot;
+    }
+    async function openPlayerProfile(tid, name) {
+      const t = turmaById(tid);
+      if (!t) return;
+      const meta = (t.meta || {})[name.toLowerCase()];
+      const paint = () => {
+        const person = meta && meta.userId ? personFor(meta.userId) : { name, avatar: null, cosmetics: {} };
+        const shown = Object.assign({}, person, { name });
+        const st = statsInTurma(t, name);
+        document.getElementById('acard-box').innerHTML = athleteCardHtml(shown, st, { trophies: meta && meta.userId ? userTrophyCache.get(meta.userId) : null })
+          + `<p class="text-[12px] text-ink-2 text-center mt-2">Números de ${escapeHtml(name)} em ${escapeHtml(t.name)}: ${st.babas} baba${st.babas === 1 ? '' : 's'}</p>`;
+        document.getElementById('acard-actions').innerHTML = '';
+      };
+      acardOpen = null;
+      paint();
+      document.getElementById('modal-acard').classList.remove('hidden');
+      if (meta && meta.userId && cloudOn() && v7 === true) { await ensurePeople([meta.userId]); if (!document.getElementById('modal-acard').classList.contains('hidden') && !acardOpen) paint(); }
     }
 
     function parseNames(text) {
@@ -8767,7 +8943,7 @@
        has none, the first goalkeeper waiting further back is pulled in
        (the last line player taken goes back to the front of the line). */
     function takeFrom(queue, n, teamHasKeeper = false) {
-      const balance = state.settings.keeperBalance && keeperMode() === 'time';
+      const balance = state.settings.keeperBalance && keeperMode() === 'time' && !teamsClosed();
       const team = [];
       const rest = [];
       let hasKeeper = teamHasKeeper;
@@ -8825,9 +9001,10 @@
     }
 
     /* Tops a short team up from the front of the queue. Returns who came in. */
-    function topUp(side) {
+    function topUp(side, manual) {
       const t = state.court[side];
       if (!t) return [];
+      if (teamsClosed() && !manual) return [];   // Times fechados: só o organizador completa, na mão
       const need = teamSize() - t.ids.length;
       if (need <= 0 || !state.queue.length) return [];
       const hasKeeper = t.ids.some(id => { const p = byId(id); return p && p.isGoalkeeper; });
@@ -8838,7 +9015,7 @@
     }
 
     function completeTeam(side) {
-      const added = topUp(side);
+      const added = topUp(side, true);
       if (!added.length) return;
       commit(`Time ${state.court[side].label} completo com ${added.map(nameOf).join(', ')}.`);
     }
@@ -9175,7 +9352,7 @@
 
       document.getElementById('match-score-a').innerText = state.match.scoreA;
       document.getElementById('match-score-b').innerText = state.match.scoreB;
-      document.getElementById('match-game-format').value = String(lineSize());
+      renderGameFormatUI();
       document.getElementById('match-gk-mode').value = keeperMode();
       renderFixedKeepers();
       document.getElementById('match-goal-limit-rule').value = state.match.goalLimitRule || '2';
@@ -9250,10 +9427,47 @@
       else if (['A', 'B'].some(s => state.court[s] && state.court[s].ids.length < teamSize())) msg += ' · complete os times na aba Times';
       commit(msg);
     }
+    /* v11.7: três jeitos de jogo. A escolha grava a quantidade de jogadores de linha e o local (Futsal/Society/Campo). */
+    const LINE_BY_VENUE = { futsal: 4, society: 6, campo: 10 };
+    function currentLineChoice() {
+      const n = lineSize(), v = state.settings.venue;
+      if (LINE_BY_VENUE[v] === n) return v;
+      return v ? '' : (Object.keys(LINE_BY_VENUE).find(k => LINE_BY_VENUE[k] === n) || '');
+    }
+    function renderGameFormatUI() {
+      const box = document.getElementById('match-game-format');
+      if (!box) return;
+      const cur = currentLineChoice();
+      box.innerHTML = Object.keys(LINE_BY_VENUE).map(k =>
+        `<button type="button" onclick="setLineChoice('${k}')" class="seg-btn${cur === k ? ' is-selected' : ''}">${VENUES[k]}<span class="block text-[11px] font-semibold opacity-70">${LINE_BY_VENUE[k]} na linha</span></button>`).join('');
+      const note = document.getElementById('match-game-format-note');
+      if (note) note.innerText = cur ? '' : `Este baba tem ${lineSize()} na linha${VENUES[state.settings.venue] ? ' (' + VENUES[state.settings.venue] + ')' : ''}. Escolha uma opção para mudar.`;
+      const tm = document.getElementById('match-teams-seg');
+      if (tm) {
+        tm.innerHTML = [['open', 'Abertos'], ['closed', 'Fechados']].map(([k, l]) =>
+          `<button type="button" onclick="setTeamsMode('${k}')" class="seg-btn${(teamsClosed() ? 'closed' : 'open') === k ? ' is-selected' : ''}">${l}</button>`).join('');
+        const tn = document.getElementById('match-teams-note');
+        if (tn) tn.innerText = teamsClosed() ? 'Os times ficam fixos: o app não sorteia nem reequilibra. Só mudam se o organizador editar na mão.' : 'O app monta e reequilibra os times pela ordem da fila.';
+      }
+    }
+    function setLineChoice(key) {
+      if (!orgOnly()) { renderAllComponents(); return; }
+      if (!LINE_BY_VENUE[key]) return;
+      state.match.lineSize = LINE_BY_VENUE[key];
+      state.settings.venue = key;
+      applyFormatChange('Jogo');
+    }
+    /* Tamanho livre (1 a 12): não tem mais botão na tela, fica para os testes e para backups antigos. */
     function updateGameFormat(val) {
       if (!orgOnly()) { renderAllComponents(); return; }
       state.match.lineSize = Math.min(12, Math.max(1, Number(val) || 4));
       applyFormatChange('Jogo');
+    }
+    function setTeamsMode(mode) {
+      if (!orgOnly()) { renderAllComponents(); return; }
+      if (!isTurmaOrg()) { showToast('Só o dono ou um adm da turma muda os times.', 'warning'); renderAllComponents(); return; }
+      state.settings.teamsMode = mode === 'closed' ? 'closed' : 'open';
+      commit(teamsClosed() ? 'Times fechados: o app não muda mais a composição sozinho.' : 'Times abertos: o app volta a montar e reequilibrar.');
     }
     function updateKeeperMode(val) {
       if (!orgOnly()) { renderAllComponents(); return; }
@@ -10228,23 +10442,12 @@
     const detailOn = () => !!prefs.detailStats;
     let statsVenue = '';
     function renderVenueUI() {
-      const card = document.getElementById('venue-card');
-      if (!card) return;
-      card.classList.toggle('hidden', !detailOn());
-      document.getElementById('venue-seg').innerHTML = [['', 'Nenhum'], ...Object.entries(VENUES)].map(([k, l]) =>
-        `<button onclick="setVenue('${k}')" class="seg-btn${(state.settings.venue || '') === k ? ' is-selected' : ''}">${l}</button>`).join('');
       const sv = document.getElementById('stats-venue');
       if (sv) {
         sv.classList.toggle('hidden', !detailOn() || currentStatsScope !== 'all');
         sv.innerHTML = [['', 'Todos'], ...Object.entries(VENUES)].map(([k, l]) =>
           `<button onclick="setStatsVenue('${k}')" class="seg-btn${statsVenue === k ? ' is-selected' : ''}">${l}</button>`).join('');
       }
-    }
-    function setVenue(v) {
-      if (!orgOnly()) { renderAllComponents(); return; }
-      state.settings.venue = VENUES[v] ? v : '';
-      commit(VENUES[v] ? `Local: ${VENUES[v]}` : 'Local do baba removido.');
-      renderVenueUI();
     }
     function setStatsVenue(v) { statsVenue = VENUES[v] ? v : ''; renderStatsView(); renderVenueUI(); }
     const venueTag = v => VENUES[v] ? `<span class="inline-block text-[10.5px] font-extrabold bg-sage text-pitch rounded-md px-1.5 py-0.5 ml-1 align-middle">${VENUES[v]}</span>` : '';
@@ -10555,15 +10758,15 @@
               <span class="block text-[11px] text-ink-2 truncate">${d.matches || 0} partidas · ${d.players.length} atletas${top ? ` · ${titleFor('goals', top).toLowerCase()} ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
             </div>
             <button onclick="closeBackupModal(); openExportSheet('${d.id}')" class="btn-icon" aria-label="PDF desse baba"><i class="fa-solid fa-file-pdf"></i></button>
-            ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Apagar"><i class="fa-solid fa-xmark"></i></button>`}
+            ${canEditPast(d) ? `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Excluir"><i class="fa-solid fa-xmark"></i></button>` : ''}
           </div>`;
       }).join('');
     }
 
     /* ---- Babas anteriores: anyone in the turma (dono, adm or membro) sees the list and each baba ---- */
-    let historyView = { turma: null, day: null };
+    let historyView = { turma: null, day: null, edit: null };
     function openHistory(turmaId, dayId) {
-      historyView = { turma: turmaId || null, day: dayId || null };
+      historyView = { turma: turmaId || null, day: dayId || null, edit: null };
       renderHistory();
       document.getElementById('modal-history').classList.remove('hidden');
       if (cloudOn()) pullCloud(true).then(() => { if (!document.getElementById('modal-history').classList.contains('hidden')) renderHistory(); });
@@ -10576,12 +10779,13 @@
       openExportSheet(id);
     }
     function historyFilter(t) { historyView.turma = t || null; historyView.day = null; renderHistory(); }
-    function historyOpenDay(id) { historyView.day = id; renderHistory(); document.getElementById('history-body').scrollTop = 0; }
+    function historyOpenDay(id) { historyView.day = id; historyView.edit = null; renderHistory(); document.getElementById('history-body').scrollTop = 0; }
     const pastOfTurma = tid => state.pastDays.filter(d => !tid || (d.turmaIds || []).includes(tid));
     function renderHistory() {
       const body = document.getElementById('history-body');
       const title = document.getElementById('history-title');
       const d = historyView.day ? state.pastDays.find(x => x.id === historyView.day) : null;
+      if (d && historyView.edit && historyView.edit.id === d.id) { renderHistoryEdit(d, body, title); return; }
       if (d) {
         title.innerText = d.title || 'Baba';
         ensureGames(d);
@@ -10603,8 +10807,11 @@
           ${gamesBlockHtml(d)}
           <div class="flex gap-2">
             <button onclick="historyPdf('${d.id}')" class="btn-outline flex-1 h-11 text-[14px]"><i class="fa-solid fa-file-pdf"></i> PDF desse baba</button>
-            ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !w-11 !h-11 !text-danger !bg-danger/10" aria-label="Apagar do histórico"><i class="fa-solid fa-trash-can"></i></button>`}
-          </div>`;
+          </div>
+          ${canEditPast(d) ? `<div class="flex gap-2">
+            <button onclick="historyEditStart('${d.id}')" class="btn-soft flex-1 h-11 text-[14px]"><i class="fa-solid fa-pen"></i> Editar</button>
+            <button onclick="deletePastDay('${d.id}')" class="btn-soft flex-1 h-11 text-[14px] !text-danger"><i class="fa-solid fa-trash-can"></i> Excluir</button>
+          </div>` : ''}`;
         return;
       }
       title.innerText = 'Babas anteriores';
@@ -10627,16 +10834,122 @@
       }).join('') : `<div class="card-flat p-4 flex items-center gap-3"><img src="babinha/tired.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[13.5px] text-ink-2 leading-snug">Nenhum baba encerrado ainda${historyView.turma ? ' nessa turma' : ''}. Quando quem organiza toca em "Começar novo baba", o dia fica guardado aqui pra turma toda ver.</p></div>`);
     }
 
+    /* v11.7 · Dono e adm da turma corrigem ou excluem babas anteriores. O servidor confere a permissão e recalcula tudo. */
+    const canEditPast = d => !!d && ((d.turmaIds || []).length ? d.turmaIds.some(id => canEditTurma(turmaById(id))) : d.owner !== false);
+    const pastShort = d => new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const pastInputDate = d => String(d.date).slice(0, 10);
+    const pastOnServer = d => cloudOn() && isUuid(d.id) && !readOutbox().some(o => o.type === 'baba_finish' && o.id === d.id);
+    function pastErrorText(e) {
+      const m = String((e && e.message) || '');
+      if (isNetworkError(e)) return 'Precisa de internet pra mexer em um baba anterior.';
+      if (/forbidden/.test(m)) return 'Só o dono ou um adm da turma pode fazer isso.';
+      if (/invalid_date/.test(m)) return 'Essa data não vale.';
+      return 'Não deu certo. Tente de novo.';
+    }
+
     async function deletePastDay(id) {
       const d = state.pastDays.find(x => x.id === id);
       if (!d) return;
-      if (d.owner === false) { showToast('Só quem organizou esse baba pode apagar.', 'warning'); return; }
-      if (!(await askConfirm(`Apagar o baba de ${fmtDate(d.date)} do histórico? As estatísticas dele saem do acumulado${cloudOn() ? ' de toda a turma' : ''}.`, 'Apagar'))) return;
+      if (!canEditPast(d)) { showToast('Só o dono ou um adm da turma exclui um baba anterior.', 'warning'); return; }
+      if (!(await askConfirm(`Excluir o baba de ${pastShort(d)}? As estatísticas serão recalculadas. Isso não pode ser desfeito.`, 'Excluir'))) return;
+      if (pastOnServer(d)) {
+        try { await api.removeBaba(id); } catch (e) { showToast(pastErrorText(e), 'warning'); return; }
+      } else if (isUuid(id)) enqueue({ type: 'baba_delete', id });
       state.pastDays = state.pastDays.filter(x => x.id !== id);
-      if (isUuid(id)) enqueue({ type: 'baba_delete', id });
-      commit('Baba apagado do histórico.');
+      historyView.edit = null;
+      commit('Baba excluído. Estatísticas recalculadas.');
       renderPastDays();
       if (!document.getElementById('modal-history').classList.contains('hidden')) { historyView.day = null; renderHistory(); }
+      if (cloudOn()) pullCloud(true);
+    }
+
+    function historyEditStart(id) {
+      const d = state.pastDays.find(x => x.id === id);
+      if (!d || !canEditPast(d)) return;
+      if (cloudOn() && isUuid(id) && d.matches && !d.games) { showToast('Carregando os jogos... tente de novo em instantes.', 'info'); ensureGames(d); return; }
+      historyView.edit = {
+        id, date: pastInputDate(d), venue: d.venue || '',
+        scores: (d.games || []).map(g => ({ a: g.scoreA, b: g.scoreB })),
+        stats: d.players.map(p => ({ goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0 }))
+      };
+      renderHistory();
+      document.getElementById('history-body').scrollTop = 0;
+    }
+    function historyEditCancel() { historyView.edit = null; renderHistory(); }
+    function historyEditSet(kind, i, key, v) {
+      const ed = historyView.edit; if (!ed) return;
+      const n = Math.max(0, Math.min(99, Math.round(Number(v) || 0)));
+      if (kind === 'score') ed.scores[i][key] = n; else ed.stats[i][key] = n;
+    }
+    function historyEditBump(kind, i, key, delta) {
+      const ed = historyView.edit; if (!ed) return;
+      const row = kind === 'score' ? ed.scores[i] : ed.stats[i];
+      historyEditSet(kind, i, key, (row[key] || 0) + delta);
+      const el = document.getElementById(`hedit-${kind}-${i}-${key}`); if (el) el.value = row[key];
+    }
+    function historyEditField(key, v) { if (historyView.edit) historyView.edit[key] = v; if (key === 'venue') renderHistory(); }
+
+    function renderHistoryEdit(d, body, title) {
+      const ed = historyView.edit;
+      title.innerText = 'Editar baba';
+      const stepper = (kind, i, key, label) => `
+        <div class="flex flex-col items-center gap-1 min-w-0">
+          <span class="text-[10.5px] font-bold text-ink-2">${label}</span>
+          <div class="flex items-center gap-1">
+            <button type="button" onclick="historyEditBump('${kind}', ${i}, '${key}', -1)" class="btn-icon !w-8 !h-8 !bg-card" aria-label="Menos ${label}"><i class="fa-solid fa-minus text-[11px]"></i></button>
+            <input id="hedit-${kind}-${i}-${key}" type="number" inputmode="numeric" min="0" max="99" value="${(kind === 'score' ? ed.scores[i] : ed.stats[i])[key]}" onchange="historyEditSet('${kind}', ${i}, '${key}', this.value); this.value = (${kind === 'score' ? 'historyView.edit.scores' : 'historyView.edit.stats'})[${i}]['${key}']" class="w-10 h-8 text-center text-[15px] font-extrabold bg-transparent tabular-nums" />
+            <button type="button" onclick="historyEditBump('${kind}', ${i}, '${key}', 1)" class="btn-icon !w-8 !h-8 !bg-card" aria-label="Mais ${label}"><i class="fa-solid fa-plus text-[11px]"></i></button>
+          </div>
+        </div>`;
+      const games = (d.games || []).map((g, i) => `
+        <div class="p-3 rounded-2xl bg-sunk/60 space-y-2">
+          <p class="text-[12px] font-bold text-ink-2">Partida ${i + 1}${g.timestamp ? ' · ' + escapeHtml(g.timestamp) : ''}</p>
+          <div class="flex items-center justify-around gap-2">
+            <div class="text-center min-w-0"><p class="text-[12px] font-bold truncate">Time ${escapeHtml(g.labelA)}</p>${stepper('score', i, 'a', 'Gols')}</div>
+            <span class="text-ink-3 font-bold">×</span>
+            <div class="text-center min-w-0"><p class="text-[12px] font-bold truncate">Time ${escapeHtml(g.labelB)}</p>${stepper('score', i, 'b', 'Gols')}</div>
+          </div>
+        </div>`).join('');
+      const players = d.players.map((p, i) => `
+        <div class="p-3 rounded-2xl bg-sunk/60 space-y-2">
+          <p class="text-[13.5px] font-bold truncate">${escapeHtml(p.name)}</p>
+          <div class="grid grid-cols-3 gap-1">${stepper('stat', i, 'goals', 'Gols')}${stepper('stat', i, 'assists', 'Assist.')}${stepper('stat', i, 'saves', 'Defesas')}</div>
+        </div>`).join('');
+      body.innerHTML = `
+        <p class="text-[13px] text-ink-2 leading-snug">Corrija o que ficou errado. As estatísticas, o ranking e os cards são recalculados e os palpites desse baba são acertados de novo.</p>
+        <label class="block"><span class="label">Data</span><input id="hedit-date" type="date" value="${ed.date}" onchange="historyEditField('date', this.value)" class="select" /></label>
+        <div><span class="label">Local</span>
+          <div class="seg grid-cols-4 mt-1">${[['', 'Nenhum'], ...Object.entries(VENUES)].map(([k, l]) => `<button type="button" onclick="historyEditField('venue', '${k}')" class="seg-btn${ed.venue === k ? ' is-selected' : ''}">${l}</button>`).join('')}</div></div>
+        ${games ? `<div><p class="eyebrow mb-2 px-1">Placar de cada partida</p><div class="space-y-2">${games}</div></div>` : ''}
+        ${players ? `<div><p class="eyebrow mb-2 px-1">Gols, assistências e defesas</p><div class="space-y-2">${players}</div></div>` : ''}
+        <div class="flex gap-2 sticky bottom-0 pt-2 bg-card">
+          <button onclick="historyEditCancel()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+          <button id="hedit-save" onclick="historyEditSave()" class="btn-primary flex-1 h-12 text-[14px]">Salvar correção</button>
+        </div>`;
+    }
+
+    async function historyEditSave() {
+      const ed = historyView.edit;
+      const d = ed && state.pastDays.find(x => x.id === ed.id);
+      if (!d || !canEditPast(d)) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ed.date)) { showToast('Escolha uma data válida.', 'warning'); return; }
+      const scores = (d.games || []).map((g, i) => ({ i, a: ed.scores[i].a, b: ed.scores[i].b })).filter(x => x.a !== d.games[x.i].scoreA || x.b !== d.games[x.i].scoreB);
+      const stats = d.players.map((p, i) => ({ p, i, v: ed.stats[i] })).filter(x => x.v.goals !== (x.p.goals || 0) || x.v.assists !== (x.p.assists || 0) || x.v.saves !== (x.p.saves || 0));
+      const btn = document.getElementById('hedit-save'); if (btn) btn.disabled = true;
+      if (pastOnServer(d)) {
+        try {
+          await api.editBaba(d.id, ed.date, ed.venue, scores, stats.filter(x => x.p.sid != null).map(x => ({ id: x.p.sid, goals: x.v.goals, assists: x.v.assists, saves: x.v.saves })));
+        } catch (e) { if (btn) btn.disabled = false; showToast(pastErrorText(e), 'warning'); return; }
+      }
+      // Cópia local (também é o caminho dos babas só deste aparelho).
+      d.date = `${ed.date}T12:00:00`; d.venue = ed.venue;
+      scores.forEach(x => { const g = d.games[x.i]; g.scoreA = x.a; g.scoreB = x.b; if (x.a !== x.b) delete g.pens; });
+      stats.forEach(x => Object.assign(x.p, { goals: x.v.goals, assists: x.v.assists, saves: x.v.saves }));
+      historyView.edit = null;
+      commit('Baba corrigido. Estatísticas recalculadas.');
+      renderHistory();
+      renderPastDays();
+      if (cloudOn()) pullCloud(true);
     }
 
     function exportBackup() {

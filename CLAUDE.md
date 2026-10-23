@@ -125,7 +125,7 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario → v11_7_correcoes
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2; `v11_5_palpites_fase2.sql` é a 11.5).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
@@ -169,13 +169,23 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   `baba_set_mesario` (só dono/adm; mesário = presente com conta e membro) passam a transmissão (`live_games.owner` e `state.live.owner`) para o novo anotador.
   `baba_rev/baba_get` devolvem o papel; quem já anotou (ex-mesário) só vê. `prop_event_bets` marca como `recorder` quem criou o baba e todos em `scorers`.
   **Não rode o v11_6 de novo depois do v11_6_1** (recria o `baba_save` antigo e o gatilho sem anotador).
+- v11.7 (correções): `baba_edit(p_id, p_played_on, p_venue, p_scores, p_stats)` e `baba_remove(p_id)` (só dono/adm de alguma turma do baba: `private.org_of_any`;
+  baba finalizado), `turma_player_rename(p_player, p_name)` (dono/adm; vazio = `name_empty`, repetido = `name_taken`; liga stats soltas pelo nome antigo antes de renomear;
+  acompanha `event_rsvps.player_key` e `turma_sanctions`). `baba_edit` liga `baba.edit` para passar pela porta que o novo `private.babas_v116` abre em baba finalizado
+  (qualquer outra gravação em baba finalizado continua ignorada) e corrige os palpites pelo gatilho de `baba_stats` + `private.settle_props` (reverte `palpite-correcao`, liquida de novo).
+  `baba_remove` apaga baba/stats; sem outro baba finalizado na lista, anula todos os mercados (`void_reason` `excluido`), reverte prêmios e devolve o valor apostado (tudo `palpite-correcao`).
+  Gatilho `private.babas_v117`: `state.settings.teamsMode` (`open`/`closed`) só muda por dono/adm (para os outros volta o valor do servidor).
+  Cliente: `setLineChoice` (Futsal 4 / Society 6 / Campo 10 = `lineSize` + `settings.venue`), `setTeamsMode`, `teamsClosed()` (desliga equilíbrio de goleiro em `takeFrom`, `topUp` automático
+  e reordenação `menos-jogos`; `completeTeam` ainda completa na mão), `startBabaFromEvent`/`startEventBtnHtml` (70), `renderHomeNewBaba` (85), `historyEditStart/Save`, `deletePastDay`,
+  `canEditPast` (99), `openAthleteActions`/`saveAthleteRename`/`openPlayerProfile` (85). Edição/exclusão de baba e renomear atleta chamam o servidor direto (sem outbox) e precisam de internet.
+  **Não rode o v11_6_1 de novo depois do v11_7** (recria o gatilho antigo, que ignora a edição).
 - Pendente do usuário: segredos `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` em Edge Functions → Secrets (nunca commitar a privada).
 
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
 configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), v115 (Resenha, palpites fase 2, ranking, troféus; liga
-`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
+`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v117 (formatos do Placar, Times fechados, Iniciar esse baba, editar/excluir baba anterior, nome do atleta), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
 use `goalLimitRule = 'none'` em testes que contam gols, senão a partida acaba sozinha no 2º gol), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 

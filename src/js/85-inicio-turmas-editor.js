@@ -63,7 +63,7 @@
         .sort((a, b) => (a.arrival || 0) - (b.arrival || 0))
         .forEach(p => { seen.add(p.id); state.queue.push(p.id); });
       // Option: whoever has played less goes first (ties keep the current order).
-      if (state.settings.queueOrder === 'menos-jogos') {
+      if (state.settings.queueOrder === 'menos-jogos' && !teamsClosed()) {
         const pos = new Map(state.queue.map((id, i) => [id, i]));
         const games = id => (known.get(id) || {}).matches || 0;
         state.queue.sort((a, b) => games(a) - games(b) || pos.get(a) - pos.get(b));
@@ -250,6 +250,16 @@
       renderWeather();
     }
 
+    /* v11.7 · "Começar novo baba" no Início (dono e adm): mesmo caminho do menu Configurações. */
+    function renderHomeNewBaba() {
+      const box = document.getElementById('home-newbaba');
+      if (!box) return;
+      const ts = state.selectedTeams.length ? state.selectedTeams.map(turmaById).filter(Boolean) : state.turmas;
+      const show = ts.some(t => canEditTurma(t)) && !isViewer();
+      box.classList.toggle('hidden', !show);
+      box.innerHTML = show ? '<button onclick="startNewDay()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-calendar-plus"></i> Começar novo baba</button>' : '';
+    }
+
     function renderHome() {
       renderClock();
       renderHomeEvents();
@@ -257,6 +267,7 @@
       renderBattery();
       refreshWeather(false);
       renderSharedCards();
+      renderHomeNewBaba();
       document.getElementById('home-hello').innerText = greeting();
       document.getElementById('home-name').innerText = (currentUser ? firstName(currentUser.name) : 'craque') + '.';
 
@@ -465,6 +476,13 @@
     /* ---- Turma editor ---- */
     let editingTurmaId = null;
 
+    /* v11.7 · Times fechados: o app não sorteia nem reequilibra; só o organizador muda na mão. */
+    const teamsClosed = () => state.settings.teamsMode === 'closed';
+    /* Dono ou adm de alguma turma deste baba (sem turma na nuvem vale quem está usando). */
+    const isTurmaOrg = () => {
+      const ts = state.selectedTeams.map(turmaById).filter(Boolean);
+      return !ts.length || ts.some(t => canEditTurma(t));
+    };
     const canEditTurma = t => !!t && (!t.cloud || t.role === 'owner' || t.role === 'admin');
     // Before the server knew about owners, admins could delete: keep that until it says otherwise.
     const ownsTurma = t => !!t && (!t.cloud || t.role === 'owner' || (t.role === 'admin' && schemaV2 !== true));
@@ -551,9 +569,7 @@
           ? `<button onclick="unclaimPlayer('${t.id}', ${arg})" class="h-8 px-2.5 rounded-full bg-pitch text-butter text-[11px] font-extrabold flex-shrink-0" aria-label="Você. Toque para desfazer">Você</button>`
           : taken ? `<span class="w-8 h-8 rounded-full bg-sage text-pitch text-[11px] flex items-center justify-center flex-shrink-0" title="Tem conta" aria-label="Tem conta"><i class="fa-solid fa-user-check"></i></span>` : '';
         const label = `${gk && !admin ? '🧤 ' : ''}${escapeHtml(name)}`;
-        const nameEl = t.cloud && !mine && !taken
-          ? `<button onclick="confirmClaim('${t.id}', ${arg})" class="text-left text-[14px] font-bold text-ink truncate flex-1 min-w-0 underline decoration-dotted decoration-pitch/40 underline-offset-4">${label}</button>`
-          : `<span class="text-[14px] font-bold text-ink truncate flex-1 min-w-0">${label}</span>`;
+        const nameEl = `<button onclick="openAthleteActions('${t.id}', ${i})" class="text-left text-[14px] font-bold text-ink truncate flex-1 min-w-0" aria-label="Opções de ${escapeHtml(name)}">${label}</button>`;
         return `
           <div class="flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-2xl bg-card border border-ink/10">
             <span class="text-[11px] text-ink-3 w-5 text-right flex-shrink-0">${i + 1}</span>
@@ -563,6 +579,118 @@
             <button onclick="removeTurmaMember(${i})" class="btn-icon !text-danger !bg-danger/10" aria-label="Remover"><i class="fa-solid fa-xmark"></i></button>` : ''}
           </div>`;
       }).join('');
+    }
+
+    /* ---- v11.7 · Toque num atleta da turma: Ver perfil, Editar nome (dono/adm) e Sou eu ---- */
+    let aact = null;   // { tid, i, rename }
+    function openAthleteActions(tid, i) {
+      const t = turmaById(tid);
+      if (!t || !t.players[i]) return;
+      aact = { tid, i, rename: false };
+      renderAthleteActions();
+      document.getElementById('modal-aact').classList.remove('hidden');
+    }
+    function closeAthleteActions() { aact = null; document.getElementById('modal-aact').classList.add('hidden'); }
+    function renderAthleteActions() {
+      if (!aact) return;
+      const t = turmaById(aact.tid);
+      const name = t && t.players[aact.i];
+      if (!name) return closeAthleteActions();
+      const m = (t.meta || {})[name.toLowerCase()];
+      const uid = currentUser ? currentUser.id : null;
+      const mine = Object.values(t.meta || {}).some(x => x.userId && x.userId === uid);
+      const canClaim = t.cloud && !mine && !(m && m.userId);
+      document.getElementById('aact-title').innerText = name;
+      const box = document.getElementById('aact-body');
+      if (aact.rename) {
+        box.innerHTML = `
+          <label class="block"><span class="label">Nome na turma</span>
+            <input id="aact-name" type="text" maxlength="60" value="${escapeHtml(name)}" class="select" onkeydown="if(event.key==='Enter') saveAthleteRename()" /></label>
+          <p class="text-[12px] text-ink-2 leading-snug">Muda só o nome dentro da turma. A conta da pessoa continua com o nome dela.</p>
+          <div class="flex gap-2">
+            <button onclick="aact.rename = false; renderAthleteActions()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+            <button id="aact-save" onclick="saveAthleteRename()" class="btn-primary flex-1 h-12 text-[14px]">Salvar nome</button>
+          </div>`;
+        setTimeout(() => { const el = document.getElementById('aact-name'); if (el) el.focus(); }, 50);
+        return;
+      }
+      box.innerHTML = `
+        <button onclick="athleteViewProfile()" class="btn-primary w-full h-12 text-[15px]"><i class="fa-solid fa-id-card"></i> Ver perfil</button>
+        ${canEditTurma(t) ? `<button onclick="aact.rename = true; renderAthleteActions()" class="btn-outline w-full h-12 text-[15px]"><i class="fa-solid fa-pen"></i> Editar nome</button>` : ''}
+        ${canClaim ? `<button onclick="athleteClaim()" class="btn-soft w-full h-12 text-[15px]"><i class="fa-solid fa-user-check"></i> Sou eu</button>` : ''}`;
+    }
+    function athleteClaim() {
+      const t = aact && turmaById(aact.tid); const name = t && t.players[aact.i];
+      closeAthleteActions();
+      if (name) confirmClaim(t.id, name);
+    }
+    function athleteViewProfile() {
+      const t = aact && turmaById(aact.tid); const name = t && t.players[aact.i];
+      closeAthleteActions();
+      if (name) openPlayerProfile(t.id, name);
+    }
+    async function saveAthleteRename() {
+      const t = aact && turmaById(aact.tid);
+      const old = t && t.players[aact.i];
+      if (!old) return closeAthleteActions();
+      if (!canEditTurma(t)) { showToast('Só o dono ou um adm da turma muda o nome do atleta.', 'warning'); return; }
+      const name = document.getElementById('aact-name').value.trim().replace(/\s+/g, ' ');
+      if (!name) { showToast('O nome não pode ficar vazio.', 'warning'); return; }
+      if (name === old) { aact.rename = false; renderAthleteActions(); return; }
+      if (t.players.some((n, j) => j !== aact.i && sameName(n, name))) { showToast('Já existe um atleta com esse nome na turma.', 'warning'); return; }
+      const meta = (t.meta || {})[old.toLowerCase()];
+      const btn = document.getElementById('aact-save'); if (btn) btn.disabled = true;
+      if (t.cloud) {
+        if (!meta || !meta.id) { if (btn) btn.disabled = false; showToast('Esse atleta ainda não chegou no servidor. Tente de novo em instantes.', 'warning'); return; }
+        try { await api.renamePlayerById(meta.id, name); }
+        catch (e) {
+          if (btn) btn.disabled = false;
+          const m = String((e && e.message) || '');
+          showToast(isNetworkError(e) ? 'Precisa de internet pra mudar o nome.' : /name_taken/.test(m) ? 'Já existe um atleta com esse nome na turma.' : /name_empty/.test(m) ? 'O nome não pode ficar vazio.'
+            : /forbidden/.test(m) ? 'Só o dono ou um adm da turma muda o nome do atleta.' : 'Não deu certo. Tente de novo.', 'warning');
+          return;
+        }
+      }
+      t.players = t.players.map(n => sameName(n, old) ? name : n);
+      t.keepers = t.keepers.map(n => sameName(n, old) ? name : n);
+      t.women = (t.women || []).map(n => sameName(n, old) ? name : n);
+      if (t.meta && t.meta[old.toLowerCase()]) { t.meta[name.toLowerCase()] = t.meta[old.toLowerCase()]; delete t.meta[old.toLowerCase()]; }
+      state.players.forEach(p => { if (p.turmaId === t.id && sameName(p.name, old)) p.name = name; });
+      state.pastDays.filter(d => (d.turmaIds || []).includes(t.id)).forEach(d => d.players.forEach(p => { if ((meta && p.cloudId === meta.id) || sameName(p.name, old)) p.name = name; }));
+      closeAthleteActions();
+      commit(`Nome mudou para ${name}.`);
+      renderTurmaEditor();
+      if (t.cloud) pullCloud(true); else markTurmaDirty(t.id);
+    }
+
+    /* Perfil do atleta com os números dele nesta turma (também de quem não tem conta). */
+    function statsInTurma(t, name) {
+      const meta = (t.meta || {})[name.toLowerCase()];
+      const tot = { goals: 0, assists: 0, saves: 0, matches: 0, wins: 0, babas: 0 };
+      const add = p => { ['goals', 'assists', 'saves', 'matches', 'wins'].forEach(k => { tot[k] += Number(p[k]) || 0; }); tot.babas++; };
+      state.pastDays.filter(d => (d.turmaIds || []).includes(t.id)).forEach(d => {
+        const p = d.players.find(x => (meta && x.cloudId === meta.id) || sameName(x.name, name));
+        if (p) add(p);
+      });
+      if (state.selectedTeams.includes(t.id)) { const p = state.players.find(x => sameName(x.name, name) && hasStats(x)); if (p) add(p); }
+      return tot;
+    }
+    async function openPlayerProfile(tid, name) {
+      const t = turmaById(tid);
+      if (!t) return;
+      const meta = (t.meta || {})[name.toLowerCase()];
+      const paint = () => {
+        const person = meta && meta.userId ? personFor(meta.userId) : { name, avatar: null, cosmetics: {} };
+        const shown = Object.assign({}, person, { name });
+        const st = statsInTurma(t, name);
+        document.getElementById('acard-box').innerHTML = athleteCardHtml(shown, st, { trophies: meta && meta.userId ? userTrophyCache.get(meta.userId) : null })
+          + `<p class="text-[12px] text-ink-2 text-center mt-2">Números de ${escapeHtml(name)} em ${escapeHtml(t.name)}: ${st.babas} baba${st.babas === 1 ? '' : 's'}</p>`;
+        document.getElementById('acard-actions').innerHTML = '';
+      };
+      acardOpen = null;
+      paint();
+      document.getElementById('modal-acard').classList.remove('hidden');
+      if (meta && meta.userId && cloudOn() && v7 === true) { await ensurePeople([meta.userId]); if (!document.getElementById('modal-acard').classList.contains('hidden') && !acardOpen) paint(); }
     }
 
     function parseNames(text) {

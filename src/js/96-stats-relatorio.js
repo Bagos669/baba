@@ -218,23 +218,12 @@
     const detailOn = () => !!prefs.detailStats;
     let statsVenue = '';
     function renderVenueUI() {
-      const card = document.getElementById('venue-card');
-      if (!card) return;
-      card.classList.toggle('hidden', !detailOn());
-      document.getElementById('venue-seg').innerHTML = [['', 'Nenhum'], ...Object.entries(VENUES)].map(([k, l]) =>
-        `<button onclick="setVenue('${k}')" class="seg-btn${(state.settings.venue || '') === k ? ' is-selected' : ''}">${l}</button>`).join('');
       const sv = document.getElementById('stats-venue');
       if (sv) {
         sv.classList.toggle('hidden', !detailOn() || currentStatsScope !== 'all');
         sv.innerHTML = [['', 'Todos'], ...Object.entries(VENUES)].map(([k, l]) =>
           `<button onclick="setStatsVenue('${k}')" class="seg-btn${statsVenue === k ? ' is-selected' : ''}">${l}</button>`).join('');
       }
-    }
-    function setVenue(v) {
-      if (!orgOnly()) { renderAllComponents(); return; }
-      state.settings.venue = VENUES[v] ? v : '';
-      commit(VENUES[v] ? `Local: ${VENUES[v]}` : 'Local do baba removido.');
-      renderVenueUI();
     }
     function setStatsVenue(v) { statsVenue = VENUES[v] ? v : ''; renderStatsView(); renderVenueUI(); }
     const venueTag = v => VENUES[v] ? `<span class="inline-block text-[10.5px] font-extrabold bg-sage text-pitch rounded-md px-1.5 py-0.5 ml-1 align-middle">${VENUES[v]}</span>` : '';

@@ -112,7 +112,7 @@ class Fake:
     def f_finishedBabas(self, uid):
         rows = [b for b in self.babas.values() if b['finished'] and self.can_see(b, uid)]
         return self.ok([{'id': b['id'], 'title': b['title'], 'played_on': b['played_on'], 'matches': b['matches'], 'created_by': b['created_by'], 'turma_ids': list(b.get('turma_ids') or []),
-                         'baba_stats': [dict(s) for s in self.stats.get(b['id'], [])]} for b in rows])
+                         'venue': (b.get('state') or {}).get('venue'), 'baba_stats': [dict(s) for s in self.stats.get(b['id'], [])]} for b in rows])
     # --- babas
     def f_upsertBaba(self, uid, row):
         ex = self.babas.get(row['id'])
@@ -1575,7 +1575,7 @@ def f_finishBaba(self, uid, row, stats):
               'played_on': row.get('played_on') or b.get('played_on'), 'matches': row.get('matches', b.get('matches')), 'event_id': row.get('event_id') or b.get('event_id')})
     self._bump(b, uid)
     self.finished_reports = getattr(self, 'finished_reports', 0) + 1
-    self.stats[b['id']] = [dict(r) for r in (stats or [])]
+    self.stats[b['id']] = [dict(r, id=next(self.seq) + 1000) for r in (stats or [])]
     if hasattr(self, 'pmk') and b.get('event_id') and b['event_id'] in getattr(self, 'events', {}): self._p_settle(b['event_id'])
     return self.ok({'ok': True, 'finished_by': uid, 'finished_by_name': self._pname(uid)})
 @_v116
@@ -1809,3 +1809,53 @@ def f_setMesario(self, uid, bid, user):
     if user not in b['scorers']: b['scorers'].append(user)
     self._live_follow(b, user); self._bump(b, uid)
     return self.ok({'ok': True, 'rev': b['rev'], 'scorer_id': user, 'scorer_name': self._pname(user), 'mesario': not org_t})
+
+
+# --- v11.7 · corrigir/excluir baba anterior e renomear atleta (dono/adm no servidor)
+def _org_any(self, b, uid):
+    return any(self.is_admin(t, uid) or self.is_owner(t, uid) for t in (b.get('turma_ids') or []))
+@_reg
+def f_editBaba(self, uid, bid, played_on, venue, scores, stats):
+    b = self.babas.get(bid)
+    if not b: return self.err('P0001', 'not_found')
+    if not b['finished']: return self.err('P0001', 'not_finished')
+    if not _org_any(self, b, uid): return self.err('P0001', 'forbidden')
+    if venue not in (None, '', 'campo', 'society', 'futsal'): return self.err('P0001', 'invalid_venue')
+    st = b.setdefault('state', {})
+    if venue is not None: st['venue'] = venue
+    if played_on: b['played_on'] = played_on
+    for x in scores or []:
+        games = st.get('games') or []
+        if 0 <= x['i'] < len(games):
+            games[x['i']]['scoreA'] = x['a']; games[x['i']]['scoreB'] = x['b']
+            if x['a'] != x['b']: games[x['i']].pop('pens', None)
+    for x in stats or []:
+        for r in self.stats.get(bid, []):
+            if r.get('id') == x['id']:
+                for k in ('goals', 'assists', 'saves'):
+                    if k in x and x[k] is not None: r[k] = x[k]
+    self.edit_calls = getattr(self, 'edit_calls', 0) + 1
+    self._bump(b, uid)
+    return self.ok({'ok': True})
+@_reg
+def f_removeBaba(self, uid, bid):
+    b = self.babas.get(bid)
+    if not b: return self.ok({'ok': True, 'gone': True})
+    if not b['finished']: return self.err('P0001', 'not_finished')
+    if not _org_any(self, b, uid): return self.err('P0001', 'forbidden')
+    del self.babas[bid]; self.stats.pop(bid, None)
+    self.remove_calls = getattr(self, 'remove_calls', 0) + 1
+    return self.ok({'ok': True})
+@_reg
+def f_renamePlayerById(self, uid, pid, name):
+    p = self.players.get(pid)
+    if not p: return self.err('P0001', 'not_found')
+    if not (self.is_admin(p['turma_id'], uid) or self.is_owner(p['turma_id'], uid)): return self.err('P0001', 'forbidden')
+    name = ' '.join((name or '').split())
+    if not name: return self.err('P0001', 'name_empty')
+    if any(q['turma_id'] == p['turma_id'] and q['id'] != pid and q['name'].lower() == name.lower() for q in self.players.values()): return self.err('P0001', 'name_taken')
+    old = p['name']; p['name'] = name
+    for bid, rows in self.stats.items():
+        for r in rows:
+            if r.get('turma_player_id') == pid or (r.get('turma_player_id') is None and r['name'].lower() == old.lower()): r['name'] = name; r['turma_player_id'] = pid
+    return self.ok({'ok': True, 'name': name})

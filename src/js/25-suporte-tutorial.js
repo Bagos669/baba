@@ -117,7 +117,7 @@
         { img: 'champion', tab: 'inicio', title: 'Pronto pro primeiro baba!', text: 'Tem mais 5 capítulos curtinhos: regras, imprevistos, ao vivo, baba points e conta. Ficam em Configurações → Ajuda → Tutorial, e o Início te lembra.' }
       ] },
       { id: 'regras', title: 'Regras do Rei da Quadra', img: 'calculante', desc: 'Tamanho do jogo, goleiro, empate e pênaltis, fila e régua de tempo.', steps: [
-        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Tamanho do jogo e goleiro', text: 'Escolha de 1v1 a 12v12, contando só a linha. Ao lado, o goleiro: do time (entra junto: 4v4 vira 5 por time), fixo, da fila ou sem goleiro.' },
+        { img: 'calculante', tab: 'placar', target: '#match-game-format', title: 'Jogadores de linha e goleiro', text: 'Escolha Futsal (4), Society (6) ou Campo (10 na linha). Logo abaixo, Times abertos ou fechados e o goleiro: do time (entra junto: 4 na linha vira 5 por time), fixo, da fila ou sem goleiro.' },
         { img: 'coach', tab: 'fila', target: '#rules-card', title: 'Empate e vitórias seguidas', text: 'No empate, você escolhe: sai o rei, saem os dois ou pênaltis (5 cobranças pra cada lado, e os gols contam no Stats). E dá pra limitar: depois de 2 ou 3 vitórias seguidas, o time sai mesmo ganhando.' },
         { img: 'arrogante', tab: 'fila', demo: 'menosjogos', title: 'Ordem da fila', text: 'Ordem de chegada é o padrão. Em "Quem jogou menos", a fila se arruma sozinha: quem tem menos jogos no dia vai pra frente.' },
         { img: 'bike', tab: 'fila', demo: 'regua', title: 'Régua de tempo (atrasados)', text: 'Sem régua, atrasado vai pro fim. Com a régua em 1 h, por exemplo: quem chega depois de 1 h do primeiro jogo entra em 1º na fila; antes disso, vai pro fim.' },

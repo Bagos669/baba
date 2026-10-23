@@ -73,7 +73,7 @@
       // queueOrder: 'chegada' | 'menos-jogos' · lateAfter: minutes after the first kick-off
       // from which a new arrival goes to the front of the line (0 = off) · keeperMode for the
       // line-only formats: 'fixo' (keepers never rotate) | 'fila' (the next two in line keep goal).
-      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time', venue: '' };
+      return { keeperBalance: true, drawRule: 'king', maxStreak: 0, queueOrder: 'chegada', lateAfter: 0, keeperMode: 'time', venue: '', teamsMode: 'open' };
     }
 
     function seedTurmas() {
@@ -148,6 +148,7 @@
       }
       delete s.match.gameFormat;
       if (!KEEPER_MODES[s.settings.keeperMode]) s.settings.keeperMode = 'time';
+      if (s.settings.teamsMode !== 'closed') s.settings.teamsMode = 'open';
 
       if (!Array.isArray(parsed.turmas)) {
         s.turmas = seedTurmas();

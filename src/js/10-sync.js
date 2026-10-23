@@ -155,7 +155,7 @@
       turmaOpenBabas: () => q(sb.from('babas').select('id, title, created_by, state, updated_at').eq('finished', false).gt('updated_at', new Date(Date.now() - 2 * 864e5).toISOString()).order('updated_at', { ascending: false }).limit(20)),
       async finishedBabas() {
         const run = cols => sb.from('babas').select(`id, title, played_on, matches, created_by, turma_ids, venue:state->>venue, baba_stats(${cols})`).eq('finished', true).order('played_on', { ascending: false }).limit(150);
-        const base = 'name, goals, assists, saves, matches, wins, turma_player_id';
+        const base = 'id, name, goals, assists, saves, matches, wins, turma_player_id';
         if (penCol !== false) {
           const { data, error } = await run(base + ', pen_goals, pen_misses, pen_saves');
           if (!error) { penCol = true; return data || []; }
@@ -220,6 +220,10 @@
       setMesario: (id, user) => rpcCall('baba_set_mesario', { p_baba: id, p_user: user }),
       async babaGames(id) { const r = await q(sb.from('babas').select('state').eq('id', id).limit(1)); return (r[0] && r[0].state && Array.isArray(r[0].state.games)) ? r[0].state.games : []; },
       deleteBaba: id => q(sb.from('babas').delete().eq('id', id)),
+      // v11.7: dono/adm corrigem ou excluem um baba finalizado (o servidor confere a permissão e refaz os palpites).
+      editBaba: (id, playedOn, venue, scores, stats) => rpcCall('baba_edit', { p_id: id, p_played_on: playedOn || null, p_venue: venue == null ? null : venue, p_scores: scores || [], p_stats: stats || [] }),
+      removeBaba: id => rpcCall('baba_remove', { p_id: id }),
+      renamePlayerById: (playerId, name) => rpcCall('turma_player_rename', { p_player: playerId, p_name: name }),
       async replaceStats(babaId, rows) {
         await q(sb.from('baba_stats').delete().eq('baba_id', babaId));
         if (!rows.length) return;
@@ -556,7 +560,7 @@
           turmaIds: Array.isArray(d.turma_ids) ? d.turma_ids : [],
           venue: VENUES[d.venue] ? d.venue : '',
           games: oldGames.get(d.id),
-          players: (d.baba_stats || []).map(s => ({ name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
+          players: (d.baba_stats || []).map(s => ({ sid: s.id, name: s.name, cloudId: s.turma_player_id, goals: s.goals, assists: s.assists, saves: s.saves, matches: s.matches, wins: s.wins,
             penGoals: s.pen_goals || 0, penMisses: s.pen_misses || 0, penSaves: s.pen_saves || 0 }))
         })));
 

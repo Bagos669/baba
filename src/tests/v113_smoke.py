@@ -55,8 +55,8 @@ async def main():
         # venue + detailed games
         await pg.evaluate("setPref('detailStats', true)")
         await pg.evaluate("switchTab('placar')")
-        if not await vis('#venue-card'): bad.append('venue-card oculto com detalhe ligado')
-        await pg.evaluate("setVenue('society')")
+        if not await vis('#match-game-format'): bad.append('escolha de jogadores de linha oculta')
+        await pg.evaluate("setLineChoice('society')")
         r = await pg.evaluate('''() => {
           state.players = ['Artur','Beto','Caio','Davi'].map((n,i)=>({id:i+1,name:n,present:true,goals:0,assists:0,saves:0,matches:0,wins:0}));
           state.court = { A: { label:'A', ids:[1,2], streak:0 }, B: { label:'B', ids:[3,4], streak:0 } };

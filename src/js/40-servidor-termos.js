@@ -156,9 +156,16 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.6.1';
+    const APP_VERSION = '11.7';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.7', date: '22/10/2026', title: 'Correções: Placar, Início e Turmas', items: [
+        'Placar: agora é só escolher Futsal (4 na linha), Society (6) ou Campo (10). A escolha já marca o local do baba. Babas antigos ficam como estavam.',
+        'Placar: nova opção "Times". Abertos (como sempre) ou Fechados: com os times fechados o app não sorteia nem reequilibra, só muda se o organizador editar na mão. Só dono e adm mudam.',
+        'Início: dono e adms têm o botão "Começar novo baba". Nos compromissos de hoje, o botão "Iniciar esse baba" já começa o baba ligado à lista; se já tem baba rolando, vira "Abrir baba em andamento".',
+        'Babas anteriores: dono e adms podem Editar (data, local, placar das partidas, gols, assistências e defesas) ou Excluir. Estatísticas, ranking e cards são recalculados e os palpites do baba são acertados de novo ou devolvidos.',
+        'Turmas: toque num atleta para Ver perfil (também de quem não tem conta) ou, sendo dono ou adm, Editar nome. O nome muda só dentro da turma.'
+      ] },
       { v: '11.6.1', date: '20/10/2026', title: 'Anotador e mesário', items: [
         'Agora só uma pessoa anota os lances por vez: o anotador. Começa sendo quem deu o primeiro apito; nos outros celulares os botões de lance ficam travados e o Placar mostra "Anotador: [nome]".',
         'Dono e adms podem tocar em "Assumir anotação" e passar a anotar na hora. O celular de quem anotava antes vira só visualização.',

@@ -134,6 +134,18 @@
     </div>
   </div>
 
+  <!-- v11.7 · Opções do atleta (Turmas → Atletas) -->
+  <div id="modal-aact" class="overlay hidden z-[70]" onclick="if(event.target===this) closeAthleteActions()">
+    <div class="sheet-panel space-y-3">
+      <div class="grabber"></div>
+      <div class="flex items-center justify-between gap-2 -mt-1">
+        <h3 id="aact-title" class="title truncate">Atleta</h3>
+        <button onclick="closeAthleteActions()" class="w-9 h-9 rounded-full bg-sunk text-ink-2 flex items-center justify-center flex-shrink-0" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="aact-body" class="space-y-2"></div>
+    </div>
+  </div>
+
   <!-- Babas anteriores -->
   <div id="modal-history" class="overlay hidden z-[62]" onclick="if(event.target===this) closeHistory()">
     <div class="sheet-panel space-y-3 max-h-[92dvh] flex flex-col">

@@ -148,15 +148,15 @@
               <span class="block text-[11px] text-ink-2 truncate">${d.matches || 0} partidas · ${d.players.length} atletas${top ? ` · ${titleFor('goals', top).toLowerCase()} ${escapeHtml(top.name)} (${top.goals})` : ''}</span>
             </div>
             <button onclick="closeBackupModal(); openExportSheet('${d.id}')" class="btn-icon" aria-label="PDF desse baba"><i class="fa-solid fa-file-pdf"></i></button>
-            ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Apagar"><i class="fa-solid fa-xmark"></i></button>`}
+            ${canEditPast(d) ? `<button onclick="deletePastDay('${d.id}')" class="btn-icon !text-danger !bg-danger/10" aria-label="Excluir"><i class="fa-solid fa-xmark"></i></button>` : ''}
           </div>`;
       }).join('');
     }
 
     /* ---- Babas anteriores: anyone in the turma (dono, adm or membro) sees the list and each baba ---- */
-    let historyView = { turma: null, day: null };
+    let historyView = { turma: null, day: null, edit: null };
     function openHistory(turmaId, dayId) {
-      historyView = { turma: turmaId || null, day: dayId || null };
+      historyView = { turma: turmaId || null, day: dayId || null, edit: null };
       renderHistory();
       document.getElementById('modal-history').classList.remove('hidden');
       if (cloudOn()) pullCloud(true).then(() => { if (!document.getElementById('modal-history').classList.contains('hidden')) renderHistory(); });
@@ -169,12 +169,13 @@
       openExportSheet(id);
     }
     function historyFilter(t) { historyView.turma = t || null; historyView.day = null; renderHistory(); }
-    function historyOpenDay(id) { historyView.day = id; renderHistory(); document.getElementById('history-body').scrollTop = 0; }
+    function historyOpenDay(id) { historyView.day = id; historyView.edit = null; renderHistory(); document.getElementById('history-body').scrollTop = 0; }
     const pastOfTurma = tid => state.pastDays.filter(d => !tid || (d.turmaIds || []).includes(tid));
     function renderHistory() {
       const body = document.getElementById('history-body');
       const title = document.getElementById('history-title');
       const d = historyView.day ? state.pastDays.find(x => x.id === historyView.day) : null;
+      if (d && historyView.edit && historyView.edit.id === d.id) { renderHistoryEdit(d, body, title); return; }
       if (d) {
         title.innerText = d.title || 'Baba';
         ensureGames(d);
@@ -196,8 +197,11 @@
           ${gamesBlockHtml(d)}
           <div class="flex gap-2">
             <button onclick="historyPdf('${d.id}')" class="btn-outline flex-1 h-11 text-[14px]"><i class="fa-solid fa-file-pdf"></i> PDF desse baba</button>
-            ${d.owner === false ? '' : `<button onclick="deletePastDay('${d.id}')" class="btn-icon !w-11 !h-11 !text-danger !bg-danger/10" aria-label="Apagar do histórico"><i class="fa-solid fa-trash-can"></i></button>`}
-          </div>`;
+          </div>
+          ${canEditPast(d) ? `<div class="flex gap-2">
+            <button onclick="historyEditStart('${d.id}')" class="btn-soft flex-1 h-11 text-[14px]"><i class="fa-solid fa-pen"></i> Editar</button>
+            <button onclick="deletePastDay('${d.id}')" class="btn-soft flex-1 h-11 text-[14px] !text-danger"><i class="fa-solid fa-trash-can"></i> Excluir</button>
+          </div>` : ''}`;
         return;
       }
       title.innerText = 'Babas anteriores';
@@ -220,16 +224,122 @@
       }).join('') : `<div class="card-flat p-4 flex items-center gap-3"><img src="babinha/tired.webp" alt="" class="w-14 h-14 object-contain flex-shrink-0" /><p class="text-[13.5px] text-ink-2 leading-snug">Nenhum baba encerrado ainda${historyView.turma ? ' nessa turma' : ''}. Quando quem organiza toca em "Começar novo baba", o dia fica guardado aqui pra turma toda ver.</p></div>`);
     }
 
+    /* v11.7 · Dono e adm da turma corrigem ou excluem babas anteriores. O servidor confere a permissão e recalcula tudo. */
+    const canEditPast = d => !!d && ((d.turmaIds || []).length ? d.turmaIds.some(id => canEditTurma(turmaById(id))) : d.owner !== false);
+    const pastShort = d => new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const pastInputDate = d => String(d.date).slice(0, 10);
+    const pastOnServer = d => cloudOn() && isUuid(d.id) && !readOutbox().some(o => o.type === 'baba_finish' && o.id === d.id);
+    function pastErrorText(e) {
+      const m = String((e && e.message) || '');
+      if (isNetworkError(e)) return 'Precisa de internet pra mexer em um baba anterior.';
+      if (/forbidden/.test(m)) return 'Só o dono ou um adm da turma pode fazer isso.';
+      if (/invalid_date/.test(m)) return 'Essa data não vale.';
+      return 'Não deu certo. Tente de novo.';
+    }
+
     async function deletePastDay(id) {
       const d = state.pastDays.find(x => x.id === id);
       if (!d) return;
-      if (d.owner === false) { showToast('Só quem organizou esse baba pode apagar.', 'warning'); return; }
-      if (!(await askConfirm(`Apagar o baba de ${fmtDate(d.date)} do histórico? As estatísticas dele saem do acumulado${cloudOn() ? ' de toda a turma' : ''}.`, 'Apagar'))) return;
+      if (!canEditPast(d)) { showToast('Só o dono ou um adm da turma exclui um baba anterior.', 'warning'); return; }
+      if (!(await askConfirm(`Excluir o baba de ${pastShort(d)}? As estatísticas serão recalculadas. Isso não pode ser desfeito.`, 'Excluir'))) return;
+      if (pastOnServer(d)) {
+        try { await api.removeBaba(id); } catch (e) { showToast(pastErrorText(e), 'warning'); return; }
+      } else if (isUuid(id)) enqueue({ type: 'baba_delete', id });
       state.pastDays = state.pastDays.filter(x => x.id !== id);
-      if (isUuid(id)) enqueue({ type: 'baba_delete', id });
-      commit('Baba apagado do histórico.');
+      historyView.edit = null;
+      commit('Baba excluído. Estatísticas recalculadas.');
       renderPastDays();
       if (!document.getElementById('modal-history').classList.contains('hidden')) { historyView.day = null; renderHistory(); }
+      if (cloudOn()) pullCloud(true);
+    }
+
+    function historyEditStart(id) {
+      const d = state.pastDays.find(x => x.id === id);
+      if (!d || !canEditPast(d)) return;
+      if (cloudOn() && isUuid(id) && d.matches && !d.games) { showToast('Carregando os jogos... tente de novo em instantes.', 'info'); ensureGames(d); return; }
+      historyView.edit = {
+        id, date: pastInputDate(d), venue: d.venue || '',
+        scores: (d.games || []).map(g => ({ a: g.scoreA, b: g.scoreB })),
+        stats: d.players.map(p => ({ goals: p.goals || 0, assists: p.assists || 0, saves: p.saves || 0 }))
+      };
+      renderHistory();
+      document.getElementById('history-body').scrollTop = 0;
+    }
+    function historyEditCancel() { historyView.edit = null; renderHistory(); }
+    function historyEditSet(kind, i, key, v) {
+      const ed = historyView.edit; if (!ed) return;
+      const n = Math.max(0, Math.min(99, Math.round(Number(v) || 0)));
+      if (kind === 'score') ed.scores[i][key] = n; else ed.stats[i][key] = n;
+    }
+    function historyEditBump(kind, i, key, delta) {
+      const ed = historyView.edit; if (!ed) return;
+      const row = kind === 'score' ? ed.scores[i] : ed.stats[i];
+      historyEditSet(kind, i, key, (row[key] || 0) + delta);
+      const el = document.getElementById(`hedit-${kind}-${i}-${key}`); if (el) el.value = row[key];
+    }
+    function historyEditField(key, v) { if (historyView.edit) historyView.edit[key] = v; if (key === 'venue') renderHistory(); }
+
+    function renderHistoryEdit(d, body, title) {
+      const ed = historyView.edit;
+      title.innerText = 'Editar baba';
+      const stepper = (kind, i, key, label) => `
+        <div class="flex flex-col items-center gap-1 min-w-0">
+          <span class="text-[10.5px] font-bold text-ink-2">${label}</span>
+          <div class="flex items-center gap-1">
+            <button type="button" onclick="historyEditBump('${kind}', ${i}, '${key}', -1)" class="btn-icon !w-8 !h-8 !bg-card" aria-label="Menos ${label}"><i class="fa-solid fa-minus text-[11px]"></i></button>
+            <input id="hedit-${kind}-${i}-${key}" type="number" inputmode="numeric" min="0" max="99" value="${(kind === 'score' ? ed.scores[i] : ed.stats[i])[key]}" onchange="historyEditSet('${kind}', ${i}, '${key}', this.value); this.value = (${kind === 'score' ? 'historyView.edit.scores' : 'historyView.edit.stats'})[${i}]['${key}']" class="w-10 h-8 text-center text-[15px] font-extrabold bg-transparent tabular-nums" />
+            <button type="button" onclick="historyEditBump('${kind}', ${i}, '${key}', 1)" class="btn-icon !w-8 !h-8 !bg-card" aria-label="Mais ${label}"><i class="fa-solid fa-plus text-[11px]"></i></button>
+          </div>
+        </div>`;
+      const games = (d.games || []).map((g, i) => `
+        <div class="p-3 rounded-2xl bg-sunk/60 space-y-2">
+          <p class="text-[12px] font-bold text-ink-2">Partida ${i + 1}${g.timestamp ? ' · ' + escapeHtml(g.timestamp) : ''}</p>
+          <div class="flex items-center justify-around gap-2">
+            <div class="text-center min-w-0"><p class="text-[12px] font-bold truncate">Time ${escapeHtml(g.labelA)}</p>${stepper('score', i, 'a', 'Gols')}</div>
+            <span class="text-ink-3 font-bold">×</span>
+            <div class="text-center min-w-0"><p class="text-[12px] font-bold truncate">Time ${escapeHtml(g.labelB)}</p>${stepper('score', i, 'b', 'Gols')}</div>
+          </div>
+        </div>`).join('');
+      const players = d.players.map((p, i) => `
+        <div class="p-3 rounded-2xl bg-sunk/60 space-y-2">
+          <p class="text-[13.5px] font-bold truncate">${escapeHtml(p.name)}</p>
+          <div class="grid grid-cols-3 gap-1">${stepper('stat', i, 'goals', 'Gols')}${stepper('stat', i, 'assists', 'Assist.')}${stepper('stat', i, 'saves', 'Defesas')}</div>
+        </div>`).join('');
+      body.innerHTML = `
+        <p class="text-[13px] text-ink-2 leading-snug">Corrija o que ficou errado. As estatísticas, o ranking e os cards são recalculados e os palpites desse baba são acertados de novo.</p>
+        <label class="block"><span class="label">Data</span><input id="hedit-date" type="date" value="${ed.date}" onchange="historyEditField('date', this.value)" class="select" /></label>
+        <div><span class="label">Local</span>
+          <div class="seg grid-cols-4 mt-1">${[['', 'Nenhum'], ...Object.entries(VENUES)].map(([k, l]) => `<button type="button" onclick="historyEditField('venue', '${k}')" class="seg-btn${ed.venue === k ? ' is-selected' : ''}">${l}</button>`).join('')}</div></div>
+        ${games ? `<div><p class="eyebrow mb-2 px-1">Placar de cada partida</p><div class="space-y-2">${games}</div></div>` : ''}
+        ${players ? `<div><p class="eyebrow mb-2 px-1">Gols, assistências e defesas</p><div class="space-y-2">${players}</div></div>` : ''}
+        <div class="flex gap-2 sticky bottom-0 pt-2 bg-card">
+          <button onclick="historyEditCancel()" class="btn-outline flex-1 h-12 text-[14px]">Cancelar</button>
+          <button id="hedit-save" onclick="historyEditSave()" class="btn-primary flex-1 h-12 text-[14px]">Salvar correção</button>
+        </div>`;
+    }
+
+    async function historyEditSave() {
+      const ed = historyView.edit;
+      const d = ed && state.pastDays.find(x => x.id === ed.id);
+      if (!d || !canEditPast(d)) return;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(ed.date)) { showToast('Escolha uma data válida.', 'warning'); return; }
+      const scores = (d.games || []).map((g, i) => ({ i, a: ed.scores[i].a, b: ed.scores[i].b })).filter(x => x.a !== d.games[x.i].scoreA || x.b !== d.games[x.i].scoreB);
+      const stats = d.players.map((p, i) => ({ p, i, v: ed.stats[i] })).filter(x => x.v.goals !== (x.p.goals || 0) || x.v.assists !== (x.p.assists || 0) || x.v.saves !== (x.p.saves || 0));
+      const btn = document.getElementById('hedit-save'); if (btn) btn.disabled = true;
+      if (pastOnServer(d)) {
+        try {
+          await api.editBaba(d.id, ed.date, ed.venue, scores, stats.filter(x => x.p.sid != null).map(x => ({ id: x.p.sid, goals: x.v.goals, assists: x.v.assists, saves: x.v.saves })));
+        } catch (e) { if (btn) btn.disabled = false; showToast(pastErrorText(e), 'warning'); return; }
+      }
+      // Cópia local (também é o caminho dos babas só deste aparelho).
+      d.date = `${ed.date}T12:00:00`; d.venue = ed.venue;
+      scores.forEach(x => { const g = d.games[x.i]; g.scoreA = x.a; g.scoreB = x.b; if (x.a !== x.b) delete g.pens; });
+      stats.forEach(x => Object.assign(x.p, { goals: x.v.goals, assists: x.v.assists, saves: x.v.saves }));
+      historyView.edit = null;
+      commit('Baba corrigido. Estatísticas recalculadas.');
+      renderHistory();
+      renderPastDays();
+      if (cloudOn()) pullCloud(true);
     }
 
     function exportBackup() {

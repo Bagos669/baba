@@ -132,9 +132,45 @@
             <i class="fa-solid fa-chevron-right text-[12px] text-ink-3 mt-1"></i>
           </div>
           ${propChipHtml(e)}
+          ${startEventBtnHtml(e)}
           ${me ? `<div class="grid grid-cols-3 gap-1.5 mt-3">${btn('vou', 'Vou')}${btn('talvez', 'Talvez')}${btn('nao', 'Não vou')}</div>`
             : `<p class="text-[12px] text-ink-2 mt-2.5 leading-snug">Pra responder, ligue seu nome na turma (abra a turma e toque no seu nome).</p>`}
         </div>`;
+    }
+
+    /* ---- v11.7 · Iniciar o baba direto do compromisso de hoje (só dono e adm) ---- */
+    const evIsToday = e => new Date(e.starts_at).toDateString() === new Date().toDateString();
+    function babaRunningFor(e) {
+      if (state.selectedTeams.includes(e.turma_id) && (hasBabaContent() || state.eventId === e.id)) return { kind: 'local' };
+      const sb = typeof sharedRunOfTurma === 'function' ? sharedRunOfTurma(e.turma_id) : null;
+      return sb ? { kind: 'shared', id: sb.id } : null;
+    }
+    function startEventBtnHtml(e) {
+      const t = turmaById(e.turma_id);
+      if (!t || e.status === 'canceled' || !evIsToday(e) || !canEditTurma(t)) return '';
+      const run = babaRunningFor(e);
+      return `<button onclick="event.stopPropagation(); startBabaFromEvent('${e.id}')" class="${run ? 'btn-outline' : 'btn-primary'} w-full h-11 text-[14px] mt-3"><i class="fa-solid ${run ? 'fa-arrow-right' : 'fa-play'}"></i> ${run ? 'Abrir baba em andamento' : 'Iniciar esse baba'}</button>`;
+    }
+    async function startBabaFromEvent(id) {
+      const e = eventsCache.find(x => x.id === id);
+      if (!e) return;
+      const t = turmaById(e.turma_id);
+      if (!t || !canEditTurma(t)) { showToast('Só o dono ou um adm da turma inicia o baba.', 'warning'); return; }
+      if (e.status === 'canceled' || !evIsToday(e)) { showToast('Esse compromisso não é de hoje ou foi cancelado.', 'warning'); return; }
+      const run = babaRunningFor(e);
+      if (run && run.kind === 'shared') { openSharedBaba(run.id); return; }
+      if (run) { switchTab('ficha'); return; }
+      if (!orgOnly()) return;
+      if (hasBabaContent()) {
+        if (lancesPending()) { showToast('Espere os lances serem enviados antes de trocar de baba.', 'warning'); return; }
+        if (!(await askConfirm('Já tem um baba aberto neste aparelho. Ele vai pro histórico e começa o baba dessa lista. Continuar?', 'Iniciar'))) return;
+        closeOutBaba(true);
+      }
+      state.selectedTeams = [e.turma_id];
+      state.eventId = e.id;
+      syncPool();
+      commit(`Baba de ${evWhen(e)} começou! Marque quem chegou na Lista.`);
+      switchTab('ficha');
     }
 
     /* ---- Responder ---- */

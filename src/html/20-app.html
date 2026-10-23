@@ -44,6 +44,7 @@
         </div>
 
         <div id="home-babinha"></div>
+        <div id="home-newbaba" class="hidden"></div>
         <div id="home-events"></div>
         <div id="home-explore"></div>
         <div id="home-mine"></div>
@@ -90,18 +91,18 @@
           <div id="scorer-bar-btns" class="flex flex-col items-stretch gap-1.5 flex-shrink-0"></div>
         </div>
 
-        <div id="venue-card" class="card p-3.5 hidden org-lock">
-          <span class="label">Onde é o baba</span>
-          <div id="venue-seg" class="seg grid-cols-4 mt-1"></div>
-          <p class="text-[11.5px] text-ink-2 mt-2 leading-snug">Separa os números por local nas estatísticas (jogos, gols, assistências e defesas).</p>
-        </div>
-
         <div class="card p-3.5 grid grid-cols-2 gap-2.5 org-lock">
-          <label class="block min-w-0">
-            <span class="label">Jogo (na linha)</span>
-            <select id="match-game-format" onchange="updateGameFormat(this.value)" class="select"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option><option value="6">6v6</option><option value="7">7v7</option><option value="8">8v8</option><option value="9">9v9</option><option value="10">10v10</option><option value="11">11v11</option><option value="12">12v12</option></select>
-          </label>
-          <label class="block min-w-0">
+          <div class="col-span-2 min-w-0">
+            <span class="label">Quantidade de jogadores de linha</span>
+            <div id="match-game-format" class="seg grid-cols-3 mt-1"></div>
+            <p id="match-game-format-note" class="text-[11.5px] text-ink-2 mt-1.5 leading-snug"></p>
+          </div>
+          <div class="col-span-2 min-w-0">
+            <span class="label">Times</span>
+            <div id="match-teams-seg" class="seg grid-cols-2 mt-1"></div>
+            <p id="match-teams-note" class="text-[11.5px] text-ink-2 mt-1.5 leading-snug"></p>
+          </div>
+          <label class="block min-w-0 col-span-2">
             <span class="label">Fim de jogo</span>
             <select id="match-goal-limit-rule" onchange="updateGoalLimitRule(this.value)" class="select">
               <option value="none">Só no tempo</option>

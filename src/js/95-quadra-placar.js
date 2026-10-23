@@ -25,7 +25,7 @@
 
       document.getElementById('match-score-a').innerText = state.match.scoreA;
       document.getElementById('match-score-b').innerText = state.match.scoreB;
-      document.getElementById('match-game-format').value = String(lineSize());
+      renderGameFormatUI();
       document.getElementById('match-gk-mode').value = keeperMode();
       renderFixedKeepers();
       document.getElementById('match-goal-limit-rule').value = state.match.goalLimitRule || '2';
@@ -100,10 +100,47 @@
       else if (['A', 'B'].some(s => state.court[s] && state.court[s].ids.length < teamSize())) msg += ' · complete os times na aba Times';
       commit(msg);
     }
+    /* v11.7: três jeitos de jogo. A escolha grava a quantidade de jogadores de linha e o local (Futsal/Society/Campo). */
+    const LINE_BY_VENUE = { futsal: 4, society: 6, campo: 10 };
+    function currentLineChoice() {
+      const n = lineSize(), v = state.settings.venue;
+      if (LINE_BY_VENUE[v] === n) return v;
+      return v ? '' : (Object.keys(LINE_BY_VENUE).find(k => LINE_BY_VENUE[k] === n) || '');
+    }
+    function renderGameFormatUI() {
+      const box = document.getElementById('match-game-format');
+      if (!box) return;
+      const cur = currentLineChoice();
+      box.innerHTML = Object.keys(LINE_BY_VENUE).map(k =>
+        `<button type="button" onclick="setLineChoice('${k}')" class="seg-btn${cur === k ? ' is-selected' : ''}">${VENUES[k]}<span class="block text-[11px] font-semibold opacity-70">${LINE_BY_VENUE[k]} na linha</span></button>`).join('');
+      const note = document.getElementById('match-game-format-note');
+      if (note) note.innerText = cur ? '' : `Este baba tem ${lineSize()} na linha${VENUES[state.settings.venue] ? ' (' + VENUES[state.settings.venue] + ')' : ''}. Escolha uma opção para mudar.`;
+      const tm = document.getElementById('match-teams-seg');
+      if (tm) {
+        tm.innerHTML = [['open', 'Abertos'], ['closed', 'Fechados']].map(([k, l]) =>
+          `<button type="button" onclick="setTeamsMode('${k}')" class="seg-btn${(teamsClosed() ? 'closed' : 'open') === k ? ' is-selected' : ''}">${l}</button>`).join('');
+        const tn = document.getElementById('match-teams-note');
+        if (tn) tn.innerText = teamsClosed() ? 'Os times ficam fixos: o app não sorteia nem reequilibra. Só mudam se o organizador editar na mão.' : 'O app monta e reequilibra os times pela ordem da fila.';
+      }
+    }
+    function setLineChoice(key) {
+      if (!orgOnly()) { renderAllComponents(); return; }
+      if (!LINE_BY_VENUE[key]) return;
+      state.match.lineSize = LINE_BY_VENUE[key];
+      state.settings.venue = key;
+      applyFormatChange('Jogo');
+    }
+    /* Tamanho livre (1 a 12): não tem mais botão na tela, fica para os testes e para backups antigos. */
     function updateGameFormat(val) {
       if (!orgOnly()) { renderAllComponents(); return; }
       state.match.lineSize = Math.min(12, Math.max(1, Number(val) || 4));
       applyFormatChange('Jogo');
+    }
+    function setTeamsMode(mode) {
+      if (!orgOnly()) { renderAllComponents(); return; }
+      if (!isTurmaOrg()) { showToast('Só o dono ou um adm da turma muda os times.', 'warning'); renderAllComponents(); return; }
+      state.settings.teamsMode = mode === 'closed' ? 'closed' : 'open';
+      commit(teamsClosed() ? 'Times fechados: o app não muda mais a composição sozinho.' : 'Times abertos: o app volta a montar e reequilibrar.');
     }
     function updateKeeperMode(val) {
       if (!orgOnly()) { renderAllComponents(); return; }
