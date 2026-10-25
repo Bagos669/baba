@@ -509,6 +509,7 @@
         return;
       }
       renderAllComponents();
+      if (l.kind === 'adjust') { if (l.confirmToast) showToast(`Números de ${l.playerName || 'atleta'} corrigidos.`); return; }
       if (l.kind === 'extra') showToast(`+${Math.round(l.seconds / 60)} min de acréscimo`);
       else showToast('Último lance desfeito.');
     }

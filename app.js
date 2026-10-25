@@ -2215,6 +2215,10 @@
         m.secondsLeft = (m.secondsLeft || 0) + l.seconds;
         if (m.isRunning && m.endAt) m.endAt += l.seconds * 1000;
         m.events.unshift({ lid: l.lid, type: 'extra', seconds: l.seconds, time: l.time, text: l.text });
+      } else if (l.kind === 'adjust') {
+        // Correção manual (ficha do jogador): valores finais, fora da lista de lances da partida.
+        const p = byId(l.playerId);
+        if (p) ['goals', 'assists', 'saves'].forEach(k => { if (typeof l[k] === 'number') p[k] = Math.max(0, Math.min(99, l[k])); });
       } else if (l.kind === 'undo') {
         const ev = m.events[0];
         if (!ev) return;
@@ -2257,7 +2261,8 @@
       nothing_to_undo: () => 'Recusado: não há lance para desfazer.',
       no_court: () => 'Recusado: esse time não está em quadra.',
       finished: () => 'Recusado: o baba já foi finalizado.',
-      forbidden: () => 'Recusado: sem permissão.'
+      forbidden: () => 'Recusado: sem permissão.',
+      no_player: () => 'Recusado: esse atleta ainda não está no baba do servidor. Tente de novo.'
     };
 
     async function pumpLances() {
@@ -2274,13 +2279,19 @@
           try {
             if (navigator.onLine === false) throw new TypeError('Failed to fetch');
             await ensureBabaOnServer();
+            // Correção de um atleta recém-adicionado: a gravação com ele precisa chegar antes.
+            if (item.lance.kind === 'adjust' && pendingUpsertFor(state.babaId)) await flushOutbox();
             const res = await api.lanceBaba(state.babaId, item.lance);
             await onLanceConfirmed(item.lance, res || {});
             item.status = 'ok';
             setTimeout(() => { lanceQ = lanceQ.filter(x => x !== item); renderLanceStatus(); }, 1600);
           } catch (e) {
             const code = Object.keys(LANCE_REFUSED).find(k => String(e.message || '').includes(k));
-            if (isMissingFn(e)) {
+            if (item.lance.kind === 'adjust' && /invalid/.test(String(e.message || ''))) {
+              // Servidor sem a v11.7.1: ainda não aceita correção manual.
+              item.status = 'refused';
+              item.msg = 'O servidor ainda não aceita corrigir números: falta rodar o SQL da v11.7.1.';
+            } else if (isMissingFn(e)) {
               // Servidor ainda sem a v11.6.1: grava como antes, só no celular.
               lanceOff = true;
               lanceQ.filter(x => x.status !== 'ok' && x.status !== 'refused').forEach(x => { applyLanceLocal(x.lance); afterLance(x.lance); x.status = 'ok'; });
@@ -2343,7 +2354,7 @@
       pumpLances();
     }
 
-    const lanceLabel = l => l.kind === 'undo' ? 'Desfazer último lance' : l.kind === 'extra' ? `Acréscimo de ${Math.round(l.seconds / 60)} min` : (l.text || '').replace(/^\S+\s/, '');
+    const lanceLabel = l => l.kind === 'adjust' ? `Correção de ${l.playerName || 'atleta'}` : l.kind === 'undo' ? 'Desfazer último lance' : l.kind === 'extra' ? `Acréscimo de ${Math.round(l.seconds / 60)} min` : (l.text || '').replace(/^\S+\s/, '');
     function renderLanceStatus() {
       const box = document.getElementById('lance-status');
       const off = document.getElementById('lance-offline');
@@ -3700,9 +3711,13 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.7';
+    const APP_VERSION = '11.7.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.7.1', date: '25/10/2026', title: 'Corrigir números do atleta voltou a funcionar', items: [
+        'Ao tocar num atleta (na Lista ou em Times) e mudar gols, assistências ou defesas, a correção agora fica salva. Antes ela aparecia e sumia logo depois.',
+        'A correção vai para o servidor como um lance: quem está anotando, o dono e os adms podem corrigir. Ela não mexe no placar da partida nem no "Desfazer".'
+      ] },
       { v: '11.7', date: '22/10/2026', title: 'Correções: Placar, Início e Turmas', items: [
         'Placar: agora é só escolher Futsal (4 na linha), Society (6) ou Campo (10). A escolha já marca o local do baba. Babas antigos ficam como estavam.',
         'Placar: nova opção "Times". Abertos (como sempre) ou Fechados: com os times fechados o app não sorteia nem reequilibra, só muda se o organizador editar na mão. Só dono e adm mudam.',
@@ -8908,7 +8923,13 @@
       }
       setKeeperFlag(p, document.querySelector('input[name="player-edit-pos"]:checked').value === 'goleiro');
       setFemaleFlag(p, document.querySelector('input[name="player-edit-sex"]:checked').value === 'f');
-      if (sheetStats) Object.assign(p, sheetStats);
+      // Gols, assistências e defesas: correção manual vira um lance (desde a v11.6.1 o servidor manda nesses números).
+      let adjust = null;
+      if (sheetStats && ['goals', 'assists', 'saves'].some(k => (p[k] || 0) !== sheetStats[k])) {
+        if (lanceMode() && !(isOrgHere() || canScore())) showToast('Só quem anota, o dono ou os adms corrigem gols, assistências e defesas.', 'warning');
+        else adjust = { kind: 'adjust', playerId: p.id, playerName: p.name, goals: sheetStats.goals, assists: sheetStats.assists, saves: sheetStats.saves,
+          text: `✏️ Números de ${p.name} corrigidos`, confirmToast: lanceMode() };
+      }
 
       const newTurma = turmaById(document.getElementById('player-edit-turma').value);
       if (!p.turmaId && newTurma && canEditTurma(newTurma)) {
@@ -8918,8 +8939,11 @@
         p.turmaId = newTurma.id;
         markTurmaDirty(newTurma.id);
       }
+      // Sem servidor de lances (sem nuvem ou servidor antigo): vale na hora, como antes.
+      if (adjust && !lanceMode()) { applyLanceLocal(adjust); adjust = null; }
       closePlayerSheet();
-      commit('Atleta atualizado.');
+      commit(adjust ? 'Atleta atualizado. Enviando a correção dos números...' : 'Atleta atualizado.');
+      if (adjust) submitLance(adjust);
     }
 
     async function deletePlayerFromSheet() {
@@ -9836,6 +9860,7 @@
         return;
       }
       renderAllComponents();
+      if (l.kind === 'adjust') { if (l.confirmToast) showToast(`Números de ${l.playerName || 'atleta'} corrigidos.`); return; }
       if (l.kind === 'extra') showToast(`+${Math.round(l.seconds / 60)} min de acréscimo`);
       else showToast('Último lance desfeito.');
     }

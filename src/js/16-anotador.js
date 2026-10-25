@@ -167,6 +167,10 @@
         m.secondsLeft = (m.secondsLeft || 0) + l.seconds;
         if (m.isRunning && m.endAt) m.endAt += l.seconds * 1000;
         m.events.unshift({ lid: l.lid, type: 'extra', seconds: l.seconds, time: l.time, text: l.text });
+      } else if (l.kind === 'adjust') {
+        // Correção manual (ficha do jogador): valores finais, fora da lista de lances da partida.
+        const p = byId(l.playerId);
+        if (p) ['goals', 'assists', 'saves'].forEach(k => { if (typeof l[k] === 'number') p[k] = Math.max(0, Math.min(99, l[k])); });
       } else if (l.kind === 'undo') {
         const ev = m.events[0];
         if (!ev) return;
@@ -209,7 +213,8 @@
       nothing_to_undo: () => 'Recusado: não há lance para desfazer.',
       no_court: () => 'Recusado: esse time não está em quadra.',
       finished: () => 'Recusado: o baba já foi finalizado.',
-      forbidden: () => 'Recusado: sem permissão.'
+      forbidden: () => 'Recusado: sem permissão.',
+      no_player: () => 'Recusado: esse atleta ainda não está no baba do servidor. Tente de novo.'
     };
 
     async function pumpLances() {
@@ -226,13 +231,19 @@
           try {
             if (navigator.onLine === false) throw new TypeError('Failed to fetch');
             await ensureBabaOnServer();
+            // Correção de um atleta recém-adicionado: a gravação com ele precisa chegar antes.
+            if (item.lance.kind === 'adjust' && pendingUpsertFor(state.babaId)) await flushOutbox();
             const res = await api.lanceBaba(state.babaId, item.lance);
             await onLanceConfirmed(item.lance, res || {});
             item.status = 'ok';
             setTimeout(() => { lanceQ = lanceQ.filter(x => x !== item); renderLanceStatus(); }, 1600);
           } catch (e) {
             const code = Object.keys(LANCE_REFUSED).find(k => String(e.message || '').includes(k));
-            if (isMissingFn(e)) {
+            if (item.lance.kind === 'adjust' && /invalid/.test(String(e.message || ''))) {
+              // Servidor sem a v11.7.1: ainda não aceita correção manual.
+              item.status = 'refused';
+              item.msg = 'O servidor ainda não aceita corrigir números: falta rodar o SQL da v11.7.1.';
+            } else if (isMissingFn(e)) {
               // Servidor ainda sem a v11.6.1: grava como antes, só no celular.
               lanceOff = true;
               lanceQ.filter(x => x.status !== 'ok' && x.status !== 'refused').forEach(x => { applyLanceLocal(x.lance); afterLance(x.lance); x.status = 'ok'; });
@@ -295,7 +306,7 @@
       pumpLances();
     }
 
-    const lanceLabel = l => l.kind === 'undo' ? 'Desfazer último lance' : l.kind === 'extra' ? `Acréscimo de ${Math.round(l.seconds / 60)} min` : (l.text || '').replace(/^\S+\s/, '');
+    const lanceLabel = l => l.kind === 'adjust' ? `Correção de ${l.playerName || 'atleta'}` : l.kind === 'undo' ? 'Desfazer último lance' : l.kind === 'extra' ? `Acréscimo de ${Math.round(l.seconds / 60)} min` : (l.text || '').replace(/^\S+\s/, '');
     function renderLanceStatus() {
       const box = document.getElementById('lance-status');
       const off = document.getElementById('lance-offline');

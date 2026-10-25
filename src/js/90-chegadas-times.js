@@ -298,7 +298,13 @@
       }
       setKeeperFlag(p, document.querySelector('input[name="player-edit-pos"]:checked').value === 'goleiro');
       setFemaleFlag(p, document.querySelector('input[name="player-edit-sex"]:checked').value === 'f');
-      if (sheetStats) Object.assign(p, sheetStats);
+      // Gols, assistências e defesas: correção manual vira um lance (desde a v11.6.1 o servidor manda nesses números).
+      let adjust = null;
+      if (sheetStats && ['goals', 'assists', 'saves'].some(k => (p[k] || 0) !== sheetStats[k])) {
+        if (lanceMode() && !(isOrgHere() || canScore())) showToast('Só quem anota, o dono ou os adms corrigem gols, assistências e defesas.', 'warning');
+        else adjust = { kind: 'adjust', playerId: p.id, playerName: p.name, goals: sheetStats.goals, assists: sheetStats.assists, saves: sheetStats.saves,
+          text: `✏️ Números de ${p.name} corrigidos`, confirmToast: lanceMode() };
+      }
 
       const newTurma = turmaById(document.getElementById('player-edit-turma').value);
       if (!p.turmaId && newTurma && canEditTurma(newTurma)) {
@@ -308,8 +314,11 @@
         p.turmaId = newTurma.id;
         markTurmaDirty(newTurma.id);
       }
+      // Sem servidor de lances (sem nuvem ou servidor antigo): vale na hora, como antes.
+      if (adjust && !lanceMode()) { applyLanceLocal(adjust); adjust = null; }
       closePlayerSheet();
-      commit('Atleta atualizado.');
+      commit(adjust ? 'Atleta atualizado. Enviando a correção dos números...' : 'Atleta atualizado.');
+      if (adjust) submitLance(adjust);
     }
 
     async function deletePlayerFromSheet() {

@@ -26,6 +26,7 @@ TESTS = [
     ('v115',     ['v115_smoke.py'],        'Resenha: palpites no topo, duelos, destaque, total, ranking de palpiteiros, troféus no perfil'),
     ('v116',     ['v116_smoke.py'],        'baba compartilhado: card, selo, abrir placar, sincronizar, conflito, finalização única, baba pendente'),
     ('v117',     ['v117_smoke.py'],        'v11.7: formatos do Placar, Times fechados, Iniciar esse baba, editar/excluir baba anterior, nome do atleta'),
+    ('v1171',    ['v1171_smoke.py'],       'v11.7.1: corrigir gols/assistências/defesas na ficha do jogador fica salvo'),
     ('v1161',    ['v1161_smoke.py'],       'anotador único e mesário: botões travados, enviando/confirmado/falhou, assumir, passar a vez, transmissão'),
     ('tutorial', ['tutorial_test.py'],     'os 6 capítulos do tutorial e seus alvos na tela'),
     ('sim2',     ['runsim2.py', 'sim2.js'], 'simulação de babas: times, fila, rotação, stats, reload'),

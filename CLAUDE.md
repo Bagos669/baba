@@ -125,7 +125,7 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario → v11_7_correcoes
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario → v11_7_correcoes → v11_7_1_ajuste_stats
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2; `v11_5_palpites_fase2.sql` é a 11.5).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
@@ -179,13 +179,18 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   e reordenação `menos-jogos`; `completeTeam` ainda completa na mão), `startBabaFromEvent`/`startEventBtnHtml` (70), `renderHomeNewBaba` (85), `historyEditStart/Save`, `deletePastDay`,
   `canEditPast` (99), `openAthleteActions`/`saveAthleteRename`/`openPlayerProfile` (85). Edição/exclusão de baba e renomear atleta chamam o servidor direto (sem outbox) e precisam de internet.
   **Não rode o v11_6_1 de novo depois do v11_7** (recria o gatilho antigo, que ignora a edição).
+- v11.7.1 (correção manual na ficha do jogador): o lance `adjust` (`playerId` + valores FINAIS de `goals/assists/saves`, 0 a 99) entra no `baba_lance`
+  (`private.set_player`); pode o anotador, o dono e os adms (`runs_baba`); não exige a partida atual, não vira anotador, não entra em `match.events`
+  (o Desfazer não mexe nele). No app, `savePlayerSheet` monta o lance e chama `submitLance` (sem servidor de lances, aplica na hora com `applyLanceLocal`).
+  Servidor sem a v11.7.1 responde `invalid` → o lance fica recusado com aviso para rodar o SQL. **Nunca** mude `goals/assists/saves` direto no `state`
+  fora de `applyLanceLocal`: o `guard_state` do servidor desfaz na gravação seguinte (foi esse o bug). **Não rode o v11_6_1 de novo depois do v11_7_1.**
 - Pendente do usuário: segredos `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` em Edge Functions → Secrets (nunca commitar a privada).
 
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
 configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), v115 (Resenha, palpites fase 2, ranking, troféus; liga
-`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v117 (formatos do Placar, Times fechados, Iniciar esse baba, editar/excluir baba anterior, nome do atleta), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
+`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v1171 (corrigir números na ficha do jogador; `fake.adjust_off` simula servidor antigo), v117 (formatos do Placar, Times fechados, Iniciar esse baba, editar/excluir baba anterior, nome do atleta), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
 use `goalLimitRule = 'none'` em testes que contam gols, senão a partida acaba sozinha no 2º gol), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 

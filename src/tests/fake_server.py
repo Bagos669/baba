@@ -1737,13 +1737,19 @@ def f_lanceBaba(self, uid, bid, l):
     if b['finished']: raise PermissionError('finished')
     org = self._runs(b, uid); kind = l.get('kind')
     ok = uid == b.get('scorer_id') or (not b.get('scorer_id') and org)
-    if not (ok or (kind == 'extra' and org)): raise PermissionError('not_scorer')
-    if not b.get('scorer_id') and org: b['scorer_id'] = uid; b.setdefault('scorers', []).append(uid)
+    if kind == 'adjust' and getattr(self, 'adjust_off', False): raise PermissionError('invalid')
+    if not (ok or (kind in ('extra', 'adjust') and org)): raise PermissionError('not_scorer')
+    if not b.get('scorer_id') and org and kind != 'adjust': b['scorer_id'] = uid; b.setdefault('scorers', []).append(uid)
     st = _copy.deepcopy(b.get('state') or {}); mno = _hist(st) + 1
-    if l.get('match_no', mno) != mno: raise PermissionError('stale_match')
+    if kind != 'adjust' and l.get('match_no', mno) != mno: raise PermissionError('stale_match')
     m = st.setdefault('match', {}); ev = m.setdefault('events', [])
     side = 'B' if l.get('side') == 'B' else 'A'
-    if kind == 'goal':
+    if kind == 'adjust':
+        pl = next((p for p in st.get('players') or [] if str(p.get('id')) == str(l.get('playerId'))), None)
+        if not pl: raise PermissionError('no_player')
+        for k in ('goals', 'assists', 'saves'):
+            if isinstance(l.get(k), (int, float)): pl[k] = min(99, max(0, int(l[k])))
+    elif kind == 'goal':
         if not isinstance((st.get('court') or {}).get(side), dict): raise PermissionError('no_court')
         m['score' + side] = (m.get('score' + side) or 0) + 1
         _bump_player(st, l.get('scorerId'), 'goals', 1)

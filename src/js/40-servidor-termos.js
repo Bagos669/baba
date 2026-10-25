@@ -156,9 +156,13 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.7';
+    const APP_VERSION = '11.7.1';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.7.1', date: '25/10/2026', title: 'Corrigir números do atleta voltou a funcionar', items: [
+        'Ao tocar num atleta (na Lista ou em Times) e mudar gols, assistências ou defesas, a correção agora fica salva. Antes ela aparecia e sumia logo depois.',
+        'A correção vai para o servidor como um lance: quem está anotando, o dono e os adms podem corrigir. Ela não mexe no placar da partida nem no "Desfazer".'
+      ] },
       { v: '11.7', date: '22/10/2026', title: 'Correções: Placar, Início e Turmas', items: [
         'Placar: agora é só escolher Futsal (4 na linha), Society (6) ou Campo (10). A escolha já marca o local do baba. Babas antigos ficam como estavam.',
         'Placar: nova opção "Times". Abertos (como sempre) ou Fechados: com os times fechados o app não sorteia nem reequilibra, só muda se o organizador editar na mão. Só dono e adm mudam.',
