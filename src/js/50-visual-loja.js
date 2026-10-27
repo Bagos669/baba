@@ -536,7 +536,7 @@
     const propMore = new Set();        // atletas com "ver mais" aberto
     let propDraft = null;              // bilhete em montagem
     const propLines = new Map();       // marketId -> linha escolhida por mim (v11.4.1)
-    const PROP_METRIC = { goals: 'Gols', assists: 'Assistências', ga: 'Gols + assistências', saves: 'Defesas' };
+    const PROP_METRIC = { goals: 'Gols', assists: 'Assistências', ga: 'Gols + assistências', saves: 'Defesas', wins: 'Jogos ganhos' };
     const fmtCot = n => Number(n).toFixed(2).replace('.', ',');
     const fmtLinha = n => Number(n).toFixed(1).replace('.', ',');
     const propIsLocked = d => !!d.locked || new Date(d.starts_at).getTime() <= Date.now();
@@ -577,6 +577,7 @@
     function openPalpites(eventId) {
       propEventId = eventId;
       propSub = 'palpites';
+      propNav = { view: 'home' };
       switchTab('loja');
       setTimeout(() => { const el = document.getElementById('shop-palpites'); if (el && !el.classList.contains('hidden')) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
     }
@@ -644,6 +645,8 @@
         return `<div class="card p-4"><p class="text-[14px] font-bold">${escapeHtml(evTurma(e).name)} · ${escapeHtml(evWhen(e))}</p>
             <p class="text-[13px] text-ink-2 mt-1 leading-snug">Os palpites abrem quando a lista chega a 4 confirmados.</p></div>`;
       }
+      // v11.8: servidor novo = menu com telas curtas (Duelo, Destaque, Total, Por atleta, Meus palpites).
+      if (data.v118) return propNavHtml(data, e);
       const locked = propIsLocked(data);
       const adult = !!data.adult;
       const chooser = propCandidates();
@@ -713,7 +716,7 @@
         const mk = (key, label, odd, ok, line, own) => {
           const picked = m.bet && m.bet.selection === key && (m.kind !== 'ou' || Number(m.bet.line != null ? m.bet.line : m.line) === Number(line));
           const off = blocked || own || !ok;
-          return `<button ${off ? 'disabled' : ''} onclick="openBilhete('${m.id}', '${key}'${ladder ? ', ' + line : ''})" class="prop-btn h-11 rounded-xl border text-[13px] font-extrabold transition active:scale-[0.97] ${picked ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'} ${off && !picked ? 'opacity-40' : ''}" ${own ? 'title="Menos em si mesmo não vale"' : ''}>${label}${ok ? ' · ' + fmtCot(odd) : ''}</button>`;
+          return `<button ${off ? 'disabled' : ''} onclick="openBilhete('${m.id}', '${key}'${ladder ? ', ' + line : ''})" class="prop-btn h-11 rounded-xl border text-[13px] font-extrabold transition active:scale-[0.97] ${picked ? 'bg-pitch text-butter border-pitch' : 'bg-card border-ink/15 text-ink'} ${off && !picked ? 'opacity-40' : ''}" ${own ? 'title="Menos em si mesmo não vale"' : !ok ? 'title="Quase certo: não paga"' : ''}>${label}${ok ? ' · ' + fmtCot(odd) : ' · travado'}</button>`;
         };
         if (ladder) {
           let cur = m.bet ? Number(m.bet.line != null ? m.bet.line : m.line) : (propLines.has(m.id) ? propLines.get(m.id) : Number(m.line));
@@ -727,7 +730,7 @@
             </div>`;
           body = `${stepper}<div class="grid grid-cols-2 gap-1.5">${mk('mais', 'Mais ' + fmtLinha(ent.line), ent.mais.odd, ent.mais.ok, ent.line, false)}${mk('menos', 'Menos ' + fmtLinha(ent.line), ent.menos.odd, ent.menos.ok, ent.line, m.mine)}</div>`;
         } else {
-          const btn = s => mk(s.key, m.kind === 'ou' ? `${s.key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)}` : (s.key === '6+' ? '6+' : s.key), s.odd, true, m.line, m.mine && s.key === 'menos');
+          const btn = s => mk(s.key, m.kind === 'ou' ? `${s.key === 'mais' ? 'Mais' : 'Menos'} ${fmtLinha(m.line)}` : (s.key === '6+' ? '6+' : s.key), s.odd, s.ok !== false, m.line, m.mine && s.key === 'menos');
           body = m.kind === 'ou' ? `<div class="grid grid-cols-2 gap-1.5">${sels.map(btn).join('')}</div>` : `<div class="grid grid-cols-4 gap-1.5">${sels.map(btn).join('')}</div>`;
         }
       }
@@ -769,7 +772,7 @@
         </div>`;
     }
 
-    function propChoose(id) { propEventId = id; propAudit = null; if (propCache.has(id)) renderPropSection(); loadProp(true); }
+    function propChoose(id) { propEventId = id; propAudit = null; propNav = { view: 'home' }; if (propCache.has(id)) renderPropSection(); loadProp(true); }
     function propToggleMore(pid) { if (propMore.has(pid)) propMore.delete(pid); else propMore.add(pid); renderPropSection(); }
     async function propToggleAudit(eventId) {
       if (propAudit && propAudit.eventId === eventId) { propAudit = null; renderPropSection(); return; }
@@ -793,6 +796,9 @@
         : m.includes('already_bet') ? 'Você já fez um palpite nesse mercado.'
         : m.includes('has_bets') ? 'Já tem palpite nesse mercado: só dá para suspender.'
         : m.includes('not_allowed') ? 'Só o adm da turma faz isso.'
+        : m.includes('too_likely') ? 'Esse lado é quase certo (mais de 85% de chance) e não paga. Escolha outra linha.'
+        : m.includes('bad_metric') ? 'Escolha gols, assistências ou G+A.'
+        : m.includes('bad_pair') ? 'Escolha dois atletas diferentes.'
         : 'Não deu certo agora. Tente de novo.';
     }
 
@@ -802,7 +808,7 @@
       const m = data && data.markets.find(x => x.id === marketId);
       if (!m) return;
       let odd, ln = null;
-      if (m.kind === 'ou' && Array.isArray(m.ladder) && line != null) {
+      if ((m.kind === 'ou' || m.kind === 'baba_total') && Array.isArray(m.ladder) && m.ladder.length && line != null) {
         const ent = m.ladder.find(x => Number(x.line) === Number(line));
         if (!ent || !ent[key] || !ent[key].ok) return;
         odd = Number(ent[key].odd); ln = Number(ent.line);

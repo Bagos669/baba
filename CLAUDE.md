@@ -11,7 +11,7 @@ ao vivo com palpites, aba Resenha (palpites pré-jogo, ranking de palpiteiros, m
 
 ```
 /            site PUBLICADO (gerado pelo build). Não edite app.js, index.html, sw.js, app.css aqui.
-src/js/*.js        todo o JavaScript do app, em 19 módulos (564 funções, vanilla, sem bundler). Índice abaixo
+src/js/*.js        todo o JavaScript do app, em 20 módulos (564 funções, vanilla, sem bundler). Índice abaixo
 src/html/*.html    todo o HTML + CSS próprio + config do Tailwind, em 11 partes (viram index.html)
                    O build junta os arquivos de cada pasta em ordem alfabética do nome (00-, 10-, ...) por simples
                    concatenação: sem import/export. A ordem é a ordem de execução do app; não renumere sem necessidade.
@@ -84,6 +84,7 @@ Cada módulo guarda funções inteiras; a ordem dos arquivos é a mesma de antes
 | `40-servidor-termos` | V7 · SERVIDOR, POP-UPS, TERMOS, MOLDURAS E NOMES | `API7` = RPCs do Supabase (termos, pontos, loja, ao vivo, palpites, chat, eventos, turmas v11.2), `PATCH_NOTES`, `APP_VERSION`, `maybePopups`, `openPatchNotes`, `applyFrame` (moldura no **wrapper** do avatar, nunca no botão), `framedAvatar`, `styledName` |
 | `50-visual-loja` | VISUAL DO ATLETA, LOJINHA (aba Resenha), MISSÕES, PALPITES PRÉ-JOGO | `athleteCardHtml`, `openAthleteCard`, push do ao vivo, `openShop` → `switchTab('loja')` → `enterShop`, `renderShop`, `claimDaily` |
 | `52-resenha-palpites2` | RESENHA (v11.5): Duelos, Destaque do dia, Total do baba, ranking de palpiteiros, troféus no Perfil e no card | `propFase2Html`, `propSubTab`, `loadPropRank`, `propRankHtml`, `loadUserTrophies`, `renderProfileTrophies`, `paintBalance` |
+| `53-palpites-telas` | PALPITES EM TELAS (v11.8): menu Duelo / Destaque / Total / Por atleta / Meus palpites | `propNav`, `propGo`, `propNavHtml`, `propDuelView`, `propLeaderView`, `propTotalView`, `propLadderHtml`, `propAthleteView`, `propMineView` |
 | `60-aovivo` | JOGO AO VIVO (organiza / assiste) | `playerRates`, `oddFrom` (0,9/p), `liveMarkets`, `openLive`, palpites ao vivo, duelos |
 | `70-compromisso` | COMPROMISSO (v11) | eventos/lista: `openEventEdit/saveEventEdit`, `openEventSheet`, `answerEvent`, colar lista, convidados, presença |
 | `80-turmas-chat` | TURMAS (v11.2), CHAT | `openTurmaHub` (ranking, troféus, prestígio), desafios, `openExplore`, campeonatos, `openForm`, `openTurmaChat`, `todaysEvent`, `renderHomeV7`, `renderHomeBabinha` (mascote contextual), `renderBattery` |
@@ -125,7 +126,7 @@ O build troca `/*APP_JS*/` e o `<script>` vazio por `<script src="app.js?v=...">
 
 ## Banco (src/supabase)
 
-Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario → v11_7_correcoes → v11_7_1_ajuste_stats
+Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_compromisso → v11_2_convidados → v11_3_turmas → v11_4_palpites_pre → v11_4_1_palpites_livres → v11_4_2_avisos → v11_5_palpites_fase2 → v11_6_baba_compartilhado → v11_6_1_anotador_mesario → v11_7_correcoes → v11_7_1_ajuste_stats → v11_8_palpites_abertos
 (o arquivo `v11_3_turmas.sql` é a versão 11.2 do app; `v11_2_convidados.sql` é a 11.1; `v11_4_palpites_pre.sql` é a 11.4; `v11_4_1_palpites_livres.sql` é a 11.4.1; `v11_4_2_avisos.sql` é a 11.4.2; `v11_5_palpites_fase2.sql` é a 11.5).
 - Tabelas com RLS; escrita sensível só por RPC `security definer set search_path = ''`; helpers em `private.*`
   (`is_member`, `is_adult`, `add_points`, `season_of`, `award_seasons`, `settle_stale`...).
@@ -184,13 +185,25 @@ Ordem de produção: v6 → v7 → v8 → v9 → v9_5 → v10 → v10_1 → v11_
   (o Desfazer não mexe nele). No app, `savePlayerSheet` monta o lance e chama `submitLance` (sem servidor de lances, aplica na hora com `applyLanceLocal`).
   Servidor sem a v11.7.1 responde `invalid` → o lance fica recusado com aviso para rodar o SQL. **Nunca** mude `goals/assists/saves` direto no `state`
   fora de `applyLanceLocal`: o `guard_state` do servidor desfaz na gravação seguinte (foi esse o bug). **Não rode o v11_6_1 de novo depois do v11_7_1.**
+- v11.8 (palpites abertos e por escolha): `private.prop_ladder(lam)` vai de 0,5 a 10,5 e TODA linha tem um lado aberto: o lado com chance > 85%
+  (`private.prop_maxp()`) fica `ok:false` ("quase certo", pagaria <= 1x); `place_prop_bet` recusa qualquer opção com p > 0,85 (`too_likely`), inclusive
+  cravada/duelo/destaque/total (`private.prop_mark_ok` põe o `ok` nas seleções). Por atleta: todo confirmado cadastrado ganha `ou` de goals/assists/ga/**wins**
+  (goleiro também `saves`) e `exact` de gols sempre que λ > 0 (linha sugerida `private.prop_default_line`). `prop_stats`/`prop_rates`/`prop_pstat` têm
+  vitórias (`w`/`lw`); `private.prop_val(metric, g, a, sv, w)` dá o valor (mvp = g+a+w). Duelo por escolha: `public.prop_duel_open(event, p_a, p_b, p_metric)`
+  (goals/assists/ga; par em ordem fixa `least/greatest`; unique `prop_markets_uniq_v118` com `player2_id`, nulls not distinct). Destaque ganha `mvp`.
+  Total: quem palpita escolhe a linha (`private.total_ladder`: partidas até 20,5, gols até 60,5; `prop_bets.line`); baba finalizado com 0 partidas
+  anula o Total (`zero`). `public.my_prop_bets(lim)` = "Ver meus palpites" (texto pronto em `private.prop_bet_label`). `prop_markets` devolve `v118: true` e
+  `athletes` (confirmados cadastrados). Cliente: com `data.v118` a seção vira menu em telas (`src/js/53-palpites-telas.js`: `propNav`, `propGo`,
+  `propNavHtml`, `propDuelView`/`propDuelLoad`, `propLeaderView`, `propTotalView` + `propLadderHtml`, `propAthleteView`, `propMineView`/`loadPropMine`);
+  sem `v118` continua a lista antiga (`propPalpitesHtml`). **Não rode v11_4_1, v11_5 nem v11_6_1 de novo depois do v11_8** (recriam funções antigas).
+  Bug dos cards duplicados: `pendingBabas()` (15) ignora baba de outro dia com 0 partidas e 0 gols; `closePendingBaba` confere no servidor depois de fechar.
 - Pendente do usuário: segredos `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` em Edge Functions → Secrets (nunca commitar a privada).
 
 ## Testes (src/tests)
 
 `check.py` sobe `http.server` na porta 8765 servindo a raiz e roda: v11 (lista/compromisso), v112 (turmas), v113 (navegação,
 configurações, local, lances, moldura), v114 (palpites pré-jogo), v1142 (avisos no celular), v115 (Resenha, palpites fase 2, ranking, troféus; liga
-`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v1171 (corrigir números na ficha do jogador; `fake.adjust_off` simula servidor antigo), v117 (formatos do Placar, Times fechados, Iniciar esse baba, editar/excluir baba anterior, nome do atleta), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
+`fake.v115_enabled`), v116 (baba compartilhado com 4 celulares: dono, 2 adms e membro; `fake.v116_enabled` liga por padrão), v118 (palpites em telas, `fake.v118_enabled`), v1171 (corrigir números na ficha do jogador; `fake.adjust_off` simula servidor antigo), v117 (formatos do Placar, Times fechados, Iniciar esse baba, editar/excluir baba anterior, nome do atleta), v1161 (anotador e mesário com 4 celulares; `fake.v1161_enabled` liga por padrão;
 use `goalLimitRule = 'none'` em testes que contam gols, senão a partida acaba sozinha no 2º gol), tutorial, sim2 (simulação + reload). Os smokes usam `fake_api.js` (no navegador) +
 `fake_server.py` (Python, via `expose_function('fakeCall')`). Os demais arquivos de teste são de versões antigas e não estão mantidos.
 

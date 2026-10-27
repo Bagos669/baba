@@ -144,7 +144,9 @@
     function pendingBabas() {
       if (new Date().getHours() < 6) return [];
       const today = localDate();
-      return sharedBabas.filter(b => b.my_role !== 'mesario' && String(b.played_on || '').slice(0, 10) < today && !snoozed(b.id)).slice(0, 3);
+      // v11.8: baba de outro dia sem nenhuma partida e sem gol não tem nada para salvar: não vira card (eram os "duplicados").
+      return sharedBabas.filter(b => b.my_role !== 'mesario' && String(b.played_on || '').slice(0, 10) < today && !snoozed(b.id)
+        && ((b.matches || 0) > 0 || (b.goals || 0) > 0)).slice(0, 3);
     }
     function snoozed(id) { const t = Number(lsGet(SNOOZE_PREFIX + id) || 0); return t && Date.now() < t; }
     function dayLabel(d) {
@@ -250,6 +252,12 @@
       renderAllComponents();
       renderSharedCards();
       showToast('Baba fechado. O relatório está no histórico da turma.');
+      // Confere no servidor: se o fechamento não pegou, o card volta com um aviso (em vez de reaparecer calado).
+      try {
+        await flushOutbox();
+        await loadSharedBabas(true);
+        if (sharedBabas.some(b => b.id === id)) showToast('O servidor ainda não fechou esse baba. Toque em "Fechar baba" de novo.', 'warning');
+      } catch (e) {}
     }
 
     setInterval(sharedTick, SHARED_TICK_MS);

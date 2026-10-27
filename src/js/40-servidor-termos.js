@@ -60,6 +60,8 @@
       adjustPropLine: (market, line) => rpc('adjust_prop_line', { market, line }),
       suspendPropMarket: market => rpc('suspend_prop_market', { market }),
       propEventBets: event => rpc('prop_event_bets', { event }),
+      propDuelOpen: (event, a, b, metric) => rpc('prop_duel_open', { event, p_a: a, p_b: b, p_metric: metric }),
+      myPropBets: lim => rpc('my_prop_bets', { lim: lim || 60 }),
       propLeaderboard: (t, season) => rpc('prop_leaderboard', { t, season: season || null }),
       userTrophies: u => rpc('user_trophies', { u: u || null }),
       setPrivacy: (t, pub) => rpc('set_turma_privacy', { t, pub }),
@@ -156,9 +158,19 @@
        POP-UPS: aviso do suporte e novidades da versão
        Shown one at a time, after the terms and the tour are out of the way.
        =================================================================== */
-    const APP_VERSION = '11.7.1';
+    const APP_VERSION = '11.8';
     const NOTES_KEY = 'baba_notes_seen_v1';
     const PATCH_NOTES = [
+      { v: '11.8', date: '27/10/2026', title: 'Palpites em telas e linhas abertas', items: [
+        'Palpites agora têm um menu: Duelo, Destaque do dia, Total do baba e Por atleta, cada um numa tela curta, sem precisar rolar a lista toda.',
+        'Duelo: você escolhe os dois atletas confirmados e o critério (gols, assistências ou G+A).',
+        'Destaque do dia ganhou o MVP (gols + assistências + jogos ganhos), junto de Artilheiro, Garçom e Paredão.',
+        'Por atleta: escolha o jogador e o que palpitar (jogos ganhos, gols, assistências, G+A ou cravada de gols). As linhas vão de 0,5 a 10,5 para todo mundo.',
+        'Total do baba: você escolhe a linha (partidas até 20,5 e gols até 60,5).',
+        'O lado "quase certo" de uma linha (mais de 85% de chance) aparece travado, porque não pagaria nada. A zebra paga até 20x.',
+        'Novo "Ver meus palpites", com todos os seus palpites e resultados.',
+        'Início: os avisos repetidos de "baba ainda aberto" de babas vazios (sem partida e sem gol) não aparecem mais.'
+      ] },
       { v: '11.7.1', date: '25/10/2026', title: 'Corrigir números do atleta voltou a funcionar', items: [
         'Ao tocar num atleta (na Lista ou em Times) e mudar gols, assistências ou defesas, a correção agora fica salva. Antes ela aparecia e sumia logo depois.',
         'A correção vai para o servidor como um lance: quem está anotando, o dono e os adms podem corrigir. Ela não mexe no placar da partida nem no "Desfazer".'

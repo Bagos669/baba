@@ -12,9 +12,9 @@
     let propRankLoading = false;
     let propRankOff = false;             // servidor ainda sem a v11.5
     const propLeaderAll = new Set();     // Destaques com "ver todos" aberto
-    const LEADER_TITLE = { goals: 'Artilheiro', assists: 'Garçom', saves: 'Paredão' };
-    const LEADER_SUB = { goals: 'Quem faz mais gols no baba', assists: 'Quem dá mais assistências no baba', saves: 'Quem faz mais defesas no baba' };
-    const LEADER_ICON = { goals: 'fa-futbol', assists: 'fa-handshake', saves: 'fa-hand' };
+    const LEADER_TITLE = { goals: 'Artilheiro', assists: 'Garçom', saves: 'Paredão', mvp: 'MVP' };
+    const LEADER_SUB = { goals: 'Quem faz mais gols no baba', assists: 'Quem dá mais assistências no baba', saves: 'Quem faz mais defesas no baba', mvp: 'Gols + assistências + jogos ganhos' };
+    const LEADER_ICON = { goals: 'fa-futbol', assists: 'fa-handshake', saves: 'fa-hand', mvp: 'fa-crown' };
     const TOTAL_TITLE = { matches: 'Partidas no dia', goals: 'Gols no dia' };
     const isPlayerMarket = m => m.kind === 'ou' || m.kind === 'exact';
 
@@ -29,7 +29,7 @@
       return s && s.label ? s.label : '?';
     }
     function propKindTitle(m) {
-      if (m.kind === 'duel') return `Duelo ${m.player || '?'} x ${m.player2 || '?'}`;
+      if (m.kind === 'duel') return `Duelo ${m.player || '?'} x ${m.player2 || '?'}${m.metric && m.metric !== 'ga' ? ` (${m.metric === 'goals' ? 'gols' : 'assistências'})` : ''}`;
       if (m.kind === 'leader') return `${LEADER_TITLE[m.metric] || 'Destaque'} do dia`;
       if (m.kind === 'baba_total') return `Total do baba · ${TOTAL_TITLE[m.metric] || ''}`;
       return `${m.player} · ${m.kind === 'exact' ? 'Cravada de gols' : PROP_METRIC[m.metric]}`;
@@ -39,8 +39,8 @@
       return propOptName(m, key);
     }
     function propBilheteNote(m) {
-      if (m.kind === 'duel') return 'Vale gols + assistências no baba. Empate devolve o palpite; se um dos dois não jogar, também.';
-      if (m.kind === 'leader') return 'Se der empate no topo, o pagamento é dividido entre os empatados. Atleta que não jogar: palpite devolvido.';
+      if (m.kind === 'duel') return `Vale ${m.metric === 'goals' ? 'gols' : m.metric === 'assists' ? 'assistências' : 'gols + assistências'} no baba. Empate devolve o palpite; se um dos dois não jogar, também.`;
+      if (m.kind === 'leader') return `${m.metric === 'mvp' ? 'MVP = gols + assistências + jogos ganhos. ' : ''}Se der empate no topo, o pagamento é dividido entre os empatados. Atleta que não jogar: palpite devolvido.`;
       if (m.kind === 'baba_total') return Number(m.line) % 1 === 0 ? 'Se der exatamente a linha, o palpite é devolvido.' : '';
       return '';
     }
@@ -103,12 +103,12 @@
       const side = (s, other) => {
         const blockMe = (m.mine && s.key === m.player2_id) || (m.mine2 && s.key === m.player_id);   // atleta do duelo não palpita no adversário
         return propOptBtn(m, data, s.key, `<span class="block truncate">${escapeHtml(s.label || '?')}${s.mine ? ' <span class="text-[10.5px] font-bold opacity-70">(você)</span>' : ''}</span><span class="block text-[12px] font-bold opacity-80">${fmtCot(s.odd)}</span>`,
-          s.odd, { cls: 'h-14 px-2', block: blockMe, title: blockMe ? 'Você não palpita no seu adversário' : '' });
+          s.odd, { cls: 'h-14 px-2', block: blockMe || s.ok === false, title: blockMe ? 'Você não palpita no seu adversário' : s.ok === false ? 'Quase certo: não paga' : '' });
       };
       return `
         <div class="card p-3.5" data-market2="${m.id}" data-kind="duel">
           <div class="flex items-center justify-between gap-2 mb-2">
-            <p class="text-[13px] font-extrabold truncate min-w-0"><i class="fa-solid fa-bolt text-pitch mr-1"></i>${escapeHtml(m.player || '?')} <span class="text-ink-3 font-bold">x</span> ${escapeHtml(m.player2 || '?')}</p>
+            <p class="text-[13px] font-extrabold truncate min-w-0"><i class="fa-solid fa-bolt text-pitch mr-1"></i>${escapeHtml(m.player || '?')} <span class="text-ink-3 font-bold">x</span> ${escapeHtml(m.player2 || '?')}${m.metric && m.metric !== 'ga' ? ` <span class="text-ink-2 font-bold">· ${m.metric === 'goals' ? 'gols' : 'assistências'}</span>` : m.metric === 'ga' ? ' <span class="text-ink-2 font-bold">· G+A</span>' : ''}</p>
             <span class="flex items-center gap-1 flex-shrink-0">${propTagsHtml(m, data)}</span>
           </div>
           ${closed || `<div class="grid grid-cols-2 gap-1.5">${side(a, b)}${side(b, a)}</div>`}
@@ -124,7 +124,7 @@
       if (!all && m.bet && !shown.some(s => s.key === m.bet.selection)) shown = shown.concat(sels.filter(s => s.key === m.bet.selection));
       const rows = shown.map(s => propOptBtn(m, data, s.key,
         `<span class="flex items-center justify-between gap-2 w-full"><span class="truncate text-left">${escapeHtml(s.label || '?')}${s.mine ? ' <span class="text-[10.5px] font-bold opacity-70">(você)</span>' : ''}</span><span class="flex-shrink-0">${fmtCot(s.odd)}</span></span>`,
-        s.odd, { cls: 'h-10 px-3 w-full' })).join('');
+        s.odd, { cls: 'h-10 px-3 w-full', block: s.ok === false, title: s.ok === false ? 'Quase certo: não paga' : '' })).join('');
       return `
         <div class="card p-3.5" data-market2="${m.id}" data-kind="leader">
           <div class="flex items-center gap-2 mb-2">
@@ -142,7 +142,9 @@
     function propTotalHtml(m, data) {
       const closed = propClosedHtml(m, data);
       const sel = k => (m.selections || []).find(s => s.key === k) || {};
-      const mv = data.admin && m.status === 'open' && !m.has_bets && !propIsLocked(data) ? `
+      // v11.8: quem palpita escolhe a linha (escada); o adm não precisa mais mover.
+      const ladder = Array.isArray(m.ladder) && m.ladder.length;
+      const mv = !ladder && data.admin && m.status === 'open' && !m.has_bets && !propIsLocked(data) ? `
         <div class="flex items-center gap-1.5 mt-1.5">
           <span class="text-[11.5px] text-ink-3">Linha (adm)</span>
           <button onclick="propMoveTotal('${m.id}', -0.5)" ${Number(m.line) <= 0.5 ? 'disabled' : ''} aria-label="Linha menor" class="chip !h-8 !px-3 text-[12px] disabled:opacity-30"><i class="fa-solid fa-minus text-[10px]"></i></button>
@@ -150,8 +152,8 @@
         </div>` : '';
       return `
         <div class="py-2.5 first:pt-0 last:pb-0" data-market2="${m.id}" data-kind="baba_total">
-          <div class="flex items-center justify-between gap-2 mb-1.5"><p class="text-[13px] font-extrabold">${TOTAL_TITLE[m.metric] || ''} <span class="text-ink-2 font-bold">· linha ${fmtLinha(m.line)}</span></p><span class="flex items-center gap-1 flex-wrap justify-end">${propTagsHtml(m, data)}</span></div>
-          ${closed || `<div class="grid grid-cols-2 gap-1.5">${propOptBtn(m, data, 'mais', `Mais ${fmtLinha(m.line)} · ${fmtCot(sel('mais').odd)}`, sel('mais').odd)}${propOptBtn(m, data, 'menos', `Menos ${fmtLinha(m.line)} · ${fmtCot(sel('menos').odd)}`, sel('menos').odd)}</div>`}
+          <div class="flex items-center justify-between gap-2 mb-1.5"><p class="text-[13px] font-extrabold">${TOTAL_TITLE[m.metric] || ''}${ladder ? '' : ` <span class="text-ink-2 font-bold">· linha ${fmtLinha(m.line)}</span>`}</p><span class="flex items-center gap-1 flex-wrap justify-end">${propTagsHtml(m, data)}</span></div>
+          ${closed || (ladder ? propLadderHtml(m, data) : `<div class="grid grid-cols-2 gap-1.5">${propOptBtn(m, data, 'mais', `Mais ${fmtLinha(m.line)} · ${fmtCot(sel('mais').odd)}`, sel('mais').odd)}${propOptBtn(m, data, 'menos', `Menos ${fmtLinha(m.line)} · ${fmtCot(sel('menos').odd)}`, sel('menos').odd)}</div>`)}
           ${propBetLine(m)}${mv}${propSuspendHtml(m, data)}
         </div>`;
     }
